@@ -1,25 +1,47 @@
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View } from "react-native";
 import React, { useState } from "react";
-import { Button } from "react-native";
+import LoginScreen from "./screens/LoginScreen";
+import RegisterScreen from "./screens/RegisterScreen";
+import HomeScreen from "./screens/HomeScreen";
+import SearchScreen from "./screens/SearchScreen";
+import OrdersScreen from "./screens/OrdersScreen";
+import ContactScreen from "./screens/ContactScreen";
+import AccountScreen from "./screens/AccountScreen";
 
 export default function App() {
-  const [count, setCount] = React.useState(0);
+  const [currentScreen, setCurrentScreen] = useState("Login");
+
+  const navigation = {
+    navigate: (screenName) => {
+      setCurrentScreen(screenName);
+    },
+  };
+
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case "Login":
+        return <LoginScreen navigation={navigation} />;
+      case "Register":
+        return <RegisterScreen navigation={navigation} />;
+      case "Home":
+        return <HomeScreen navigation={navigation} />;
+      case "Search":
+        return <SearchScreen navigation={navigation} />;
+      case "Orders":
+        return <OrdersScreen navigation={navigation} />;
+      case "Contact":
+        return <ContactScreen navigation={navigation} />;
+      case "Account":
+        return <AccountScreen navigation={navigation} />;
+      default:
+        return <LoginScreen navigation={navigation} />;
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={{ marginBottom: 20 }}>You pressed {count} times</Text>
-      <Button style={{ marginBottom: 20 }} title="Press me" onPress={() => setCount(count + 1)} />
-      <Button title="Reset" onPress={() => setCount(0)} />
+    <>
       <StatusBar style="auto" />
-    </View>
+      {renderScreen()}
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
