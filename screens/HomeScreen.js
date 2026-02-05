@@ -6,16 +6,17 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
-import { TEXT_PRIMARY, BACKGROUND_WHITE } from '../constants/colors';
+import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         {/* Greeting */}
         <View style={styles.header}>
@@ -27,17 +28,27 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Buffet Bò</Text>
-            <Text style={styles.seeMore}>Xem thêm</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Bò' })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.seeMore}>Xem thêm</Text>
+            </TouchableOpacity>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
             {[1, 2, 3, 4, 5].map((index) => (
-              <View key={index} style={styles.imageCard}>
+              <TouchableOpacity
+                key={index}
+                style={styles.imageCard}
+                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Bò' })}
+                activeOpacity={0.8}
+              >
                 <Image
                   source={{ uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8' }}
                   style={styles.cardImage}
                   resizeMode="cover"
                 />
-              </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
@@ -46,17 +57,27 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Buffet Hải sản</Text>
-            <Text style={styles.seeMore}>Xem thêm</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Hải sản' })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.seeMore}>Xem thêm</Text>
+            </TouchableOpacity>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
             {[1, 2, 3, 4, 5].map((index) => (
-              <View key={index} style={styles.imageCard}>
+              <TouchableOpacity
+                key={index}
+                style={styles.imageCard}
+                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Hải sản' })}
+                activeOpacity={0.8}
+              >
                 <Image
                   source={{ uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8' }}
                   style={styles.cardImage}
                   resizeMode="cover"
                 />
-              </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
@@ -65,17 +86,27 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Buffet Chay</Text>
-            <Text style={styles.seeMore}>Xem thêm</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Chay' })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.seeMore}>Xem thêm</Text>
+            </TouchableOpacity>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
             {[1, 2, 3, 4, 5].map((index) => (
-              <View key={index} style={styles.imageCard}>
+              <TouchableOpacity
+                key={index}
+                style={styles.imageCard}
+                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Chay' })}
+                activeOpacity={0.8}
+              >
                 <Image
                   source={{ uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8' }}
                   style={styles.cardImage}
                   resizeMode="cover"
                 />
-              </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
@@ -130,7 +161,7 @@ const styles = StyleSheet.create({
   },
   seeMore: {
     fontSize: 14,
-    color: '#E8712E',
+    color: PRIMARY_COLOR,
     fontWeight: '600',
   },
   horizontalScroll: {
@@ -140,12 +171,13 @@ const styles = StyleSheet.create({
     width: width * 0.7,
     height: 200,
     marginRight: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#F0F0F0',
   },
   cardImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 16,
   },
 });
