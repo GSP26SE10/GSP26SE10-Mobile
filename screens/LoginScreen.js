@@ -8,9 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useFonts } from 'expo-font';
 import { MadimiOne_400Regular } from '@expo-google-fonts/madimi-one';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import API_URL from '../constants/api';
+import Toast from '../components/Toast';
 import {
   PRIMARY_COLOR,
   BACKGROUND_WHITE,
@@ -28,12 +32,94 @@ export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   const [fontsLoaded] = useFonts({
     MadimiOne_400Regular,
   });
 
-  const isFormValid = email.length > 0 && password.length > 0;
+  const isFormValid = email.length > 0 && password.length > 0 && !loading;
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
+  const handleLogin = async () => {
+    if (!isFormValid) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/authentication/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userNameOrEmail: email.trim(),
+          password: password,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        const userData = result.data;
+
+        // Kiểm tra status
+        if (userData.status !== 'ACTIVE') {
+          showToast('Tài khoản của bạn đã bị khóa');
+          setLoading(false);
+          return;
+        }
+
+        // Lưu thông tin vào AsyncStorage
+        try {
+          await AsyncStorage.setItem('accessToken', userData.accessToken);
+          await AsyncStorage.setItem('userData', JSON.stringify({
+            userId: userData.userId,
+            userName: userData.userName,
+            fullName: userData.fullName,
+            email: userData.email,
+            phone: userData.phone,
+            address: userData.address,
+            status: userData.status,
+            roleName: userData.roleName,
+          }));
+        } catch (storageError) {
+          console.error('Storage error:', storageError);
+          showToast('Lỗi khi lưu thông tin đăng nhập');
+          setLoading(false);
+          return;
+        }
+
+        // Đăng nhập thành công - Navigate theo role
+        showToast('Đăng nhập thành công');
+        setTimeout(() => {
+          if (userData.roleName === 'USER') {
+            navigation.navigate('Home');
+          } else if (userData.roleName === 'STAFF') {
+            navigation.navigate('StaffHome');
+          } else if (userData.roleName === 'GROUP_LEADER') {
+            navigation.navigate('LeaderHome');
+          } else {
+            showToast('Role không được hỗ trợ');
+          }
+        }, 500);
+      } else {
+        // Xử lý lỗi từ API
+        const errorMessage = result.message || result.error || 'Đăng nhập thất bại. Vui lòng thử lại.';
+        showToast(errorMessage);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      showToast('Không thể kết nối đến server. Vui lòng kiểm tra kết nối mạng.');
+      setLoading(false);
+    }
+  };
 
   if (!fontsLoaded) {
     return null;
@@ -44,6 +130,11 @@ export default function LoginScreen({ navigation }) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -101,19 +192,20 @@ export default function LoginScreen({ navigation }) {
               !isFormValid && styles.loginButtonDisabled,
             ]}
             disabled={!isFormValid}
-            onPress={() => {
-              // Navigate to HomeScreen after login
-              navigation.navigate('Home');
-            }}
+            onPress={handleLogin}
           >
-            <Text
-              style={[
-                styles.loginButtonText,
-                !isFormValid && styles.loginButtonTextDisabled,
-              ]}
-            >
-              Đăng nhập
-            </Text>
+            {loading ? (
+              <ActivityIndicator color={BUTTON_TEXT_WHITE} />
+            ) : (
+              <Text
+                style={[
+                  styles.loginButtonText,
+                  !isFormValid && styles.loginButtonTextDisabled,
+                ]}
+              >
+                Đăng nhập
+              </Text>
+            )}
           </TouchableOpacity>
 
           {/* Register Link */}

@@ -12,6 +12,14 @@ import MenuListScreen from "./screens/MenuListScreen";
 import MenuDetailScreen from "./screens/MenuDetailScreen";
 import ChatScreen from "./screens/ChatScreen";
 import TransactionHistoryScreen from "./screens/TransactionHistoryScreen";
+import StaffHomeScreen from "./screens/StaffHomeScreen";
+import StaffOrderHistoryScreen from "./screens/StaffOrderHistoryScreen";
+import StaffCalendarScreen from "./screens/StaffCalendarScreen";
+import StaffAccountScreen from "./screens/StaffAccountScreen";
+import LeaderHomeScreen from "./screens/LeaderHomeScreen";
+import LeaderOrderHistoryScreen from "./screens/LeaderOrderHistoryScreen";
+import LeaderCalendarScreen from "./screens/LeaderCalendarScreen";
+import LeaderAccountScreen from "./screens/LeaderAccountScreen";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Login");
@@ -59,6 +67,22 @@ export default function App() {
         return <ChatScreen navigation={navigation} />;
       case "TransactionHistory":
         return <TransactionHistoryScreen navigation={navigation} />;
+      case "StaffHome":
+        return <StaffHomeScreen navigation={navigation} />;
+      case "StaffOrderHistory":
+        return <StaffOrderHistoryScreen navigation={navigation} />;
+      case "StaffCalendar":
+        return <StaffCalendarScreen navigation={navigation} />;
+      case "StaffAccount":
+        return <StaffAccountScreen navigation={navigation} />;
+      case "LeaderHome":
+        return <LeaderHomeScreen navigation={navigation} />;
+      case "LeaderOrderHistory":
+        return <LeaderOrderHistoryScreen navigation={navigation} />;
+      case "LeaderCalendar":
+        return <LeaderCalendarScreen navigation={navigation} />;
+      case "LeaderAccount":
+        return <LeaderAccountScreen navigation={navigation} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }
