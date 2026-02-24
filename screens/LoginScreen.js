@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useFonts } from 'expo-font';
 import { MadimiOne_400Regular } from '@expo-google-fonts/madimi-one';
+import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
 import Toast from '../components/Toast';
@@ -45,6 +46,73 @@ export default function LoginScreen({ navigation }) {
   const showToast = (message) => {
     setToastMessage(message);
     setToastVisible(true);
+  };
+
+  const parseCallbackUrl = (url) => {
+    const params = {};
+    const parsePart = (str) => {
+      if (!str) return;
+      str.split('&').forEach((pair) => {
+        const eq = pair.indexOf('=');
+        const key = eq >= 0 ? decodeURIComponent(pair.slice(0, eq).replace(/\+/g, ' ')) : '';
+        const value = eq >= 0 ? decodeURIComponent(pair.slice(eq + 1).replace(/\+/g, ' ')) : '';
+        if (key) params[key] = value;
+      });
+    };
+    const qStart = url.indexOf('?');
+    const hStart = url.indexOf('#');
+    if (qStart !== -1) parsePart(url.substring(qStart + 1, hStart !== -1 ? hStart : undefined));
+    if (hStart !== -1) parsePart(url.substring(hStart + 1));
+    return params;
+  };
+
+  const handleGoogleLogin = async () => {
+    const authUrl = `${API_URL}/api/authentication/google-login?redirect=myapp://auth/callback`;
+    const redirectUrl = 'myapp://auth/callback';
+    try {
+      setLoading(true);
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+      setLoading(false);
+      if (result.type === 'success' && result.url) {
+        const params = parseCallbackUrl(result.url);
+        const accessToken = params.accessToken || params.token;
+        if (!accessToken) {
+          showToast('Đăng nhập Google thất bại. Không nhận được token.');
+          setLoading(false);
+          return;
+        }
+        await AsyncStorage.setItem('accessToken', accessToken);
+        const roleName = params.roleName || 'USER';
+        const userData = {
+          userId: params.userId,
+          userName: params.userName,
+          fullName: params.fullName,
+          email: params.email,
+          phone: params.phone,
+          address: params.address,
+          status: params.status || 'ACTIVE',
+          roleName,
+        };
+        await AsyncStorage.setItem('userData', JSON.stringify(userData));
+        showToast('Đăng nhập thành công');
+        if (roleName === 'USER') {
+          navigation.navigate('Home');
+        } else if (roleName === 'STAFF') {
+          navigation.navigate('StaffHome');
+        } else if (roleName === 'GROUP_LEADER') {
+          navigation.navigate('LeaderHome');
+        } else {
+          navigation.navigate('Home');
+        }
+      } else if (result.type === 'dismissed') {
+        setLoading(false);
+        showToast('Đã hủy đăng nhập Google');
+      }
+    } catch (error) {
+      setLoading(false);
+      console.error('Google login error:', error);
+      showToast('Không thể mở trang đăng nhập Google.');
+    }
   };
 
   const handleLogin = async () => {
@@ -208,6 +276,15 @@ export default function LoginScreen({ navigation }) {
             )}
           </TouchableOpacity>
 
+          {/* Google Login Button */}
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleLogin}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.googleButtonText}>Đăng nhập bằng Google</Text>
+          </TouchableOpacity>
+
           {/* Register Link */}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Chưa có tài khoản? </Text>
@@ -307,6 +384,20 @@ const styles = StyleSheet.create({
   },
   loginButtonTextDisabled: {
     color: BUTTON_DISABLED_TEXT,
+  },
+  googleButton: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
   },
   registerContainer: {
     flexDirection: 'row',
