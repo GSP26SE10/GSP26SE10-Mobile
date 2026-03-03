@@ -22,6 +22,7 @@ import LeaderCalendarScreen from "./screens/LeaderCalendarScreen";
 import LeaderAccountScreen from "./screens/LeaderAccountScreen";
 import StaffOrderDetailScreen from "./screens/StaffOrderDetailScreen";
 import StaffOrderDetailHistoryScreen from "./screens/StaffOrderDetailHistoryScreen";
+import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistoryScreen";
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 
 export default function App() {
@@ -92,6 +93,8 @@ export default function App() {
         return <StaffOrderDetailScreen navigation={navigation} route={{ params: screenParams }} />;
       case "StaffOrderDetailHistory":
         return <StaffOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "LeaderOrderDetailHistory":
+        return <LeaderOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }

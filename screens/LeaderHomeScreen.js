@@ -14,6 +14,15 @@ const mockParties = [
     address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
     status: 'Đang chuẩn bị',
   },
+  {
+    id: 2,
+    name: 'Buffet Lẩu Bò Mỹ',
+    dishes: '10 MÓN',
+    guests: '10 NGƯỜI',
+    timeRange: '15:00 – 10/01/2026',
+    address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
+    status: 'Đang diễn ra',
+  },
 ];
 
 export default function LeaderHomeScreen({ navigation }) {
@@ -26,7 +35,7 @@ export default function LeaderHomeScreen({ navigation }) {
       >
         <View style={styles.header}>
           <Text style={styles.greeting}>Xin chào, Team Leader!</Text>
-          <Text style={styles.subtitle}>Danh sách các buổi tiệc đang chuẩn bị.</Text>
+          <Text style={styles.subtitle}>Danh sách các buổi tiệc bạn đang quản lý.</Text>
         </View>
 
         {mockParties.map((party) => (
@@ -34,7 +43,12 @@ export default function LeaderHomeScreen({ navigation }) {
             key={party.id}
             style={styles.partyCard}
             activeOpacity={0.8}
-            onPress={() => navigation.navigate('LeaderOrderDetail', { partyId: party.id })}
+            onPress={() =>
+              navigation.navigate('LeaderOrderDetail', {
+                partyId: party.id,
+                status: party.status,
+              })
+            }
           >
             <Image
               source={{

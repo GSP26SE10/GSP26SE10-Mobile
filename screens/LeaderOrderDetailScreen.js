@@ -70,7 +70,12 @@ const mockTasksInitial = [
   },
 ];
 
-export default function LeaderOrderDetailScreen({ navigation }) {
+export default function LeaderOrderDetailScreen({ navigation, route }) {
+  const initialStatus =
+    route?.params?.status && typeof route.params.status === 'string'
+      ? route.params.status
+      : mockPartyDetail.status;
+  const [partyStatus, setPartyStatus] = useState(initialStatus); // 'Đang chuẩn bị' | 'Đang diễn ra' | 'Kết thúc tiệc'
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
   const [tasks, setTasks] = useState(mockTasksInitial);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -82,6 +87,12 @@ export default function LeaderOrderDetailScreen({ navigation }) {
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerMode, setPickerMode] = useState('date'); // 'date' | 'time'
+  const [compModalVisible, setCompModalVisible] = useState(false);
+  const [compName, setCompName] = useState('');
+  const [compAmount, setCompAmount] = useState('');
+  const [compNote, setCompNote] = useState('');
+  const [totalCompAmount, setTotalCompAmount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState('zalopay');
 
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${mockPartyDetail.name}`);
@@ -154,10 +165,12 @@ export default function LeaderOrderDetailScreen({ navigation }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
+    const currentIndex = steps.indexOf(partyStatus);
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive = step === mockPartyDetail.status;
+          const isActive =
+            currentIndex >= 0 ? index <= currentIndex : step === partyStatus;
           return (
             <View key={step} style={styles.statusStep}>
               <View
@@ -286,6 +299,42 @@ export default function LeaderOrderDetailScreen({ navigation }) {
     resetForm();
   };
 
+  const parseMoney = (text) => {
+    const digits = text.replace(/[^\d]/g, '');
+    return digits ? parseInt(digits, 10) : 0;
+  };
+
+  const formatMoney = (value) =>
+    `${value.toLocaleString('vi-VN')}₫`;
+
+  const handleAddCompensation = () => {
+    const amountNumber = parseMoney(compAmount);
+    if (!amountNumber) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số tiền đền bù hợp lệ.');
+      return;
+    }
+    setTotalCompAmount((prev) => prev + amountNumber);
+    setCompModalVisible(false);
+    setCompName('');
+    setCompAmount('');
+    setCompNote('');
+  };
+
+  const handleFinishParty = () => {
+    Alert.alert(
+      'Hoàn thành tiệc',
+      'Bạn có chắc muốn kết thúc tiệc không?',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Hoàn thành',
+          style: 'destructive',
+          onPress: () => setPartyStatus('Kết thúc tiệc'),
+        },
+      ]
+    );
+  };
+
   const renderOverviewTab = () => {
     return (
       <ScrollView
@@ -345,7 +394,20 @@ export default function LeaderOrderDetailScreen({ navigation }) {
         {renderStatusSteps()}
 
         <View style={styles.summarySection}>
-          <View style={styles.summaryRow}>
+          {partyStatus === 'Đang diễn ra' && (
+            <View style={styles.compHeaderRow}>
+              <Text style={styles.compTitle}>+ Thêm chi phí hư hại / đền bù:</Text>
+              <TouchableOpacity
+                style={styles.compAddButton}
+                activeOpacity={0.8}
+                onPress={() => setCompModalVisible(true)}
+              >
+                <Text style={styles.compAddButtonText}>Thêm</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={[styles.summaryRow, { marginTop: 8 }]}>
             <Text style={styles.summaryLabel}>Tạm tính</Text>
             <Text style={styles.summaryValue}>{mockPartyDetail.subtotal}</Text>
           </View>
@@ -357,6 +419,12 @@ export default function LeaderOrderDetailScreen({ navigation }) {
             <Text style={styles.summaryLabel}>Đã cọc</Text>
             <Text style={styles.summaryValue}>{mockPartyDetail.deposit}</Text>
           </View>
+          {totalCompAmount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Chi phí đền bù</Text>
+              <Text style={styles.summaryValue}>{formatMoney(totalCompAmount)}</Text>
+            </View>
+          )}
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
               Còn lại
@@ -366,6 +434,45 @@ export default function LeaderOrderDetailScreen({ navigation }) {
             </Text>
           </View>
         </View>
+
+        {partyStatus === 'Đang diễn ra' && (
+          <>
+            <View style={styles.paymentSection}>
+              <Text style={styles.paymentTitle}>Phương thức thanh toán:</Text>
+              {[
+                { key: 'zalopay', label: 'Thanh toán qua Zalopay' },
+                { key: 'bank', label: 'Chuyển khoản ngân hàng' },
+                { key: 'cash', label: 'Tiền mặt' },
+              ].map((method) => (
+                <TouchableOpacity
+                  key={method.key}
+                  style={styles.paymentRow}
+                  activeOpacity={0.7}
+                  onPress={() => setPaymentMethod(method.key)}
+                >
+                  <Ionicons
+                    name={
+                      paymentMethod === method.key
+                        ? 'radio-button-on'
+                        : 'radio-button-off'
+                    }
+                    size={18}
+                    color={PRIMARY_COLOR}
+                  />
+                  <Text style={styles.paymentLabel}>{method.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={styles.finishButton}
+              activeOpacity={0.85}
+              onPress={handleFinishParty}
+            >
+              <Text style={styles.finishButtonText}>Hoàn thành tiệc</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
     );
   };
@@ -638,6 +745,85 @@ export default function LeaderOrderDetailScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Modal thêm chi phí đền bù */}
+      <Modal
+        visible={compModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCompModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.modalKeyboardWrapper}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Thêm chi phí đền bù</Text>
+                <ScrollView
+                  style={styles.modalScroll}
+                  contentContainerStyle={styles.modalScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={styles.fieldLabel}>Chọn món đền bù</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Nhập tên hạng mục đền bù"
+                    placeholderTextColor={TEXT_SECONDARY}
+                    value={compName}
+                    onChangeText={setCompName}
+                  />
+
+                  <Text style={styles.fieldLabel}>Số tiền</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="0đ"
+                    placeholderTextColor={TEXT_SECONDARY}
+                    keyboardType="numeric"
+                    value={compAmount}
+                    onChangeText={setCompAmount}
+                  />
+
+                  <Text style={styles.fieldLabel}>Ghi chú</Text>
+                  <TextInput
+                    style={[styles.textInput, styles.noteInput]}
+                    placeholder="Thêm ghi chú"
+                    placeholderTextColor={TEXT_SECONDARY}
+                    value={compNote}
+                    onChangeText={setCompNote}
+                    multiline
+                    scrollEnabled={false}
+                  />
+                </ScrollView>
+
+                <View style={styles.modalButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSecondary]}
+                    onPress={() => {
+                      setCompModalVisible(false);
+                      setCompName('');
+                      setCompAmount('');
+                      setCompNote('');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.modalButtonSecondaryText}>Hủy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    onPress={handleAddCompensation}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.modalButtonPrimaryText}>Thêm</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
 
       <BottomNavigationStaff
         activeTab="LeaderHome"
@@ -820,6 +1006,28 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  compHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  compTitle: {
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    fontWeight: '500',
+  },
+  compAddButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  compAddButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BACKGROUND_WHITE,
   },
   tasksContainer: {
     flex: 1,
@@ -1019,6 +1227,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BACKGROUND_WHITE,
     fontWeight: '600',
+  },
+  paymentSection: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+  },
+  paymentTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+    marginBottom: 12,
+  },
+  paymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  paymentLabel: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+  },
+  finishButton: {
+    marginTop: 24,
+    borderRadius: 24,
+    backgroundColor: PRIMARY_COLOR,
+    paddingVertical: 14,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  finishButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: BACKGROUND_WHITE,
   },
   selectInput: {
     justifyContent: 'center',

@@ -33,12 +33,12 @@ const mockPartyDetailHistory = {
 };
 
 const mockTasksHistory = [
-  { id: 1, title: 'Chuẩn bị nguyên liệu A – 08:00', done: true },
-  { id: 2, title: 'Chuẩn bị nguyên liệu B – 08:15', done: true },
-  { id: 3, title: 'Chuẩn bị nguyên liệu C – 08:30', done: true },
+  { id: 1, title: 'Chuẩn bị nguyên liệu A', time: '08:00', assignee: 'An', done: true },
+  { id: 2, title: 'Chuẩn bị nguyên liệu B', time: '08:15', assignee: 'Bình', done: true },
+  { id: 3, title: 'Chuẩn bị nguyên liệu C', time: '08:30', assignee: 'Trang', done: true },
 ];
 
-export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
+export default function LeaderOrderDetailHistoryScreen({ navigation }) {
   const swipeBack = useSwipeBack(() => navigation.goBack());
 
   const renderStatusSteps = () => {
@@ -47,7 +47,8 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive = currentIndex >= 0 ? index <= currentIndex : step === mockPartyDetailHistory.status;
+          const isActive =
+            currentIndex >= 0 ? index <= currentIndex : step === mockPartyDetailHistory.status;
           return (
             <View key={step} style={styles.statusStep}>
               <View
@@ -140,7 +141,6 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Đánh giá từ khách hàng */}
         <View style={styles.reviewSection}>
           <Text style={styles.reviewTitle}>Đánh giá từ khách hàng</Text>
           <View style={styles.reviewHeader}>
@@ -165,7 +165,12 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
       >
         {mockTasksHistory.map((task) => (
           <View key={task.id} style={styles.taskRow}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
+            <View style={styles.taskInfo}>
+              <Text style={styles.taskTitle}>{task.title}</Text>
+              <Text style={styles.taskMeta}>
+                {task.time} · Nhân viên: {task.assignee}
+              </Text>
+            </View>
             <View style={[styles.taskStatusBadge, styles.taskStatusBadgeDone]}>
               <Text style={[styles.taskStatusText, styles.taskStatusTextDone]}>
                 Đã xong
@@ -233,7 +238,7 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
       {activeTab === 'overview' ? renderOverviewTab() : renderTasksTab()}
 
       <BottomNavigationStaff
-        activeTab="StaffOrderHistory"
+        activeTab="LeaderOrderHistory"
         onTabPress={(tab) => navigation.navigate(tab)}
       />
     </SafeAreaView>
@@ -452,8 +457,11 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 14,
     color: TEXT_PRIMARY,
-    flex: 1,
-    marginRight: 12,
+    marginBottom: 4,
+  },
+  taskMeta: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
   },
   taskStatusBadge: {
     paddingHorizontal: 10,
