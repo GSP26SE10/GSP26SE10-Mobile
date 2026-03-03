@@ -11,6 +11,7 @@
   "dependencies": {
     "@expo-google-fonts/madimi-one": "^0.4.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/datetimepicker": "8.4.4",
     "dayjs": "^1.11.19",
     "expo": "~54.0.30",
     "expo-blur": "^15.0.8",
