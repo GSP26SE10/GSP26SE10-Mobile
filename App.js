@@ -20,6 +20,8 @@ import LeaderHomeScreen from "./screens/LeaderHomeScreen";
 import LeaderOrderHistoryScreen from "./screens/LeaderOrderHistoryScreen";
 import LeaderCalendarScreen from "./screens/LeaderCalendarScreen";
 import LeaderAccountScreen from "./screens/LeaderAccountScreen";
+import StaffOrderDetailScreen from "./screens/StaffOrderDetailScreen";
+import StaffOrderDetailHistoryScreen from "./screens/StaffOrderDetailHistoryScreen";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Login");
@@ -83,6 +85,10 @@ export default function App() {
         return <LeaderCalendarScreen navigation={navigation} />;
       case "LeaderAccount":
         return <LeaderAccountScreen navigation={navigation} />;
+      case "StaffOrderDetail":
+        return <StaffOrderDetailScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "StaffOrderDetailHistory":
+        return <StaffOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }

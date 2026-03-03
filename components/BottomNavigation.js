@@ -44,6 +44,7 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
+  const initializedRef = React.useRef(false);
 
   const handleNavBarLayout = (event) => {
     const { width } = event.nativeEvent.layout;
@@ -54,52 +55,49 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
 
   React.useEffect(() => {
     if (navBarWidth <= 0) return;
-    
-    const activeIndex = tabs.findIndex(tab => tab.key === activeTab);
+
+    const activeIndex = tabs.findIndex((tab) => tab.key === activeTab);
     if (activeIndex === -1) return;
-    
+
     const activeTabData = tabs[activeIndex];
     const finalWidth = calculateActiveTabWidth(activeTabData?.label, navBarWidth);
-    
-    // Tính vị trí dựa trên layout thực tế của các tabs
-    // Tất cả inactive tabs có width = INACTIVE_TAB_WIDTH
-    // Active tab có width = finalWidth
-    // Tính tổng width cần thiết và spacing
+
+    // Tính spacing và vị trí tuyệt đối của tab active
     const totalInactiveWidth = INACTIVE_TAB_WIDTH * 4;
     const totalWidthNeeded = totalInactiveWidth + finalWidth;
-    const remainingSpace = navBarWidth - totalWidthNeeded - 8; // Trừ padding (4 mỗi bên)
-    const spacing = Math.max(0, remainingSpace / 5); // Chia đều khoảng trống, đảm bảo >= 0
-    
-    // Tính position: các tab trước active tab
+    const remainingSpace = navBarWidth - totalWidthNeeded - 8;
+    const spacing = Math.max(0, remainingSpace / 5);
+
     let position = 0;
     for (let i = 0; i < activeIndex; i++) {
       position += INACTIVE_TAB_WIDTH + spacing;
     }
-    
-    // Set giá trị ban đầu ngay lập tức để tránh flash
-    slideAnim.setValue(position + 2); // Giảm từ 4 xuống 2 để match với left của activeBackground
-    widthAnim.setValue(finalWidth);
-    
-    // Delay nhỏ để đảm bảo layout đã render xong
-    const timeoutId = setTimeout(() => {
-      // Animation mượt với spring effect để tạo hiệu ứng "phình to ra"
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: position + 2, // Giảm từ 4 xuống 2 để match với left của activeBackground
-          useNativeDriver: false,
-          tension: 65,
-          friction: 8,
-        }),
-        Animated.spring(widthAnim, {
-          toValue: finalWidth,
-          useNativeDriver: false,
-          tension: 65,
-          friction: 8,
-        }),
-      ]).start();
-    }, 10);
-    
-    return () => clearTimeout(timeoutId);
+
+    const targetX = position + 2;
+
+    // Lần đầu: set thẳng vị trí, không animate (tránh nhảy từ A)
+    if (!initializedRef.current) {
+      slideAnim.setValue(targetX);
+      widthAnim.setValue(finalWidth);
+      initializedRef.current = true;
+      return;
+    }
+
+    // Các lần sau: animate từ vị trí hiện tại sang vị trí mới
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: targetX,
+        useNativeDriver: false,
+        tension: 65,
+        friction: 8,
+      }),
+      Animated.spring(widthAnim, {
+        toValue: finalWidth,
+        useNativeDriver: false,
+        tension: 65,
+        friction: 8,
+      }),
+    ]).start();
   }, [activeTab, navBarWidth]);
 
   return (

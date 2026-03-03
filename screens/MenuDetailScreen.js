@@ -87,6 +87,7 @@ const getMenuDetail = (menuId, buffetType) => {
 export default function MenuDetailScreen({ navigation, route }) {
   const menuId = route?.params?.menuId || 1;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
+  const fromStaff = route?.params?.fromStaff || false;
   const menuDetail = getMenuDetail(menuId, buffetType);
   
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -244,17 +245,19 @@ export default function MenuDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      {/* Bottom Action Bar */}
-      <View style={styles.bottomBar}>
-        <Text style={styles.price}>{menuDetail.price}</Text>
-        <TouchableOpacity
-          style={styles.chooseButton}
-          onPress={handleChooseMenu}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.chooseButtonText}>Chọn Menu</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Bottom Action Bar (ẩn với staff) */}
+      {!fromStaff && (
+        <View style={styles.bottomBar}>
+          <Text style={styles.price}>{menuDetail.price}</Text>
+          <TouchableOpacity
+            style={styles.chooseButton}
+            onPress={handleChooseMenu}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.chooseButtonText}>Chọn Menu</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Fullscreen Image Modal */}
       <Modal

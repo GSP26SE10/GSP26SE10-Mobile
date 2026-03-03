@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIMARY_COLOR, TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
 
@@ -47,6 +48,7 @@ export default function BottomNavigationStaff({ activeTab, onTabPress }) {
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
+  const initializedRef = React.useRef(false);
 
   // Determine which tabs to use based on activeTab
   const tabs = activeTab.startsWith('Leader') ? leaderTabs : staffTabs;
@@ -77,14 +79,22 @@ export default function BottomNavigationStaff({ activeTab, onTabPress }) {
     for (let i = 0; i < activeIndex; i++) {
       position += INACTIVE_TAB_WIDTH + spacing;
     }
-    // Dịch sang trái một chút (để viền đen dịch sang phải) cho tab có text dài
     if (tabs[activeIndex].label.length > 10) {
-      position = Math.max(0, position - 4); // Dịch sang trái 4px
+      position = Math.max(0, position - 4);
+    }
+
+    const targetX = position;
+
+    if (!initializedRef.current) {
+      slideAnim.setValue(targetX);
+      widthAnim.setValue(activeTabWidth);
+      initializedRef.current = true;
+      return;
     }
 
     Animated.parallel([
       Animated.spring(slideAnim, {
-        toValue: position,
+        toValue: targetX,
         useNativeDriver: false,
         tension: 100,
         friction: 8,
@@ -100,40 +110,42 @@ export default function BottomNavigationStaff({ activeTab, onTabPress }) {
 
   return (
     <View style={styles.container}>
-      <View
-        style={styles.navBar}
-        onLayout={handleNavBarLayout}
-      >
-        <Animated.View
-          style={[
-            styles.activeBackground,
-            {
-              left: slideAnim,
-              width: widthAnim,
-            },
-          ]}
-        />
-        {tabs.map((tab) => {
-          const isActive = tab.key === activeTab;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={styles.tab}
-              onPress={() => onTabPress(tab.key)}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={isActive ? tab.iconActive : tab.icon}
-                size={24}
-                color={isActive ? BUTTON_TEXT_WHITE : TEXT_PRIMARY}
-              />
-              {isActive && (
-                <Text style={styles.label}>{tab.label}</Text>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <BlurView intensity={20} tint="light" style={styles.blurContainer}>
+        <View
+          style={styles.navBar}
+          onLayout={handleNavBarLayout}
+        >
+          <Animated.View
+            style={[
+              styles.activeBackground,
+              {
+                left: slideAnim,
+                width: widthAnim,
+              },
+            ]}
+          />
+          {tabs.map((tab) => {
+            const isActive = tab.key === activeTab;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={styles.tab}
+                onPress={() => onTabPress(tab.key)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={isActive ? tab.iconActive : tab.icon}
+                  size={24}
+                  color={isActive ? BUTTON_TEXT_WHITE : TEXT_PRIMARY}
+                />
+                {isActive && (
+                  <Text style={styles.label}>{tab.label}</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </BlurView>
     </View>
   );
 }
@@ -147,6 +159,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 20,
     paddingHorizontal: 16,
+  },
+  blurContainer: {
+    borderRadius: 30,
+    overflow: 'hidden',
+    width: '100%',
+    maxWidth: width - 32,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
   },
   navBar: {
     flexDirection: 'row',
