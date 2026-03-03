@@ -96,7 +96,12 @@ export default function ServiceScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         {services.map((service) => (
-          <View key={service.id} style={styles.serviceCard}>
+          <TouchableOpacity
+            key={service.id}
+            style={styles.serviceCard}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('ServiceDetail', { service })}
+          >
             <Image
               source={{ uri: service.image }}
               style={styles.serviceImage}
@@ -113,7 +118,7 @@ export default function ServiceScreen({ navigation }) {
             >
               <Ionicons name="add" size={20} color={TEXT_PRIMARY} />
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         ))}
       </ScrollView>
 

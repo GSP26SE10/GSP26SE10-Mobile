@@ -10,6 +10,7 @@ import ContactScreen from "./screens/ContactScreen";
 import AccountScreen from "./screens/AccountScreen";
 import MenuListScreen from "./screens/MenuListScreen";
 import MenuDetailScreen from "./screens/MenuDetailScreen";
+import ServiceDetailScreen from "./screens/ServiceDetailScreen";
 import ChatScreen from "./screens/ChatScreen";
 import TransactionHistoryScreen from "./screens/TransactionHistoryScreen";
 import StaffHomeScreen from "./screens/StaffHomeScreen";
@@ -67,6 +68,8 @@ export default function App() {
         return <MenuListScreen navigation={navigation} route={{ params: screenParams }} />;
       case "MenuDetail":
         return <MenuDetailScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "ServiceDetail":
+        return <ServiceDetailScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Chat":
         return <ChatScreen navigation={navigation} />;
       case "TransactionHistory":
