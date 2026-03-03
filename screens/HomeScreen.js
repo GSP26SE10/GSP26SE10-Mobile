@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,70 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
+import API_URL from '../constants/api';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
 
+const SkeletonBox = ({ style }) => (
+  <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
+);
+
 export default function HomeScreen({ navigation }) {
+  const [categories, setCategories] = useState([]);
+  const [menusByCategory, setMenusByCategory] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+
+        const [categoryRes, menuRes] = await Promise.all([
+          fetch(`${API_URL}/api/menu-category?page=1&pageSize=10`),
+          fetch(`${API_URL}/api/menu?page=1&pageSize=100`),
+        ]);
+
+        const categoryJson = await categoryRes.json();
+        const menuJson = await menuRes.json();
+
+        const fetchedCategories = categoryJson?.items || [];
+        const fetchedMenus = menuJson?.items || [];
+
+        const groupedMenus = fetchedCategories.reduce((acc, category) => {
+          const menusForCategory = fetchedMenus.filter(
+            (menu) => menu.menuCategoryName === category.menuCategoryName
+          );
+          acc[category.menuCategoryName] = menusForCategory;
+          return acc;
+        }, {});
+
+        setCategories(fetchedCategories);
+        setMenusByCategory(groupedMenus);
+      } catch (error) {
+        console.error('Failed to fetch home data', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const formatPrice = (price) => {
+    if (price == null) return '';
+
+    try {
+      return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        maximumFractionDigits: 0,
+      }).format(price);
+    } catch (e) {
+      return `${price.toLocaleString('vi-VN')} đ`;
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -24,92 +83,91 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.tagline}>Thưởng thức buffet đa dạng tại Bookfet!</Text>
         </View>
 
-        {/* Buffet Bò Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Buffet Bò</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Bò' })}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.seeMore}>Xem thêm</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-            {[1, 2, 3, 4, 5].map((index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.imageCard}
-                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Bò' })}
-                activeOpacity={0.8}
+        {isLoading &&
+          [1, 2].map((sectionIdx) => (
+            <View style={styles.section} key={`skeleton-${sectionIdx}`}>
+              <View style={styles.sectionHeader}>
+                <SkeletonBox style={{ width: 140, height: 24, borderRadius: 6 }} />
+                <SkeletonBox style={{ width: 80, height: 18, borderRadius: 6 }} />
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.horizontalScroll}
               >
-                <Image
-                  source={{ uri: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg' }}
-                  style={styles.cardImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+                {[1, 2, 3].map((idx) => (
+                  <View style={styles.imageCard} key={`card-skeleton-${sectionIdx}-${idx}`}>
+                    <SkeletonBox style={{ width: '100%', height: 170, borderRadius: 16 }} />
+                    <View style={styles.cardInfo}>
+                      <SkeletonBox style={{ width: '80%', height: 16, borderRadius: 4 }} />
+                      <View style={{ height: 6 }} />
+                      <SkeletonBox style={{ width: 100, height: 14, borderRadius: 4 }} />
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ))}
 
-        {/* Buffet Hải sản Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Buffet Hải sản</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Hải sản' })}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.seeMore}>Xem thêm</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-            {[1, 2, 3, 4, 5].map((index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.imageCard}
-                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Hải sản' })}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={{ uri: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg' }}
-                  style={styles.cardImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        {!isLoading &&
+          categories.map((category) => {
+            const menusForCategory = menusByCategory[category.menuCategoryName] || [];
 
-        {/* Buffet Chay Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Buffet Chay</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('MenuList', { buffetType: 'Buffet Chay' })}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.seeMore}>Xem thêm</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-            {[1, 2, 3, 4, 5].map((index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.imageCard}
-                onPress={() => navigation.navigate('MenuDetail', { menuId: index, buffetType: 'Buffet Chay' })}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={{ uri: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg' }}
-                  style={styles.cardImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+            if (!menusForCategory.length) {
+              return null;
+            }
+
+            return (
+              <View style={styles.section} key={category.menuCategoryId}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>{category.menuCategoryName}</Text>
+                  <TouchableOpacity
+                    onPress={() =>
+                      navigation.navigate('MenuList', {
+                        buffetType: category.menuCategoryName,
+                        menuCategoryId: category.menuCategoryId,
+                      })
+                    }
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.seeMore}>Xem thêm</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.horizontalScroll}
+                >
+                  {menusForCategory.map((menu) => (
+                    <TouchableOpacity
+                      key={menu.menuId}
+                      style={styles.imageCard}
+                      onPress={() =>
+                        navigation.navigate('MenuDetail', {
+                          menuId: menu.menuId,
+                          buffetType: category.menuCategoryName,
+                          menuCategoryId: category.menuCategoryId,
+                        })
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <Image
+                        source={{ uri: menu.imgUrl }}
+                        style={styles.cardImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {menu.menuName}
+                        </Text>
+                        <Text style={styles.cardPrice}>{formatPrice(menu.basePrice)}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            );
+          })}
       </ScrollView>
       
       <BottomNavigation activeTab="Home" onTabPress={(tab) => navigation.navigate(tab)} />
@@ -169,15 +227,31 @@ const styles = StyleSheet.create({
   },
   imageCard: {
     width: width * 0.7,
-    height: 200,
+    height: 230,
     marginRight: 16,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: BACKGROUND_WHITE,
   },
   cardImage: {
     width: '100%',
-    height: '100%',
+    height: 170,
     borderRadius: 16,
+  },
+  cardInfo: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+    marginBottom: 2,
+  },
+  cardPrice: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: PRIMARY_COLOR,
   },
 });

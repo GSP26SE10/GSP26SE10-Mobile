@@ -14,85 +14,46 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
+import API_URL from '../constants/api';
 
 const { width, height } = Dimensions.get('window');
 
-// Sample menu detail data - in a real app, this would come from props or API
-const getMenuDetail = (menuId, buffetType) => {
-  const baseImageUrl = 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
-  
-  // Sample menu items based on buffet type
-  let menuItems = [];
-  if (buffetType === 'Buffet Bò') {
-    menuItems = [
-      'Ba chỉ bò Mỹ',
-      'Bắp bò Mỹ',
-      'Nạc vai bò Mỹ',
-      'Gầu bò Mỹ',
-      'Thăn bò Mỹ',
-      'Gân bò',
-      'Bò viên',
-      'Cải thảo',
-      'Rau muống',
-      'Nấm kim châm',
-    ];
-  } else if (buffetType === 'Buffet Hải sản') {
-    menuItems = [
-      'Tôm sú',
-      'Cua biển',
-      'Mực tươi',
-      'Cá hồi',
-      'Bạch tuộc',
-      'Nghêu',
-      'Sò điệp',
-      'Rong biển',
-      'Rau câu',
-      'Nấm đông cô',
-    ];
-  } else {
-    menuItems = [
-      'Đậu phụ chiên',
-      'Chả chay',
-      'Nấm đông cô',
-      'Rau củ tươi',
-      'Bún gạo',
-      'Miến chay',
-      'Tàu hủ',
-      'Rau muống',
-      'Cải thảo',
-      'Nấm kim châm',
-    ];
-  }
+const SkeletonBox = ({ style }) => (
+  <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
+);
+
+const getMenuDetail = () => {
+  const baseImageUrl =
+    'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
 
   return {
-    id: menuId || 1,
-    name: buffetType === 'Buffet Bò' 
-      ? 'Buffet Lẩu Bò Mỹ'
-      : buffetType === 'Buffet Hải sản'
-      ? 'Buffet Lẩu Hải Sản Tươi'
-      : 'Buffet Lẩu Chay Thập Cẩm',
-    images: [baseImageUrl, baseImageUrl, baseImageUrl], // 3 images for carousel
-    menuItems: menuItems,
+    images: [baseImageUrl, baseImageUrl, baseImageUrl],
     rating: 4.9,
     reviewCount: '1.8k',
-    price: '229.000₫',
-    aiSummary: buffetType === 'Buffet Bò'
-      ? 'Thịt bò tươi, mềm, dễ nhúng lẩu; ba chỉ và gầu bò được yêu thích nhất. Rau và nấm tươi, giúp bữa ăn cân bằng. Menu đa dạng, dễ ăn, phù hợp đi nhóm và gia đình.'
-      : buffetType === 'Buffet Hải sản'
-      ? 'Hải sản tươi ngon, đa dạng các loại tôm cua cá. Chế biến cẩn thận, giữ được độ tươi ngon. Rau và nấm bổ sung cân bằng dinh dưỡng. Phù hợp cho những người yêu thích hải sản.'
-      : 'Món chay đa dạng, tươi ngon, chế biến công phu. Đậu phụ và nấm là điểm nhấn của menu. Rau củ tươi, giàu dinh dưỡng. Phù hợp cho người ăn chay và những ai muốn thưởng thức món chay thanh đạm.',
+    aiSummary:
+      'Menu đa dạng, nguyên liệu tươi, phù hợp đi nhóm và gia đình. Rau và nấm giúp cân bằng dinh dưỡng, các món chính được ưa chuộng bởi hương vị đậm đà.',
   };
 };
 
 export default function MenuDetailScreen({ navigation, route }) {
   const menuId = route?.params?.menuId || 1;
+  const menuCategoryId = route?.params?.menuCategoryId;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
   const fromStaff = route?.params?.fromStaff || false;
-  const menuDetail = getMenuDetail(menuId, buffetType);
-  
+
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState(0);
   const [isFullscreenVisible, setIsFullscreenVisible] = useState(false);
+  const [dishes, setDishes] = useState([]);
+  const [isLoadingDishes, setIsLoadingDishes] = useState(false);
+  const [isLoadingMenuInfo, setIsLoadingMenuInfo] = useState(false);
+  const [menuInfo, setMenuInfo] = useState(null);
+
+  const baseDetail = getMenuDetail();
+  const menuDetail = {
+    ...baseDetail,
+    images: menuInfo?.imgUrl ? [menuInfo.imgUrl] : baseDetail.images,
+  };
   const flatListRef = useRef(null);
   const fullscreenFlatListRef = useRef(null);
   const swipeBack = useSwipeBack(() => navigation.goBack());
@@ -131,23 +92,83 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   const handleChooseMenu = () => {
     // TODO: Implement choose menu functionality
-    console.log('Choose menu:', menuDetail);
+    console.log('Choose menu:', menuInfo || menuDetail);
   };
 
-  // Render menu items in 2 columns
-  const renderMenuItems = () => {
+  const formatPrice = (price) => {
+    if (price == null) return '';
+
+    try {
+      return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        maximumFractionDigits: 0,
+      }).format(price);
+    } catch (e) {
+      return `${price.toLocaleString('vi-VN')} đ`;
+    }
+  };
+
+  useEffect(() => {
+    const fetchDishes = async () => {
+      try {
+        setIsLoadingDishes(true);
+        const res = await fetch(
+          `${API_URL}/api/menu-dish?MenuId=${menuId}&page=1&pageSize=10`,
+        );
+        const json = await res.json();
+        setDishes(json?.items || []);
+      } catch (error) {
+        console.error('Failed to fetch menu dishes', error);
+      } finally {
+        setIsLoadingDishes(false);
+      }
+    };
+
+    fetchDishes();
+  }, [menuId]);
+
+  useEffect(() => {
+    const fetchMenuInfo = async () => {
+      if (!menuCategoryId) return;
+
+      try {
+        setIsLoadingMenuInfo(true);
+        const res = await fetch(
+          `${API_URL}/api/menu?MenuId=${menuId}&MenuCategoryId=${menuCategoryId}&page=1&pageSize=1`,
+        );
+        const json = await res.json();
+        const first = json?.items?.[0];
+        if (first) {
+          setMenuInfo(first);
+        }
+      } catch (error) {
+        console.error('Failed to fetch menu info', error);
+      } finally {
+        setIsLoadingMenuInfo(false);
+      }
+    };
+
+    fetchMenuInfo();
+  }, [menuId, menuCategoryId]);
+
+  // Render dishes in 2 columns
+  const renderDishes = () => {
+    const names = dishes.map((d) => d.dishName);
+    if (!names.length) return null;
+
     const items = [];
-    for (let i = 0; i < menuDetail.menuItems.length; i += 2) {
+    for (let i = 0; i < names.length; i += 2) {
       items.push(
         <View key={i} style={styles.menuItemRow}>
           <View style={styles.menuItemColumn}>
             <Text style={styles.menuItemNumber}>{i + 1}.</Text>
-            <Text style={styles.menuItemText}>{menuDetail.menuItems[i]}</Text>
+            <Text style={styles.menuItemText}>{names[i]}</Text>
           </View>
-          {i + 1 < menuDetail.menuItems.length && (
+          {i + 1 < names.length && (
             <View style={styles.menuItemColumn}>
               <Text style={styles.menuItemNumber}>{i + 2}.</Text>
-              <Text style={styles.menuItemText}>{menuDetail.menuItems[i + 1]}</Text>
+              <Text style={styles.menuItemText}>{names[i + 1]}</Text>
             </View>
           )}
         </View>
@@ -176,55 +197,90 @@ export default function MenuDetailScreen({ navigation, route }) {
       >
         {/* Image Carousel */}
         <View style={styles.imageCarouselContainer}>
-          <FlatList
-            ref={flatListRef}
-            data={menuDetail.images}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={handleImageScroll}
-            scrollEventThrottle={16}
-            keyExtractor={(item, index) => `image-${index}`}
-            renderItem={({ item, index }) => (
-              <TouchableOpacity
-                style={styles.imageWrapper}
-                activeOpacity={1}
-                onPress={() => openFullscreen(index)}
-              >
-                <Image
-                  source={{ uri: item }}
-                  style={styles.carouselImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            )}
-            getItemLayout={(data, index) => ({
-              length: width,
-              offset: width * index,
-              index,
-            })}
-          />
-          {/* Carousel Indicators */}
-          <View style={styles.indicators}>
-            {menuDetail.images.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.indicator,
-                  index === currentImageIndex && styles.indicatorActive,
-                ]}
+          {isLoadingMenuInfo ? (
+            <View style={styles.imageWrapper}>
+              <SkeletonBox style={{ width: width - 40, height: 300, borderRadius: 20 }} />
+            </View>
+          ) : (
+            <>
+              <FlatList
+                ref={flatListRef}
+                data={menuDetail.images}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={handleImageScroll}
+                scrollEventThrottle={16}
+                keyExtractor={(item, index) => `image-${index}`}
+                renderItem={({ item, index }) => (
+                  <TouchableOpacity
+                    style={styles.imageWrapper}
+                    activeOpacity={1}
+                    onPress={() => openFullscreen(index)}
+                  >
+                    <Image
+                      source={{ uri: item }}
+                      style={styles.carouselImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                )}
+                getItemLayout={(data, index) => ({
+                  length: width,
+                  offset: width * index,
+                  index,
+                })}
               />
+              {/* Carousel Indicators */}
+              <View style={styles.indicators}>
+                {menuDetail.images.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.indicator,
+                      index === currentImageIndex && styles.indicatorActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* Menu title */}
+        {isLoadingMenuInfo ? (
+          <View style={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 }}>
+            <SkeletonBox style={{ width: 220, height: 28, borderRadius: 6 }} />
+          </View>
+        ) : (
+          menuInfo && <Text style={styles.menuTitle}>{menuInfo.menuName}</Text>
+        )}
+
+        {/* Dish List */}
+        {isLoadingDishes ? (
+          <View style={styles.menuItemsContainer}>
+            {[1, 2, 3].map((row) => (
+              <View style={styles.menuItemRow} key={`dish-skeleton-${row}`}>
+                <View style={styles.menuItemColumn}>
+                  <SkeletonBox style={{ width: 24, height: 18, borderRadius: 4 }} />
+                  <View style={{ width: 8 }} />
+                  <SkeletonBox
+                    style={{ width: width / 2 - 60, height: 18, borderRadius: 4 }}
+                  />
+                </View>
+                <View style={styles.menuItemColumn}>
+                  <SkeletonBox style={{ width: 24, height: 18, borderRadius: 4 }} />
+                  <View style={{ width: 8 }} />
+                  <SkeletonBox
+                    style={{ width: width / 2 - 60, height: 18, borderRadius: 4 }}
+                  />
+                </View>
+              </View>
             ))}
           </View>
-        </View>
-
-        {/* Menu Title */}
-        <Text style={styles.menuTitle}>{menuDetail.name}</Text>
-
-        {/* Menu Items List */}
-        <View style={styles.menuItemsContainer}>
-          {renderMenuItems()}
-        </View>
+        ) : (
+          <View style={styles.menuItemsContainer}>{renderDishes()}</View>
+        )}
 
         {/* Rating Section */}
         <View style={styles.ratingSection}>
@@ -240,15 +296,35 @@ export default function MenuDetailScreen({ navigation, route }) {
           </View>
 
           {/* AI Summary */}
-          <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
-          <Text style={styles.aiSummaryText}>{menuDetail.aiSummary}</Text>
+          {isLoadingMenuInfo ? (
+            <View>
+              <SkeletonBox style={{ width: 160, height: 20, borderRadius: 4 }} />
+              <View style={{ height: 8 }} />
+              <SkeletonBox style={{ width: '100%', height: 14, borderRadius: 4 }} />
+              <View style={{ height: 6 }} />
+              <SkeletonBox style={{ width: '95%', height: 14, borderRadius: 4 }} />
+              <View style={{ height: 6 }} />
+              <SkeletonBox style={{ width: '80%', height: 14, borderRadius: 4 }} />
+            </View>
+          ) : (
+            <>
+              <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
+              <Text style={styles.aiSummaryText}>{menuDetail.aiSummary}</Text>
+            </>
+          )}
         </View>
       </ScrollView>
 
       {/* Bottom Action Bar (ẩn với staff) */}
       {!fromStaff && (
         <View style={styles.bottomBar}>
-          <Text style={styles.price}>{menuDetail.price}</Text>
+          {isLoadingMenuInfo ? (
+            <SkeletonBox style={{ width: 120, height: 24, borderRadius: 6 }} />
+          ) : (
+            <Text style={styles.price}>
+              {menuInfo?.basePrice != null ? formatPrice(menuInfo.basePrice) : ''}
+            </Text>
+          )}
           <TouchableOpacity
             style={styles.chooseButton}
             onPress={handleChooseMenu}

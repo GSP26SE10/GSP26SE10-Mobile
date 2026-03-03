@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,56 +13,56 @@ import { Ionicons } from '@expo/vector-icons';
 import BottomNavigation from '../components/BottomNavigation';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
+import API_URL from '../constants/api';
 
 const { width } = Dimensions.get('window');
 
-// Sample menu data - in a real app, this would come from props or API
-const getMenuItems = (buffetType) => {
-  const baseImageUrl = 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
-  
-  // Return 5 items for each buffet type
-  return [
-    {
-      id: 1,
-      name: `Buffet Lẩu ${buffetType === 'Buffet Bò' ? 'Bò Mỹ' : buffetType === 'Buffet Hải sản' ? 'Hải Sản Tươi' : 'Chay Thập Cẩm'}`,
-      quantity: '10 MÓN',
-      price: '229.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 2,
-      name: `Buffet ${buffetType === 'Buffet Bò' ? 'Bò Wagyu' : buffetType === 'Buffet Hải sản' ? 'Hải Sản Cao Cấp' : 'Chay Đặc Biệt'}`,
-      quantity: '15 MÓN',
-      price: '399.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 3,
-      name: `Buffet ${buffetType === 'Buffet Bò' ? 'Bò Nhật Bản' : buffetType === 'Buffet Hải sản' ? 'Hải Sản Nhật' : 'Chay Nhật Bản'}`,
-      quantity: '12 MÓN',
-      price: '329.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 4,
-      name: `Buffet ${buffetType === 'Buffet Bò' ? 'Bò Premium' : buffetType === 'Buffet Hải sản' ? 'Hải Sản Premium' : 'Chay Premium'}`,
-      quantity: '18 MÓN',
-      price: '499.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 5,
-      name: `Buffet ${buffetType === 'Buffet Bò' ? 'Bò Thượng Hạng' : buffetType === 'Buffet Hải sản' ? 'Hải Sản Thượng Hạng' : 'Chay Thượng Hạng'}`,
-      quantity: '20 MÓN',
-      price: '599.000₫',
-      image: baseImageUrl,
-    },
-  ];
-};
+const SkeletonBox = ({ style }) => (
+  <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
+);
 
 export default function MenuListScreen({ navigation, route }) {
-  const buffetType = route?.params?.buffetType || 'Buffet Bò';
-  const menuItems = getMenuItems(buffetType);
+  const buffetType = route?.params?.buffetType || 'Danh sách menu';
+  const menuCategoryId = route?.params?.menuCategoryId;
+  const [menuItems, setMenuItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchMenus = async () => {
+      if (!menuCategoryId) return;
+
+      try {
+        setIsLoading(true);
+
+        const res = await fetch(
+          `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=100`,
+        );
+        const json = await res.json();
+        setMenuItems(json?.items || []);
+      } catch (error) {
+        console.error('Failed to fetch menu list', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMenus();
+  }, [menuCategoryId]);
+
+  const formatPrice = (price) => {
+    if (price == null) return '';
+
+    try {
+      return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        maximumFractionDigits: 0,
+      }).format(price);
+    } catch (e) {
+      return `${price.toLocaleString('vi-VN')} đ`;
+    }
+  };
+
   const swipeBack = useSwipeBack(() => navigation.navigate('Home'));
 
   const handleAddToCart = (item) => {
@@ -90,35 +90,54 @@ export default function MenuListScreen({ navigation, route }) {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.menuCard}
-            onPress={() => navigation.navigate('MenuDetail', { menuId: item.id, buffetType: buffetType })}
-            activeOpacity={0.8}
-          >
-            <Image
-              source={{ uri: item.image }}
-              style={styles.menuImage}
-              resizeMode="cover"
-            />
-            <View style={styles.menuInfo}>
-              <Text style={styles.menuName}>{item.name}</Text>
-              <Text style={styles.menuQuantity}>{item.quantity}</Text>
-              <Text style={styles.menuPrice}>{item.price}</Text>
+        {isLoading &&
+          [1, 2, 3].map((idx) => (
+            <View style={styles.menuCard} key={`skeleton-${idx}`}>
+              <SkeletonBox style={{ width: 100, height: 100, borderRadius: 16 }} />
+              <View style={styles.menuInfo}>
+                <SkeletonBox style={{ width: '80%', height: 18, borderRadius: 4 }} />
+                <View style={{ height: 8 }} />
+                <SkeletonBox style={{ width: 80, height: 16, borderRadius: 4 }} />
+              </View>
+              <View style={styles.addButton} />
             </View>
+          ))}
+
+        {!isLoading &&
+          menuItems.map((item) => (
             <TouchableOpacity
-              style={styles.addButton}
-              onPress={(e) => {
-                e.stopPropagation();
-                handleAddToCart(item);
-              }}
-              activeOpacity={0.7}
+              key={item.menuId}
+              style={styles.menuCard}
+              onPress={() =>
+                navigation.navigate('MenuDetail', {
+                  menuId: item.menuId,
+                  buffetType: buffetType,
+                  menuCategoryId,
+                })
+              }
+              activeOpacity={0.8}
             >
-              <Ionicons name="add" size={24} color={BACKGROUND_WHITE} />
+              <Image
+                source={{ uri: item.imgUrl }}
+                style={styles.menuImage}
+                resizeMode="cover"
+              />
+              <View style={styles.menuInfo}>
+                <Text style={styles.menuName}>{item.menuName}</Text>
+                <Text style={styles.menuPrice}>{formatPrice(item.basePrice)}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleAddToCart(item);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={24} color={BACKGROUND_WHITE} />
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        ))}
+          ))}
       </ScrollView>
 
       <BottomNavigation activeTab="Home" onTabPress={(tab) => navigation.navigate(tab)} />

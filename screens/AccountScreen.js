@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,34 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigation from '../components/BottomNavigation';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 export default function AccountScreen({ navigation }) {
-  const handleLogout = () => {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('userData');
+        if (stored) {
+          setUser(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error('Failed to load user data', error);
+      }
+    };
+
+    loadUser();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['accessToken', 'userData']);
+    } catch (error) {
+      console.error('Failed to clear auth data', error);
+    }
     navigation.navigate('Login');
   };
 
@@ -38,9 +61,9 @@ export default function AccountScreen({ navigation }) {
               resizeMode="cover"
             />
           </View>
-          <Text style={styles.userName}>Mr Beast</Text>
-          <Text style={styles.userEmail}>mrbeast@example.com</Text>
-          <Text style={styles.userPhone}>+84 555-012-708</Text>
+          <Text style={styles.userName}>{user?.fullName || 'Khách hàng'}</Text>
+          <Text style={styles.userEmail}>{user?.email || 'Chưa có email'}</Text>
+          <Text style={styles.userPhone}>{user?.phone || ''}</Text>
         </View>
 
         {/* Menu Options */}

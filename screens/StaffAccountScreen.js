@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,34 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 export default function StaffAccountScreen({ navigation }) {
-  const handleLogout = () => {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('userData');
+        if (stored) {
+          setUser(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error('Failed to load user data', error);
+      }
+    };
+
+    loadUser();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['accessToken', 'userData']);
+    } catch (error) {
+      console.error('Failed to clear auth data', error);
+    }
     navigation.navigate('Login');
   };
 
@@ -39,9 +62,9 @@ export default function StaffAccountScreen({ navigation }) {
               resizeMode="cover"
             />
           </View>
-          <Text style={styles.userName}>Staff Member A</Text>
-          <Text style={styles.userEmail}>staff@buffet.vn</Text>
-          <Text style={styles.userPhone}>0901234569</Text>
+          <Text style={styles.userName}>{user?.fullName || 'Nhân viên'}</Text>
+          <Text style={styles.userEmail}>{user?.email || ''}</Text>
+          <Text style={styles.userPhone}>{user?.phone || ''}</Text>
         </View>
 
         {/* Simple Menu Options */}
