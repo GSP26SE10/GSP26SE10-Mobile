@@ -7,6 +7,7 @@ import {
   Image,
   Dimensions,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
@@ -14,6 +15,12 @@ import API_URL from '../constants/api';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
+
+let homeDataCache = {
+  categories: null,
+  menusByCategory: null,
+  fetched: false,
+};
 
 const SkeletonBox = ({ style }) => (
   <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
@@ -23,41 +30,62 @@ export default function HomeScreen({ navigation }) {
   const [categories, setCategories] = useState([]);
   const [menusByCategory, setMenusByCategory] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
+  const fetchData = async (forceRefresh = false) => {
+    try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
         setIsLoading(true);
+      }
 
-        const [categoryRes, menuRes] = await Promise.all([
-          fetch(`${API_URL}/api/menu-category?page=1&pageSize=10`),
-          fetch(`${API_URL}/api/menu?page=1&pageSize=100`),
-        ]);
+      if (!forceRefresh && homeDataCache.fetched) {
+        setCategories(homeDataCache.categories || []);
+        setMenusByCategory(homeDataCache.menusByCategory || {});
+        return;
+      }
 
-        const categoryJson = await categoryRes.json();
-        const menuJson = await menuRes.json();
+      const [categoryRes, menuRes] = await Promise.all([
+        fetch(`${API_URL}/api/menu-category?page=1&pageSize=10`),
+        fetch(`${API_URL}/api/menu?page=1&pageSize=100`),
+      ]);
 
-        const fetchedCategories = categoryJson?.items || [];
-        const fetchedMenus = menuJson?.items || [];
+      const categoryJson = await categoryRes.json();
+      const menuJson = await menuRes.json();
 
-        const groupedMenus = fetchedCategories.reduce((acc, category) => {
-          const menusForCategory = fetchedMenus.filter(
-            (menu) => menu.menuCategoryName === category.menuCategoryName
-          );
-          acc[category.menuCategoryName] = menusForCategory;
-          return acc;
-        }, {});
+      const fetchedCategories = categoryJson?.items || [];
+      const fetchedMenus = menuJson?.items || [];
 
-        setCategories(fetchedCategories);
-        setMenusByCategory(groupedMenus);
-      } catch (error) {
-        console.error('Failed to fetch home data', error);
-      } finally {
+      const groupedMenus = fetchedCategories.reduce((acc, category) => {
+        const menusForCategory = fetchedMenus.filter(
+          (menu) => menu.menuCategoryName === category.menuCategoryName
+        );
+        acc[category.menuCategoryName] = menusForCategory;
+        return acc;
+      }, {});
+
+      setCategories(fetchedCategories);
+      setMenusByCategory(groupedMenus);
+
+      homeDataCache = {
+        categories: fetchedCategories,
+        menusByCategory: groupedMenus,
+        fetched: true,
+      };
+    } catch (error) {
+      console.error('Failed to fetch home data', error);
+    } finally {
+      if (forceRefresh) {
+        setRefreshing(false);
+      } else {
         setIsLoading(false);
       }
-    };
+    }
+  };
 
-    fetchData();
+  useEffect(() => {
+    fetchData(false);
   }, []);
 
   const formatPrice = (price) => {
@@ -76,7 +104,19 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              // luôn gọi lại API khi pull to refresh
+              fetchData(true);
+            }}
+          />
+        }
+      >
         {/* Greeting */}
         <View style={styles.header}>
           <Text style={styles.greeting}>Xin chào, Nguyễn Văn A!</Text>

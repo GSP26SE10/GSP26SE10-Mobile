@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Dimensions,
   TextInput,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,9 +62,33 @@ const getServices = () => {
   ];
 };
 
+let serviceDataCache = {
+  services: null,
+  fetched: false,
+};
+
 export default function ServiceScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const services = getServices();
+  const [services, setServices] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadServices = (forceRefresh = false) => {
+    if (!forceRefresh && serviceDataCache.fetched && serviceDataCache.services) {
+      setServices(serviceDataCache.services);
+      return;
+    }
+
+    const data = getServices();
+    setServices(data);
+    serviceDataCache = {
+      services: data,
+      fetched: true,
+    };
+  };
+
+  useEffect(() => {
+    loadServices(false);
+  }, []);
 
   const handleAddService = (service) => {
     console.log('Add service:', service);
@@ -94,6 +119,19 @@ export default function ServiceScreen({ navigation }) {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              try {
+                loadServices(true);
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+          />
+        }
       >
         {services.map((service) => (
           <TouchableOpacity
