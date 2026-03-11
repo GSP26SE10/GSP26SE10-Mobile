@@ -37,7 +37,7 @@ export default function AccountScreen({ navigation }) {
     } catch (error) {
       console.error('Failed to clear auth data', error);
     }
-    navigation.navigate('Login');
+    navigation.navigate('Home', { fromLogout: true });
   };
 
   return (

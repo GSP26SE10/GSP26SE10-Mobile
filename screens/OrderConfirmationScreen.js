@@ -1,0 +1,964 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Platform,
+  Modal,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Image } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCart } from '../utils/cartStorage';
+import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+
+const CITIES = require('../constants/city.json');
+
+const formatMoney = (priceFormatted, basePrice, count = 1) => {
+  if (priceFormatted) return priceFormatted;
+  const val = Number(basePrice ?? 0) * Number(count ?? 1);
+  try {
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+      maximumFractionDigits: 0,
+    }).format(val);
+  } catch (e) {
+    return `${val.toLocaleString('vi-VN')} đ`;
+  }
+};
+
+const formatDate = (d) =>
+  d?.toLocaleDateString('vi-VN', { day: '2-digit', month: 'long', year: 'numeric' }) || '';
+
+const formatTime = (d) =>
+  d?.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) || '';
+
+const startOfDay = (d) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+const isSameDay = (a, b) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+const combineDateAndTime = (datePart, timePart) => {
+  const d = new Date(datePart);
+  d.setHours(timePart.getHours(), timePart.getMinutes(), 0, 0);
+  return d;
+};
+
+const clampNotPast = (d) => {
+  const now = new Date();
+  return d.getTime() < now.getTime() ? now : d;
+};
+
+export default function OrderConfirmationScreen({ navigation, route }) {
+  const [cartItems, setCartItems] = useState([]);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  const [eventDate, setEventDate] = useState(new Date());
+  const [startTime, setStartTime] = useState(() => {
+    const d = new Date();
+    d.setMinutes(0);
+    d.setSeconds(0);
+    d.setMilliseconds(0);
+    d.setHours(d.getHours() + 1);
+    return d;
+  });
+  const [endTime, setEndTime] = useState(() => {
+    const d = new Date();
+    d.setMinutes(0);
+    d.setSeconds(0);
+    d.setMilliseconds(0);
+    d.setHours(d.getHours() + 3);
+    return d;
+  });
+
+  const [addressLine, setAddressLine] = useState('');
+  const [selectedCity, setSelectedCity] = useState(() => {
+    const hcm = CITIES.find((c) => c.fullName === 'Thành phố Hồ Chí Minh') || CITIES[0];
+    return hcm || null;
+  });
+  const [selectedWard, setSelectedWard] = useState(() => {
+    const hcm = CITIES.find((c) => c.fullName === 'Thành phố Hồ Chí Minh') || CITIES[0];
+    return hcm?.wards?.[0] || null;
+  });
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [iosPickerVisible, setIosPickerVisible] = useState(false);
+  const [iosPickerType, setIosPickerType] = useState('date'); // 'date' | 'start' | 'end'
+
+  const [selectModalVisible, setSelectModalVisible] = useState(false);
+  const [selectMode, setSelectMode] = useState('city'); // 'city' | 'ward'
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const DRAFT_KEY = 'orderConfirmationDraft';
+
+  useEffect(() => {
+    (async () => {
+      const itemsFromStorage = await getCart();
+      setCartItems(itemsFromStorage);
+    })();
+  }, []);
+
+  // Load draft (để back về vẫn giữ địa chỉ & lựa chọn)
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        if (draft?.addressLine != null) setAddressLine(String(draft.addressLine));
+
+        if (draft?.eventDate) setEventDate(new Date(draft.eventDate));
+        if (draft?.startTime) setStartTime(new Date(draft.startTime));
+        if (draft?.endTime) setEndTime(new Date(draft.endTime));
+
+        if (draft?.cityCode) {
+          const city = CITIES.find((c) => c.code === draft.cityCode);
+          if (city) {
+            setSelectedCity(city);
+            if (draft?.wardCode) {
+              const ward = (city.wards || []).find((w) => w.code === draft.wardCode);
+              if (ward) setSelectedWard(ward);
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
+
+  // Save draft (debounced) whenever user changes fields
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const draft = {
+        addressLine,
+        eventDate: eventDate?.toISOString?.() || null,
+        startTime: startTime?.toISOString?.() || null,
+        endTime: endTime?.toISOString?.() || null,
+        cityCode: selectedCity?.code || null,
+        wardCode: selectedWard?.code || null,
+      };
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [addressLine, eventDate, startTime, endTime, selectedCity, selectedWard]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub?.remove?.();
+      hideSub?.remove?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Đồng bộ ngày của start/end theo eventDate và không cho chọn quá khứ
+    const now = new Date();
+    const safeDate = startOfDay(eventDate).getTime() < startOfDay(now).getTime() ? now : eventDate;
+
+    // Nếu eventDate bị kéo về quá khứ thì clamp về hôm nay
+    if (!isSameDay(safeDate, eventDate)) {
+      setEventDate(safeDate);
+      return;
+    }
+
+    const nextStart = combineDateAndTime(eventDate, startTime);
+    const safeStart = isSameDay(eventDate, now) ? clampNotPast(nextStart) : nextStart;
+    if (safeStart.getTime() !== startTime.getTime()) {
+      setStartTime(safeStart);
+      return;
+    }
+
+    const nextEnd = combineDateAndTime(eventDate, endTime);
+    let safeEnd = nextEnd;
+    if (isSameDay(eventDate, now)) safeEnd = clampNotPast(safeEnd);
+    // end phải > start, nếu không thì đẩy end = start + 2h
+    if (safeEnd.getTime() <= safeStart.getTime()) {
+      safeEnd = new Date(safeStart);
+      safeEnd.setHours(safeEnd.getHours() + 2);
+    }
+    if (safeEnd.getTime() !== endTime.getTime()) {
+      setEndTime(safeEnd);
+    }
+  }, [startTime]);
+
+  useEffect(() => {
+    // Khi đổi ngày tổ chức, giữ giờ nhưng đồng bộ ngày và clamp không quá khứ
+    const now = new Date();
+    const safeDate = startOfDay(eventDate).getTime() < startOfDay(now).getTime() ? now : eventDate;
+    if (!isSameDay(safeDate, eventDate)) {
+      setEventDate(safeDate);
+      return;
+    }
+    const nextStart = combineDateAndTime(eventDate, startTime);
+    const nextEnd = combineDateAndTime(eventDate, endTime);
+    setStartTime(isSameDay(eventDate, now) ? clampNotPast(nextStart) : nextStart);
+    setEndTime(nextEnd);
+  }, [eventDate]);
+
+  useEffect(() => {
+    // Khi đổi thành phố thì reset ward về phần tử đầu (nếu ward hiện tại không thuộc city mới)
+    if (!selectedCity) return;
+    const wards = selectedCity.wards || [];
+    if (!wards.length) {
+      setSelectedWard(null);
+      return;
+    }
+    if (!selectedWard || !wards.some((w) => w.code === selectedWard.code)) {
+      setSelectedWard(wards[0]);
+    }
+  }, [selectedCity]);
+
+  const totalItems = useMemo(
+    () => cartItems.reduce((sum, i) => sum + (i.count || 0), 0),
+    [cartItems]
+  );
+
+  const openPicker = (type) => {
+    if (Platform.OS === 'ios') {
+      setIosPickerType(type);
+      setIosPickerVisible(true);
+      return;
+    }
+    if (type === 'date') setShowDatePicker(true);
+    if (type === 'start') setShowStartPicker(true);
+    if (type === 'end') setShowEndPicker(true);
+  };
+
+  const menuCount = useMemo(() => {
+    const count = cartItems
+      .filter((i) => i.type === 'menu')
+      .reduce((sum, i) => sum + (i.count || 0), 0);
+    return count > 0 ? count : 1;
+  }, [cartItems]);
+
+  const openSelectCity = () => {
+    setSelectMode('city');
+    setSearchQuery('');
+    setSelectModalVisible(true);
+  };
+
+  const openSelectWard = () => {
+    setSelectMode('ward');
+    setSearchQuery('');
+    setSelectModalVisible(true);
+  };
+
+  const filteredCities = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return CITIES;
+    return CITIES.filter((c) => {
+      const name = `${c.name} ${c.fullName}`.toLowerCase();
+      return name.includes(q);
+    });
+  }, [searchQuery]);
+
+  const filteredWards = useMemo(() => {
+    const wards = selectedCity?.wards || [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return wards;
+    return wards.filter((w) => `${w.name} ${w.fullName}`.toLowerCase().includes(q));
+  }, [selectedCity, searchQuery]);
+
+  const canContinue = addressLine.trim().length > 0;
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Đặt tiệc</Text>
+        </View>
+        <View style={styles.headerRight} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Cart preview */}
+          <View style={styles.section}>
+            {cartItems.map((item) => (
+              <View key={item.id} style={styles.cartRow}>
+                <View style={styles.cartImageWrap}>
+                  {item.image ? (
+                    <Image
+                      source={{ uri: item.image }}
+                      style={styles.cartImage}
+                      contentFit="cover"
+                      cachePolicy="disk"
+                      transition={150}
+                    />
+                  ) : (
+                    <View style={[styles.cartImage, styles.imagePlaceholder]}>
+                      <Ionicons name="image-outline" size={24} color={TEXT_SECONDARY} />
+                    </View>
+                  )}
+                </View>
+                <View style={styles.cartInfo}>
+                  <Text style={styles.cartName} numberOfLines={2}>{item.name}</Text>
+                  <Text style={styles.cartMeta}>{item.type === 'menu' ? 'Menu' : 'Dịch vụ'}</Text>
+                  <Text style={styles.cartPrice}>{formatMoney(item.priceFormatted, item.basePrice, item.count)}</Text>
+                </View>
+                {item.type === 'service' && (
+                  <View style={styles.serviceQtyWrap}>
+                    <Text style={styles.serviceQtyText}>x{item.count}</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+
+          {/* Event time */}
+          <View style={styles.section}>
+            <View style={styles.guestRow}>
+              <Text style={styles.guestLabel}>Số lượng khách:</Text>
+              <Text style={styles.guestValue}>{menuCount}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.rowItem, { marginRight: 6 }]}>
+                <Text style={styles.fieldLabel}>Ngày tổ chức</Text>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput]}
+                  onPress={() => openPicker('date')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.selectText}>{formatDate(eventDate)}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.rowItem, { marginRight: 6 }]}>
+                <Text style={styles.fieldLabel}>Start time</Text>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput]}
+                  onPress={() => openPicker('start')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.selectText}>{formatTime(startTime)}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.rowItem, { marginLeft: 6 }]}>
+                <Text style={styles.fieldLabel}>End time</Text>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput]}
+                  onPress={() => openPicker('end')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.selectText}>{formatTime(endTime)}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          {/* Location */}
+          <View style={styles.section}>
+            <View style={styles.formRowVertical}>
+              <Text style={styles.fieldLabel}>Địa điểm</Text>
+              <TextInput
+                value={addressLine}
+                onChangeText={setAddressLine}
+                placeholder="Nhập địa chỉ (vd: 16 Nguyễn Trãi)"
+                placeholderTextColor={TEXT_SECONDARY}
+                style={styles.input}
+              />
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.rowItem, { marginRight: 6 }]}>
+                <Text style={styles.fieldLabel}>Thành phố</Text>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput]}
+                  onPress={openSelectCity}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.selectText}>{selectedCity?.fullName || 'Chọn thành phố'}</Text>
+                  <Ionicons name="chevron-down" size={18} color={TEXT_SECONDARY} />
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.rowItem, { marginLeft: 6 }]}>
+                <Text style={styles.fieldLabel}>Quận/Phường</Text>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput]}
+                  onPress={openSelectWard}
+                  activeOpacity={0.7}
+                  disabled={!selectedCity}
+                >
+                  <Text style={styles.selectText}>
+                    {selectedWard?.name || 'Chọn quận/phường'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color={TEXT_SECONDARY} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          {/* Spacer để không bị che bởi bottom bar; khi mở bàn phím thì giảm để tránh khoảng trắng thừa */}
+          <View style={{ height: keyboardVisible ? 16 : 140 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <SafeAreaView edges={['bottom']} style={styles.bottomSafe}>
+        <View style={styles.bottomBar}>
+          
+          <TouchableOpacity
+            style={[styles.primaryButton, !canContinue && styles.primaryButtonDisabled]}
+            activeOpacity={0.8}
+            disabled={!canContinue}
+            onPress={() =>
+              navigation.navigate('OrderSummary', {
+                eventDate: eventDate?.toISOString?.() || null,
+                startTime: startTime?.toISOString?.() || null,
+                endTime: endTime?.toISOString?.() || null,
+                addressLine,
+                city: selectedCity?.fullName || '',
+                ward: selectedWard?.name || '',
+                menuCount,
+              })
+            }
+          >
+            <Text style={styles.primaryButtonText}>Tiếp tục</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={eventDate}
+          mode="date"
+          display="default"
+          minimumDate={new Date()}
+          onChange={(e, selected) => {
+            setShowDatePicker(false);
+            if (selected) setEventDate(selected);
+          }}
+        />
+      )}
+
+      {showStartPicker && (
+        <DateTimePicker
+          value={startTime}
+          mode="time"
+          is24Hour
+          display="default"
+          onChange={(e, selected) => {
+            setShowStartPicker(false);
+            if (selected) setStartTime(selected);
+          }}
+        />
+      )}
+
+      {showEndPicker && (
+        <DateTimePicker
+          value={endTime}
+          mode="time"
+          is24Hour
+          display="default"
+          onChange={(e, selected) => {
+            setShowEndPicker(false);
+            if (selected) setEndTime(selected);
+          }}
+        />
+      )}
+
+      {/* iOS inline picker in modal to avoid layout break */}
+      {Platform.OS === 'ios' && (
+        <Modal
+          visible={iosPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIosPickerVisible(false)}
+        >
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerCard}>
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>
+                  {iosPickerType === 'date'
+                    ? 'Chọn ngày'
+                    : iosPickerType === 'start'
+                      ? 'Chọn giờ bắt đầu'
+                      : 'Chọn giờ kết thúc'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setIosPickerVisible(false)}
+                  style={styles.pickerDone}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.pickerDoneText}>Xong</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={
+                  iosPickerType === 'date'
+                    ? eventDate
+                    : iosPickerType === 'start'
+                      ? startTime
+                      : endTime
+                }
+                mode={iosPickerType === 'date' ? 'date' : 'time'}
+                display="spinner"
+                is24Hour
+                minimumDate={iosPickerType === 'date' ? new Date() : undefined}
+                onChange={(e, selected) => {
+                  if (!selected) return;
+                  const now = new Date();
+                  if (iosPickerType === 'date') {
+                    // clamp date not in past
+                    const safe = startOfDay(selected).getTime() < startOfDay(now).getTime() ? now : selected;
+                    setEventDate(safe);
+                    return;
+                  }
+                  if (iosPickerType === 'start') {
+                    const next = combineDateAndTime(eventDate, selected);
+                    const safe = isSameDay(eventDate, now) ? clampNotPast(next) : next;
+                    setStartTime(safe);
+                    return;
+                  }
+                  if (iosPickerType === 'end') {
+                    const next = combineDateAndTime(eventDate, selected);
+                    let safe = isSameDay(eventDate, now) ? clampNotPast(next) : next;
+                    if (safe.getTime() <= startTime.getTime()) {
+                      safe = new Date(startTime);
+                      safe.setHours(safe.getHours() + 2);
+                    }
+                    setEndTime(safe);
+                  }
+                }}
+                style={styles.iosPicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      <Modal
+        visible={selectModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              style={styles.modalKav}
+            >
+              <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
+                <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {selectMode === 'city' ? 'Chọn thành phố' : 'Chọn quận/phường'}
+              </Text>
+              <TouchableOpacity onPress={() => setSelectModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
+                <Ionicons name="close" size={22} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={18} color={TEXT_SECONDARY} />
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Tìm kiếm..."
+                placeholderTextColor={TEXT_SECONDARY}
+                style={styles.searchInput}
+              />
+            </View>
+
+            <ScrollView
+              style={styles.modalList}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {(selectMode === 'city' ? filteredCities : filteredWards).map((item) => {
+                const key = item.code;
+                const label = selectMode === 'city' ? item.fullName : item.name;
+                const isSelected =
+                  selectMode === 'city'
+                    ? selectedCity?.code === item.code
+                    : selectedWard?.code === item.code;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.optionRow, isSelected && styles.optionRowActive]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      if (selectMode === 'city') {
+                        setSelectedCity(item);
+                        setSelectedWard(item?.wards?.[0] || null);
+                      } else {
+                        setSelectedWard(item);
+                      }
+                      setSelectModalVisible(false);
+                    }}
+                  >
+                    <Text style={[styles.optionText, isSelected && styles.optionTextActive]} numberOfLines={2}>
+                      {label}
+                    </Text>
+                    {isSelected && <Ionicons name="checkmark" size={18} color={PRIMARY_COLOR} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  headerRight: {
+    width: 44,
+  },
+  kav: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+  section: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+  },
+  cartRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  cartImageWrap: {
+    width: 74,
+    height: 74,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  cartImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#E0E0E0',
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cartInfo: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  cartName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  cartMeta: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 6,
+  },
+  cartPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+  },
+  serviceQtyWrap: {
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    minWidth: 36,
+  },
+  serviceQtyText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: PRIMARY_COLOR,
+  },
+  guestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  guestLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  guestValue: {
+    minWidth: 28,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  formRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  formRowVertical: {
+    paddingVertical: 10,
+  },
+  row: {
+    flexDirection: 'row',
+    marginTop: 6,
+  },
+  rowItem: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+  },
+  selectInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+    marginRight: 10,
+  },
+  input: {
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  modalKav: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  pickerCard: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 14,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  pickerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  pickerDone: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  pickerDoneText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+  },
+  iosPicker: {
+    height: 240,
+  },
+  modalCard: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 16,
+    padding: 14,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+    backgroundColor: '#FAFAFA',
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    padding: 0,
+  },
+  modalList: {
+    marginTop: 10,
+  },
+  optionRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  optionRowActive: {
+    backgroundColor: 'rgba(255,128,0,0.08)',
+  },
+  optionText: {
+    flex: 1,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
+    marginRight: 10,
+  },
+  optionTextActive: {
+    color: PRIMARY_COLOR,
+  },
+  bottomSafe: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: BACKGROUND_WHITE,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  bottomLeft: {
+    flex: 1,
+  },
+  bottomHint: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  primaryButton: {
+    flex: 1.1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_COLOR,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
+  },
+  primaryButtonText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});
+

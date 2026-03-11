@@ -277,7 +277,11 @@ export default function OrdersScreen({ navigation }) {
           <TouchableOpacity style={styles.addPartyButton} activeOpacity={0.7}>
             <Text style={styles.addPartyText}>Thêm tiệc</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.continueButton} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.continueButton}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('OrderConfirmation')}
+          >
             <Text style={styles.continueText}>Tiếp tục</Text>
           </TouchableOpacity>
         </View>

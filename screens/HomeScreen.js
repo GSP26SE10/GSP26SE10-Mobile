@@ -11,6 +11,7 @@ import {
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
+import Toast from '../components/Toast';
 import API_URL from '../constants/api';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
@@ -27,12 +28,14 @@ const SkeletonBox = ({ style }) => (
   <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
 );
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, route }) {
   const [categories, setCategories] = useState([]);
   const [menusByCategory, setMenusByCategory] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   const fetchData = async (forceRefresh = false) => {
     try {
@@ -97,6 +100,13 @@ export default function HomeScreen({ navigation }) {
     })();
   }, []);
 
+  useEffect(() => {
+    if (route?.params?.fromLogout) {
+      setToastMessage('Đăng xuất thành công');
+      setToastVisible(true);
+    }
+  }, [route?.params?.fromLogout]);
+
   const formatPrice = (price) => {
     if (price == null) return '';
 
@@ -113,6 +123,11 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}

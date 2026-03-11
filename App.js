@@ -7,6 +7,8 @@ import RegisterScreen from "./screens/RegisterScreen";
 import HomeScreen from "./screens/HomeScreen";
 import ServiceScreen from "./screens/ServiceScreen";
 import OrdersScreen from "./screens/OrdersScreen";
+import OrderConfirmationScreen from "./screens/OrderConfirmationScreen";
+import OrderSummaryScreen from "./screens/OrderSummaryScreen";
 import ContactScreen from "./screens/ContactScreen";
 import AccountScreen from "./screens/AccountScreen";
 import MenuListScreen from "./screens/MenuListScreen";
@@ -72,11 +74,15 @@ export default function App() {
       case "Register":
         return <RegisterScreen navigation={navigation} />;
       case "Home":
-        return <HomeScreen navigation={navigation} />;
+        return <HomeScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Search":
         return <ServiceScreen navigation={navigation} />;
       case "Orders":
         return <OrdersScreen navigation={navigation} />;
+      case "OrderConfirmation":
+        return <OrderConfirmationScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "OrderSummary":
+        return <OrderSummaryScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Contact":
         return <ContactScreen navigation={navigation} />;
       case "Account":
