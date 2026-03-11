@@ -4,99 +4,117 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   Dimensions,
   TextInput,
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomNavigation from '../components/BottomNavigation';
-import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+import API_URL from '../constants/api';
+import { requireAuth } from '../utils/auth';
+import { addServiceToCart } from '../utils/cartStorage';
+import Toast from '../components/Toast';
+import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
-
-// Mock service data
-const getServices = () => {
-  const decorationImageUrl = 'https://toniparty.vn/wp-content/uploads/2023/10/Set-trang-tri-sinh-nhat-tone-hong-trang-2.jpg';
-  const baseImageUrl = 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
-  
-  return [
-    {
-      id: 1,
-      name: 'Trang trí sinh nhật',
-      price: '199.000₫',
-      image: decorationImageUrl,
-    },
-    {
-      id: 2,
-      name: 'Thuê dàn karaoke',
-      price: '299.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 3,
-      name: 'Thuê 10 bộ bàn ghế',
-      price: '150.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 4,
-      name: 'Trang trí sinh nhật',
-      price: '199.000₫',
-      image: decorationImageUrl,
-    },
-    {
-      id: 5,
-      name: 'Thuê dàn karaoke',
-      price: '299.000₫',
-      image: baseImageUrl,
-    },
-    {
-      id: 6,
-      name: 'Thuê 10 bộ bàn ghế',
-      price: '150.000₫',
-      image: baseImageUrl,
-    },
-  ];
-};
 
 let serviceDataCache = {
   services: null,
   fetched: false,
 };
 
+const formatPrice = (price) => {
+  if (price == null) return '';
+  try {
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+      maximumFractionDigits: 0,
+    }).format(price);
+  } catch (e) {
+    return `${Number(price).toLocaleString('vi-VN')} đ`;
+  }
+};
+
 export default function ServiceScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [services, setServices] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
-  const loadServices = (forceRefresh = false) => {
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
+  const loadServices = async (forceRefresh = false) => {
     if (!forceRefresh && serviceDataCache.fetched && serviceDataCache.services) {
       setServices(serviceDataCache.services);
       return;
     }
 
-    const data = getServices();
-    setServices(data);
-    serviceDataCache = {
-      services: data,
-      fetched: true,
-    };
+    try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+
+      const res = await fetch(`${API_URL}/api/Service?page=1&pageSize=20`);
+      const json = await res.json();
+      const items = json?.items || [];
+
+      const mapped = items.map((item) => ({
+        serviceId: item.serviceId,
+        serviceName: item.serviceName,
+        description: item.description,
+        basePrice: item.basePrice,
+        status: item.status,
+        image: item.img ? `${API_URL}${item.img}` : null,
+      }));
+
+      setServices(mapped);
+      serviceDataCache = {
+        services: mapped,
+        fetched: true,
+      };
+    } catch (error) {
+      console.error('Failed to fetch services', error);
+    } finally {
+      if (forceRefresh) {
+        setRefreshing(false);
+      } else {
+        setIsLoading(false);
+      }
+    }
   };
 
   useEffect(() => {
     loadServices(false);
   }, []);
 
-  const handleAddService = (service) => {
-    console.log('Add service:', service);
-    // TODO: Implement add service functionality
+  const handleAddService = async (service) => {
+    const ok = await requireAuth(navigation, {
+      returnScreen: 'ServiceDetail',
+      returnParams: { service },
+    });
+    if (!ok) return;
+    await addServiceToCart(service);
+    showToast('Đã thêm vào giỏ hàng');
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
@@ -122,32 +140,44 @@ export default function ServiceScreen({ navigation }) {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              try {
-                loadServices(true);
-              } finally {
-                setRefreshing(false);
-              }
-            }}
+            onRefresh={() => loadServices(true)}
           />
         }
       >
-        {services.map((service) => (
+        {isLoading &&
+          [1, 2, 3].map((i) => (
+            <View key={`skeleton-${i}`} style={[styles.serviceCard, { opacity: 0.6 }]}>
+              <View style={[styles.serviceImage, { backgroundColor: '#E5E5E5' }]} />
+              <View style={styles.serviceInfo}>
+                <View style={{ height: 16, width: '70%', backgroundColor: '#E5E5E5', borderRadius: 4, marginBottom: 8 }} />
+                <View style={{ height: 14, width: 80, backgroundColor: '#E5E5E5', borderRadius: 4 }} />
+              </View>
+            </View>
+          ))}
+        {!isLoading &&
+          services.map((service) => (
           <TouchableOpacity
-            key={service.id}
+            key={service.serviceId}
             style={styles.serviceCard}
             activeOpacity={0.8}
             onPress={() => navigation.navigate('ServiceDetail', { service })}
           >
-            <Image
-              source={{ uri: service.image }}
-              style={styles.serviceImage}
-              resizeMode="cover"
-            />
+            {service.image ? (
+              <Image
+                source={{ uri: service.image }}
+                style={styles.serviceImage}
+                contentFit="cover"
+                cachePolicy="disk"
+                transition={150}
+              />
+            ) : (
+              <View style={[styles.serviceImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
+              </View>
+            )}
             <View style={styles.serviceInfo}>
-              <Text style={styles.serviceName}>{service.name}</Text>
-              <Text style={styles.servicePrice}>{service.price}</Text>
+              <Text style={styles.serviceName}>{service.serviceName}</Text>
+              <Text style={styles.servicePrice}>{formatPrice(service.basePrice)}</Text>
             </View>
             <TouchableOpacity
               style={styles.addButton}

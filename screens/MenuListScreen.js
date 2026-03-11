@@ -4,18 +4,25 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomNavigation from '../components/BottomNavigation';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { requireAuth } from '../utils/auth';
+import { addMenuToCart } from '../utils/cartStorage';
+import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
 import API_URL from '../constants/api';
 
 const { width } = Dimensions.get('window');
+
+// Cache theo menuCategoryId (mỗi danh mục một cache riêng)
+const menuListCache = {};
 
 const SkeletonBox = ({ style }) => (
   <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
@@ -26,27 +33,51 @@ export default function MenuListScreen({ navigation, route }) {
   const menuCategoryId = route?.params?.menuCategoryId;
   const [menuItems, setMenuItems] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
-  useEffect(() => {
-    const fetchMenus = async () => {
-      if (!menuCategoryId) return;
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
 
-      try {
+  const fetchMenus = async (forceRefresh = false) => {
+    if (!menuCategoryId) return;
+
+    const cached = menuListCache[menuCategoryId];
+    if (!forceRefresh && cached?.fetched && cached?.items) {
+      setMenuItems(cached.items);
+      return;
+    }
+
+    try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
         setIsLoading(true);
+      }
 
-        const res = await fetch(
-          `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=100`,
-        );
-        const json = await res.json();
-        setMenuItems(json?.items || []);
-      } catch (error) {
-        console.error('Failed to fetch menu list', error);
-      } finally {
+      const res = await fetch(
+        `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=100`,
+      );
+      const json = await res.json();
+      const items = json?.items || [];
+      setMenuItems(items);
+      menuListCache[menuCategoryId] = { items, fetched: true };
+    } catch (error) {
+      console.error('Failed to fetch menu list', error);
+    } finally {
+      if (forceRefresh) {
+        setRefreshing(false);
+      } else {
         setIsLoading(false);
       }
-    };
+    }
+  };
 
-    fetchMenus();
+  useEffect(() => {
+    fetchMenus(false);
   }, [menuCategoryId]);
 
   const formatPrice = (price) => {
@@ -65,13 +96,27 @@ export default function MenuListScreen({ navigation, route }) {
 
   const swipeBack = useSwipeBack(() => navigation.navigate('Home'));
 
-  const handleAddToCart = (item) => {
-    // TODO: Implement add to cart functionality
-    console.log('Add to cart:', item);
+  const handleAddToCart = async (item) => {
+    const ok = await requireAuth(navigation, {
+      returnScreen: 'MenuList',
+      returnParams: { buffetType, menuCategoryId },
+    });
+    if (!ok) return;
+    await addMenuToCart({
+      ...item,
+      menuCategoryId: menuCategoryId ?? null,
+      buffetType: buffetType ?? null,
+    });
+    showToast('Đã thêm vào giỏ hàng');
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...swipeBack.panHandlers}>
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -89,6 +134,12 @@ export default function MenuListScreen({ navigation, route }) {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => fetchMenus(true)}
+          />
+        }
       >
         {isLoading &&
           [1, 2, 3].map((idx) => (
@@ -120,7 +171,9 @@ export default function MenuListScreen({ navigation, route }) {
               <Image
                 source={{ uri: item.imgUrl }}
                 style={styles.menuImage}
-                resizeMode="cover"
+                contentFit="cover"
+                cachePolicy="disk"
+                transition={150}
               />
               <View style={styles.menuInfo}>
                 <Text style={styles.menuName}>{item.menuName}</Text>

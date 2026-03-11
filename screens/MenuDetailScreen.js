@@ -13,6 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { requireAuth } from '../utils/auth';
+import { addMenuToCart } from '../utils/cartStorage';
+import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
 import API_URL from '../constants/api';
 
@@ -48,6 +51,13 @@ export default function MenuDetailScreen({ navigation, route }) {
   const [isLoadingDishes, setIsLoadingDishes] = useState(false);
   const [isLoadingMenuInfo, setIsLoadingMenuInfo] = useState(false);
   const [menuInfo, setMenuInfo] = useState(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
 
   const baseDetail = getMenuDetail();
   const menuDetail = {
@@ -90,9 +100,23 @@ export default function MenuDetailScreen({ navigation, route }) {
     }
   }, [isFullscreenVisible, fullscreenImageIndex]);
 
-  const handleChooseMenu = () => {
-    // TODO: Implement choose menu functionality
-    console.log('Choose menu:', menuInfo || menuDetail);
+  const handleChooseMenu = async () => {
+    if (isLoadingMenuInfo || !menuInfo) {
+      showToast('Vui lòng đợi tải menu xong');
+      return;
+    }
+    const ok = await requireAuth(navigation, {
+      returnScreen: 'MenuDetail',
+      returnParams: { menuId, menuCategoryId, buffetType, fromStaff },
+    });
+    if (!ok) return;
+    const menu = menuInfo;
+    await addMenuToCart({
+      ...menu,
+      menuCategoryId: menuCategoryId ?? null,
+      buffetType: buffetType ?? null,
+    });
+    showToast('Đã thêm vào giỏ hàng');
   };
 
   const formatPrice = (price) => {
@@ -179,6 +203,11 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...swipeBack.panHandlers}>
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -326,8 +355,12 @@ export default function MenuDetailScreen({ navigation, route }) {
             </Text>
           )}
           <TouchableOpacity
-            style={styles.chooseButton}
+            style={[
+              styles.chooseButton,
+              (isLoadingMenuInfo || !menuInfo) && styles.chooseButtonDisabled,
+            ]}
             onPress={handleChooseMenu}
+            disabled={isLoadingMenuInfo || !menuInfo}
             activeOpacity={0.8}
           >
             <Text style={styles.chooseButtonText}>Chọn Menu</Text>
@@ -563,6 +596,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 8,
+  },
+  chooseButtonDisabled: {
+    opacity: 0.6,
   },
   chooseButtonText: {
     color: BACKGROUND_WHITE,

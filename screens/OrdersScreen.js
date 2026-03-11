@@ -1,17 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   FlatList,
-  Image,
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import BottomNavigation from '../components/BottomNavigation';
+import { getCart, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -23,41 +24,28 @@ const TABS = [
   { id: 'completed', label: 'Hoàn thành' },
 ];
 
-// Mock cart data
-const getCartItems = () => {
-  const baseImageUrl = 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
-  const decorationImageUrl = 'https://toniparty.vn/wp-content/uploads/2023/10/Set-trang-tri-sinh-nhat-tone-hong-trang-2.jpg';
-  
-  return [
-    {
-      id: 1,
-      name: 'Buffet Lẩu Bò Mỹ',
-      quantity: '10 MÓN',
-      price: '229.000₫',
-      image: baseImageUrl,
-      count: 10,
-    },
-    {
-      id: 2,
-      name: 'Trang trí sinh nhật',
-      price: '199.000₫',
-      image: decorationImageUrl,
-      count: 1,
-    },
-  ];
-};
-
-// Mock data for other tabs
-const getUpcomingOrders = () => [];
-const getOngoingOrders = () => [];
-const getCompletedOrders = () => [];
-
 export default function OrdersScreen({ navigation }) {
   const [activeTabIndex, setActiveTabIndex] = useState(0);
+  const [cartItems, setCartItems] = useState([]);
   const flatListRef = useRef(null);
   const tabScrollRef = useRef(null);
   const tabLayouts = useRef({});
   const tabScrollPosition = useRef(0);
+
+  const loadCart = useCallback(async () => {
+    const items = await getCart();
+    setCartItems(items);
+  }, []);
+
+  useEffect(() => {
+    loadCart();
+  }, [loadCart]);
+
+  // Khi quay lại màn Orders (từ MenuDetail/ServiceDetail sau khi thêm), reload giỏ
+  useEffect(() => {
+    const unsubscribe = navigation.addListener?.('focus', loadCart);
+    return () => unsubscribe?.();
+  }, [navigation, loadCart]);
 
   const handleTabPress = (index) => {
     setActiveTabIndex(index);
@@ -104,29 +92,58 @@ export default function OrdersScreen({ navigation }) {
     }
   }, [activeTabIndex]);
 
-  const handleQuantityChange = (itemId, delta) => {
-    // TODO: Implement quantity change logic
-    console.log('Change quantity:', itemId, delta);
+  const handleQuantityChange = async (itemId, delta) => {
+    const next = await updateCartItemQuantity(itemId, delta);
+    setCartItems(next);
   };
 
-  const handleRemoveItem = (itemId) => {
-    // TODO: Implement remove item logic
-    console.log('Remove item:', itemId);
+  const handleRemoveItem = async (itemId) => {
+    const next = await removeCartItem(itemId);
+    setCartItems(next);
+  };
+
+  const openCartItemDetail = (item) => {
+    if (!item) return;
+    if (item.type === 'menu') {
+      navigation.navigate('MenuDetail', {
+        menuId: item.menuId,
+        menuCategoryId: item.menuCategoryId || undefined,
+        buffetType: item.buffetType || item.name || 'Menu',
+      });
+      return;
+    }
+    if (item.type === 'service') {
+      navigation.navigate('ServiceDetail', {
+        service: {
+          serviceId: item.serviceId,
+          serviceName: item.name,
+          basePrice: item.basePrice,
+          image: item.image,
+        },
+      });
+    }
   };
 
   const renderCartItem = ({ item }) => (
     <View style={styles.orderCard}>
-      <Image
-        source={{ uri: item.image }}
-        style={styles.orderImage}
-        resizeMode="cover"
-      />
+      {item.image ? (
+        <ExpoImage
+          source={{ uri: item.image }}
+          style={styles.orderImage}
+          contentFit="cover"
+          cachePolicy="disk"
+        />
+      ) : (
+        <View style={[styles.orderImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+        </View>
+      )}
       <View style={styles.orderInfo}>
         <Text style={styles.orderName}>{item.name}</Text>
         {item.quantity && (
           <Text style={styles.orderQuantity}>{item.quantity}</Text>
         )}
-        <Text style={styles.orderPrice}>{item.price}</Text>
+        <Text style={styles.orderPrice}>{item.priceFormatted}</Text>
       </View>
       <View style={styles.quantityContainer}>
         {item.count > 1 ? (
@@ -171,8 +188,16 @@ export default function OrdersScreen({ navigation }) {
   );
 
   const renderCartContent = () => {
-    const cartItems = getCartItems();
-    
+    if (cartItems.length === 0) {
+      return (
+        <View style={styles.tabContent}>
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>Giỏ hàng trống</Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.tabContent}>
         <ScrollView
@@ -182,20 +207,28 @@ export default function OrdersScreen({ navigation }) {
         >
           {cartItems.map((item) => (
             <View key={item.id} style={styles.orderCard}>
-              <View style={styles.orderCardTop}>
-                <Image
-                  source={{ uri: item.image }}
-                  style={styles.orderImage}
-                  resizeMode="cover"
-                />
+              <TouchableOpacity
+                style={styles.orderCardTop}
+                onPress={() => openCartItemDetail(item)}
+                activeOpacity={0.8}
+              >
+                {item.image ? (
+                  <ExpoImage
+                    source={{ uri: item.image }}
+                    style={styles.orderImage}
+                    contentFit="cover"
+                    cachePolicy="disk"
+                  />
+                ) : (
+                  <View style={[styles.orderImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+                  </View>
+                )}
                 <View style={styles.orderInfo}>
                   <Text style={styles.orderName} numberOfLines={2}>{item.name}</Text>
-                  {item.quantity && (
-                    <Text style={styles.orderQuantity} numberOfLines={1}>{item.quantity}</Text>
-                  )}
-                  <Text style={styles.orderPrice} numberOfLines={1}>{item.price}</Text>
+                  <Text style={styles.orderPrice} numberOfLines={1}>{item.priceFormatted}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
               <View style={styles.quantityContainer}>
                 {item.count > 1 ? (
                   <>
@@ -222,7 +255,7 @@ export default function OrdersScreen({ navigation }) {
                       onPress={() => handleRemoveItem(item.id)}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="trash-outline" size={20} color={TEXT_SECONDARY} />
+                      <Ionicons name="trash-outline" size={20} color="#FF0000" />
                     </TouchableOpacity>
                     <Text style={styles.quantityText}>{item.count}</Text>
                     <TouchableOpacity
@@ -520,7 +553,10 @@ const styles = StyleSheet.create({
     paddingTop: 100,
   },
   emptyText: {
-    fontSize: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    fontSize: 20,
+    paddingBottom: 200,
     color: TEXT_SECONDARY,
   },
 });

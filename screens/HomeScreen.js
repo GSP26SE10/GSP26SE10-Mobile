@@ -4,14 +4,15 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   Dimensions,
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
 import API_URL from '../constants/api';
+import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -31,6 +32,7 @@ export default function HomeScreen({ navigation }) {
   const [menusByCategory, setMenusByCategory] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [greetingText, setGreetingText] = useState('Xin chào!');
 
   const fetchData = async (forceRefresh = false) => {
     try {
@@ -88,6 +90,13 @@ export default function HomeScreen({ navigation }) {
     fetchData(false);
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      const fullName = await getStoredFullName();
+      setGreetingText(buildGreeting(fullName));
+    })();
+  }, []);
+
   const formatPrice = (price) => {
     if (price == null) return '';
 
@@ -119,7 +128,7 @@ export default function HomeScreen({ navigation }) {
       >
         {/* Greeting */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>Xin chào, Nguyễn Văn A!</Text>
+          <Text style={styles.greeting}>{greetingText}</Text>
           <Text style={styles.tagline}>Thưởng thức buffet đa dạng tại Bookfet!</Text>
         </View>
 
@@ -194,7 +203,9 @@ export default function HomeScreen({ navigation }) {
                       <Image
                         source={{ uri: menu.imgUrl }}
                         style={styles.cardImage}
-                        resizeMode="cover"
+                        contentFit="cover"
+                        cachePolicy="disk"
+                        transition={0}
                       />
                       <View style={styles.cardInfo}>
                         <Text style={styles.cardTitle} numberOfLines={1}>

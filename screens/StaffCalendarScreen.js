@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity,
   ScrollView, PanResponder
@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-big-calendar';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
+import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE } from '../constants/colors';
 
 const initialDate = new Date();
@@ -45,6 +46,14 @@ function addWeeks(date, weeks) {
 }
 
 export default function StaffCalendarScreen({ navigation }) {
+  const [greetingText, setGreetingText] = useState('Xin chào!');
+
+  useEffect(() => {
+    (async () => {
+      const fullName = await getStoredFullName();
+      setGreetingText(buildGreeting(fullName));
+    })();
+  }, []);
   const [currentDate, setCurrentDate] = useState(initialDate);
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -99,7 +108,7 @@ export default function StaffCalendarScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.greeting}>Xin chào, Nguyễn Văn A!</Text>
+        <Text style={styles.greeting}>{greetingText}</Text>
         <Text style={styles.subtitle}>Lịch làm việc</Text>
         <View style={styles.monthRow}>
           <TouchableOpacity onPress={goToPrevWeek} style={styles.arrowButton} activeOpacity={0.7}>

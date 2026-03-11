@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { getAccessToken } from "./utils/auth";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import HomeScreen from "./screens/HomeScreen";
@@ -26,13 +27,29 @@ import StaffOrderDetailHistoryScreen from "./screens/StaffOrderDetailHistoryScre
 import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistoryScreen";
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 
+const PROTECTED_TABS = ['Orders', 'Contact', 'Account'];
+
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState("Login");
+  const [currentScreen, setCurrentScreen] = useState("Home");
   const [screenParams, setScreenParams] = useState({});
-  const [screenHistory, setScreenHistory] = useState(["Login"]);
+  const [screenHistory, setScreenHistory] = useState(["Home"]);
 
   const navigation = {
     navigate: (screenName, params) => {
+      if (PROTECTED_TABS.includes(screenName)) {
+        getAccessToken().then((token) => {
+          if (!token) {
+            setScreenParams({ returnScreen: screenName, returnParams: null, fromAuthRequired: true, ...(params || {}) });
+            setScreenHistory((prev) => [...prev, 'Login']);
+            setCurrentScreen('Login');
+            return;
+          }
+          setScreenParams(params || {});
+          setScreenHistory((prev) => [...prev, screenName]);
+          setCurrentScreen(screenName);
+        });
+        return;
+      }
       setScreenParams(params || {});
       setScreenHistory((prev) => [...prev, screenName]);
       setCurrentScreen(screenName);
@@ -51,7 +68,7 @@ export default function App() {
   const renderScreen = () => {
     switch (currentScreen) {
       case "Login":
-        return <LoginScreen navigation={navigation} />;
+        return <LoginScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Register":
         return <RegisterScreen navigation={navigation} />;
       case "Home":

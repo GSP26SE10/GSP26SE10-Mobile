@@ -1,45 +1,69 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { requireAuth } from '../utils/auth';
+import { addServiceToCart } from '../utils/cartStorage';
+import Toast from '../components/Toast';
+import API_URL from '../constants/api';
 import { TEXT_PRIMARY, TEXT_SECONDARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
 
-const buildServiceDetail = (serviceFromRoute) => {
-  const fallbackImage =
-    'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
+const formatPrice = (price) => {
+  if (price == null) return '0₫';
+  try {
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+      maximumFractionDigits: 0,
+    }).format(price);
+  } catch (e) {
+    return `${Number(price).toLocaleString('vi-VN')} đ`;
+  }
+};
 
-  const base = serviceFromRoute || {};
-  const descriptionMap = {
-    'Trang trí sinh nhật':
-      'Gói trang trí sinh nhật đầy đủ backdrop, bóng bay, bàn gallery và phụ kiện. Phù hợp cho tiệc tại nhà, quán cà phê hoặc nhà hàng, tông màu có thể điều chỉnh theo chủ đề.',
-    'Thuê dàn karaoke':
-      'Dàn karaoke chất lượng cao, micro không dây, loa công suất lớn, hỗ trợ kết nối TV/Projector. Đội ngũ kỹ thuật hỗ trợ setup và bảo trì trong suốt buổi tiệc.',
-    'Thuê 10 bộ bàn ghế':
-      'Bộ bàn ghế gọn gàng, sạch sẽ, phù hợp cho tiệc gia đình và sự kiện nhỏ. Giá đã bao gồm phí vận chuyển nội thành và sắp xếp theo layout mong muốn.',
-  };
-
-  const name = base.name || 'Dịch vụ sự kiện';
-
+/** Chuẩn hóa service từ route: API shape (serviceId, serviceName, basePrice, description, image/img) */
+const normalizeService = (serviceFromRoute) => {
+  const s = serviceFromRoute || {};
   return {
-    id: base.id || 1,
-    name,
-    price: base.price || '0₫',
-    image: base.image || fallbackImage,
-    description: descriptionMap[name] || 'Dịch vụ hỗ trợ cho buổi tiệc của bạn diễn ra trọn vẹn và chuyên nghiệp hơn. Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
+    serviceId: s.serviceId ?? s.id,
+    serviceName: s.serviceName ?? s.name ?? 'Dịch vụ',
+    basePrice: s.basePrice ?? (typeof s.price === 'number' ? s.price : null),
+    priceFormatted: s.priceFormatted ?? (typeof s.price === 'string' ? s.price : formatPrice(s.basePrice ?? s.price)),
+    description: s.description ?? 'Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
+    image: s.image ?? (s.img ? `${API_URL}${s.img}` : null),
   };
 };
 
 export default function ServiceDetailScreen({ navigation, route }) {
-  const serviceFromRoute = route?.params?.service;
-  const service = buildServiceDetail(serviceFromRoute);
+  const raw = route?.params?.service;
+  const service = normalizeService(raw);
+  const priceText = service.priceFormatted || formatPrice(service.basePrice);
+  const imageUri = service.image;
   const swipeBack = useSwipeBack(() => navigation.goBack());
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
-  const handleChooseService = () => {
-    // TODO: thực hiện logic chọn dịch vụ
-    console.log('Chọn dịch vụ:', service);
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
+  const handleChooseService = async () => {
+    if (!service?.serviceId || service?.basePrice == null) {
+      showToast('Vui lòng đợi tải dịch vụ xong');
+      return;
+    }
+    const ok = await requireAuth(navigation, {
+      returnScreen: 'ServiceDetail',
+      returnParams: { service: raw },
+    });
+    if (!ok) return;
+    await addServiceToCart(service);
+    showToast('Đã thêm vào giỏ hàng');
   };
 
   return (
@@ -48,6 +72,11 @@ export default function ServiceDetailScreen({ navigation, route }) {
       edges={['top', 'right', 'bottom', 'left']}
       {...swipeBack.panHandlers}
     >
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -66,23 +95,31 @@ export default function ServiceDetailScreen({ navigation, route }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.imageWrapper}>
-          <Image
-            source={{ uri: service.image }}
-            style={styles.mainImage}
-            resizeMode="cover"
-          />
+          {imageUri ? (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.mainImage}
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={150}
+            />
+          ) : (
+            <View style={[styles.mainImage, styles.imagePlaceholder]}>
+              <Ionicons name="image-outline" size={48} color={TEXT_SECONDARY} />
+            </View>
+          )}
         </View>
 
         <View style={styles.infoSection}>
-          <Text style={styles.serviceTitle}>{service.name}</Text>
-          <Text style={styles.servicePrice}>{service.price}</Text>
+          <Text style={styles.serviceTitle}>{service.serviceName}</Text>
+          <Text style={styles.servicePrice}>{priceText}</Text>
           <Text style={styles.serviceDescription}>{service.description}</Text>
         </View>
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.bottomBarSafe}>
         <View style={styles.bottomBar}>
-          <Text style={styles.bottomPrice}>{service.price}</Text>
+          <Text style={styles.bottomPrice}>{priceText}</Text>
           <TouchableOpacity
             style={styles.chooseButton}
             onPress={handleChooseService}
@@ -138,6 +175,10 @@ const styles = StyleSheet.create({
     width: width - 40,
     height: (width - 40) * 0.56,
     backgroundColor: '#E0E0E0',
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   infoSection: {
     borderRadius: 16,

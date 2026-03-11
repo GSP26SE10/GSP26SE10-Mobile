@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
+import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '../constants/colors';
 
 const mockParties = [
@@ -17,6 +18,15 @@ const mockParties = [
 ];
 
 export default function StaffHomeScreen({ navigation }) {
+  const [greetingText, setGreetingText] = useState('Xin chào!');
+
+  useEffect(() => {
+    (async () => {
+      const fullName = await getStoredFullName();
+      setGreetingText(buildGreeting(fullName));
+    })();
+  }, []);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
@@ -25,7 +35,7 @@ export default function StaffHomeScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.greeting}>Xin chào, Nguyễn Văn A!</Text>
+          <Text style={styles.greeting}>{greetingText}</Text>
           <Text style={styles.subtitle}>Danh sách tiệc và công việc cần làm.</Text>
         </View>
 

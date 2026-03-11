@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { useFonts } from 'expo-font';
 import { MadimiOne_400Regular } from '@expo-google-fonts/madimi-one';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import API_URL from '../constants/api';
 import Toast from '../components/Toast';
 import {
@@ -29,7 +30,7 @@ import {
   BORDER_LIGHT,
 } from '../constants/colors';
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -47,6 +48,12 @@ export default function LoginScreen({ navigation }) {
     setToastMessage(message);
     setToastVisible(true);
   };
+
+  useEffect(() => {
+    if (route?.params?.fromAuthRequired) {
+      showToast('Bạn cần phải đăng nhập');
+    }
+  }, [route?.params?.fromAuthRequired]);
 
   const parseCallbackUrl = (url) => {
     const params = {};
@@ -95,14 +102,16 @@ export default function LoginScreen({ navigation }) {
         };
         await AsyncStorage.setItem('userData', JSON.stringify(userData));
         showToast('Đăng nhập thành công');
+        const returnScreen = route?.params?.returnScreen;
+        const returnParams = route?.params?.returnParams;
         if (roleName === 'USER') {
-          navigation.navigate('Home');
+          navigation.navigate(returnScreen || 'Home', returnParams || undefined);
         } else if (roleName === 'STAFF') {
           navigation.navigate('StaffHome');
         } else if (roleName === 'GROUP_LEADER') {
           navigation.navigate('LeaderHome');
         } else {
-          navigation.navigate('Home');
+          navigation.navigate(returnScreen || 'Home', returnParams || undefined);
         }
       } else if (result.type === 'dismissed') {
         setLoading(false);
@@ -165,9 +174,11 @@ export default function LoginScreen({ navigation }) {
 
         // Đăng nhập thành công - Navigate theo role
         showToast('Đăng nhập thành công');
+        const returnScreen = route?.params?.returnScreen;
+        const returnParams = route?.params?.returnParams;
         setTimeout(() => {
           if (userData.roleName === 'USER') {
-            navigation.navigate('Home');
+            navigation.navigate(returnScreen || 'Home', returnParams || undefined);
           } else if (userData.roleName === 'STAFF') {
             navigation.navigate('StaffHome');
           } else if (userData.roleName === 'GROUP_LEADER') {
@@ -207,6 +218,17 @@ export default function LoginScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
+          </TouchableOpacity>
+         
+          <View style={styles.backButton} />
+        </View>
         <View style={styles.content}>
           {/* Logo */}
           <Text style={styles.logo}>BOOKFET</Text>
@@ -306,6 +328,25 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
   },
   content: {
     paddingHorizontal: 24,
