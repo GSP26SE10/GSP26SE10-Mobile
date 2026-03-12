@@ -28,6 +28,7 @@ import StaffOrderDetailScreen from "./screens/StaffOrderDetailScreen";
 import StaffOrderDetailHistoryScreen from "./screens/StaffOrderDetailHistoryScreen";
 import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistoryScreen";
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
+import OrderDetail from "./screens/OrderDetail";
 
 const PROTECTED_TABS = ['Orders', 'Contact', 'Account'];
 
@@ -78,7 +79,7 @@ export default function App() {
       case "Search":
         return <ServiceScreen navigation={navigation} />;
       case "Orders":
-        return <OrdersScreen navigation={navigation} />;
+        return <OrdersScreen navigation={navigation} route={{ params: screenParams }} />;
       case "OrderConfirmation":
         return <OrderConfirmationScreen navigation={navigation} route={{ params: screenParams }} />;
       case "OrderSummary":
@@ -121,6 +122,8 @@ export default function App() {
         return <StaffOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
       case "LeaderOrderDetailHistory":
         return <LeaderOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "OrderDetail":
+        return <OrderDetail navigation={navigation} route={{ params: screenParams }} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }

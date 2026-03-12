@@ -12,25 +12,41 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import BottomNavigation from '../components/BottomNavigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import API_URL from '../constants/api';
 import { getCart, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
+
+// Simple in-memory cache so that coming back from detail
+// doesn't refetch the same orders list.
+let upcomingOrdersCache = null;
 
 const TABS = [
   { id: 'cart', label: 'Giỏ hàng' },
   { id: 'upcoming', label: 'Sắp tới' },
   { id: 'ongoing', label: 'Đang diễn ra' },
   { id: 'completed', label: 'Hoàn thành' },
+  { id: 'cancelled', label: 'Bị hủy' },
 ];
 
-export default function OrdersScreen({ navigation }) {
-  const [activeTabIndex, setActiveTabIndex] = useState(0);
+export default function OrdersScreen({ navigation, route }) {
+  const initialTabKey = route?.params?.initialTab || 'cart';
+  const initialIndex = TABS.findIndex((t) => t.id === initialTabKey);
+  const [activeTabIndex, setActiveTabIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
   const [cartItems, setCartItems] = useState([]);
+  const [upcomingOrders, setUpcomingOrders] = useState([]);
+  const [upcomingPage, setUpcomingPage] = useState(1);
+  const [upcomingTotalPages, setUpcomingTotalPages] = useState(1);
+  const [isLoadingUpcoming, setIsLoadingUpcoming] = useState(false);
+  const [isRefreshingUpcoming, setIsRefreshingUpcoming] = useState(false);
+  const [customerId, setCustomerId] = useState(null);
   const flatListRef = useRef(null);
   const tabScrollRef = useRef(null);
   const tabLayouts = useRef({});
   const tabScrollPosition = useRef(0);
+  const initialIndexRef = useRef(initialIndex >= 0 ? initialIndex : 0);
 
   const loadCart = useCallback(async () => {
     const items = await getCart();
@@ -46,6 +62,100 @@ export default function OrdersScreen({ navigation }) {
     const unsubscribe = navigation.addListener?.('focus', loadCart);
     return () => unsubscribe?.();
   }, [navigation, loadCart]);
+
+  // Load userId for orders
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('userData');
+        if (!raw) return;
+        const user = JSON.parse(raw);
+        if (user?.userId) {
+          setCustomerId(user.userId);
+        }
+      } catch (e) {
+        console.error('Failed to load userData for orders', e);
+      }
+    })();
+  }, []);
+
+  // Scroll content to initial tab once on mount (for cases like initialTab="upcoming")
+  useEffect(() => {
+    const idx = initialIndexRef.current;
+    if (flatListRef.current && idx > 0 && idx < TABS.length) {
+      flatListRef.current.scrollToIndex({ index: idx, animated: false });
+    }
+  }, []);
+
+  const formatVnd = (price) => {
+    if (price == null) return '';
+    const val = Number(price ?? 0);
+    try {
+      return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        maximumFractionDigits: 0,
+      }).format(val);
+    } catch (e) {
+      return `${val.toLocaleString('vi-VN')} đ`;
+    }
+  };
+
+  const fetchUpcomingOrders = useCallback(
+    async (page = 1, append = false) => {
+      if (!customerId) return;
+      if (isLoadingUpcoming) return;
+
+      try {
+        if (page === 1 && !append) {
+          setIsRefreshingUpcoming(true);
+        } else {
+          setIsLoadingUpcoming(true);
+        }
+
+        const res = await fetch(
+          `${API_URL}/api/order?CustomerId=${customerId}&page=${page}&pageSize=10`,
+        );
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : [];
+
+        setUpcomingOrders((prev) => (append ? [...prev, ...items] : items));
+        const nextPage = page;
+        const totalPages = json?.totalPages || 1;
+        setUpcomingPage(nextPage);
+        setUpcomingTotalPages(totalPages);
+
+        // Update cache
+        upcomingOrdersCache = {
+          customerId,
+          items: append ? [...(upcomingOrdersCache?.items || []), ...items] : items,
+          page: nextPage,
+          totalPages,
+        };
+      } catch (e) {
+        console.error('Failed to load upcoming orders', e);
+      } finally {
+        setIsLoadingUpcoming(false);
+        setIsRefreshingUpcoming(false);
+      }
+    },
+    [customerId, isLoadingUpcoming],
+  );
+
+  // Load upcoming orders when we have customerId.
+  // If we already have a cache for this customer, hydrate from it instead of refetching.
+  useEffect(() => {
+    if (!customerId) return;
+
+    if (upcomingOrdersCache && upcomingOrdersCache.customerId === customerId) {
+      setUpcomingOrders(upcomingOrdersCache.items || []);
+      setUpcomingPage(upcomingOrdersCache.page || 1);
+      setUpcomingTotalPages(upcomingOrdersCache.totalPages || 1);
+      return;
+    }
+
+    fetchUpcomingOrders(1, false);
+  }, [customerId, fetchUpcomingOrders]);
 
   const handleTabPress = (index) => {
     setActiveTabIndex(index);
@@ -302,11 +412,58 @@ export default function OrdersScreen({ navigation }) {
       case 0:
         return renderCartContent();
       case 1:
-        return renderEmptyTab('Chưa có đơn hàng sắp tới');
+        return (
+          <View style={styles.tabContent}>
+            <FlatList
+              data={upcomingOrders}
+              keyExtractor={(order) => String(order.orderId)}
+              contentContainerStyle={styles.scrollContent}
+              renderItem={({ item: order }) => (
+                <TouchableOpacity
+                  style={styles.orderCard}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    navigation.navigate('OrderDetail', {
+                      orderId: order.orderId,
+                      sourceTab: 'upcoming',
+                    })
+                  }
+                >
+                  <View style={styles.orderInfo}>
+                    <Text style={styles.orderName}>
+                      Tiệc {order.menuName || `#${order.orderId}`}
+                    </Text>
+                    <Text style={styles.orderQuantity}>
+                      {order.status === 'PENDING' ? 'Đang chờ xác nhận' : order.status}
+                    </Text>
+                    <Text style={styles.orderPrice}>{formatVnd(order.totalPrice)}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              onEndReached={() => {
+                if (!isLoadingUpcoming && upcomingPage < upcomingTotalPages) {
+                  fetchUpcomingOrders(upcomingPage + 1, true);
+                }
+              }}
+              onEndReachedThreshold={0.2}
+              refreshing={isRefreshingUpcoming}
+              onRefresh={() => fetchUpcomingOrders(1, false)}
+              ListEmptyComponent={
+                !isLoadingUpcoming && !isRefreshingUpcoming ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>Chưa có đơn hàng sắp tới</Text>
+                  </View>
+                ) : null
+              }
+            />
+          </View>
+        );
       case 2:
         return renderEmptyTab('Chưa có đơn hàng đang diễn ra');
       case 3:
         return renderEmptyTab('Chưa có đơn hàng hoàn thành');
+      case 4:
+        return renderEmptyTab('Chưa có đơn hàng bị hủy');
       default:
         return null;
     }

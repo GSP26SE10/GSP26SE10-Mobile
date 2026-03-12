@@ -8,7 +8,7 @@ import * as MediaLibrary from 'expo-media-library';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
 import { getAccessToken } from '../utils/auth';
-import { getCart } from '../utils/cartStorage';
+import { getCart, clearCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
@@ -47,7 +47,10 @@ export default function OrderSummaryScreen({ navigation, route }) {
   const [secondsLeft, setSecondsLeft] = useState(60);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [createdOrderId, setCreatedOrderId] = useState(null);
+  const [paymentSuccessVisible, setPaymentSuccessVisible] = useState(false);
   const timerRef = useRef(null);
+  const paymentPollRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -104,6 +107,10 @@ export default function OrderSummaryScreen({ navigation, route }) {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
+      }
+      if (paymentPollRef.current) {
+        clearInterval(paymentPollRef.current);
+        paymentPollRef.current = null;
       }
     };
   }, []);
@@ -178,6 +185,55 @@ export default function OrderSummaryScreen({ navigation, route }) {
     return out.json?.data;
   };
 
+  const startPaymentPolling = (orderId, token) => {
+    if (!orderId) return;
+
+    if (paymentPollRef.current) {
+      clearInterval(paymentPollRef.current);
+      paymentPollRef.current = null;
+    }
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=1`,
+          { headers },
+        );
+        const json = await res.json();
+        const payment = json?.items?.[0];
+        if (payment?.paymentStatus === 'PAID') {
+          if (paymentPollRef.current) {
+            clearInterval(paymentPollRef.current);
+            paymentPollRef.current = null;
+          }
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          setQrVisible(false);
+          setPaymentSuccessVisible(true);
+        // Clear cart on successful payment
+        try {
+          await clearCart();
+        } catch (e) {
+          console.log('[cart/clear] error', e);
+        }
+        }
+      } catch (e) {
+        console.log('[payment/poll] error', e);
+      }
+    };
+
+    // Gọi ngay 1 lần, sau đó lặp lại
+    poll();
+    paymentPollRef.current = setInterval(poll, 2000);
+  };
+
   const createOrder = async () => {
     if (creating) return;
     setCreating(true);
@@ -238,10 +294,12 @@ export default function OrderSummaryScreen({ navigation, route }) {
 
       const orderId = json?.data;
       if (res.ok && json?.success && orderId) {
+        setCreatedOrderId(orderId);
         const data = await createDepositQr(orderId, token);
         setQrData(data);
         setQrVisible(true);
         startCountdown();
+        startPaymentPolling(orderId, token);
       }
     } catch (e) {
       console.log('[order/create] error', e);
@@ -463,6 +521,73 @@ export default function OrderSummaryScreen({ navigation, route }) {
             >
               <Ionicons name="download-outline" size={18} color={BACKGROUND_WHITE} />
               <Text style={styles.openBankButtonText}>Lưu mã QR</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Payment success modal */}
+      <Modal
+        visible={paymentSuccessVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPaymentSuccessVisible(false);
+          navigation.navigate('Orders', { initialTab: 'upcoming' });
+        }}
+      >
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark" size={36} color={BACKGROUND_WHITE} />
+            </View>
+            <Text style={styles.successTitle}>Thanh toán thành công</Text>
+            <Text style={styles.successSubtitle}>Cảm ơn bạn đã lựa chọn Bookfet</Text>
+
+            <View style={styles.successInfo}>
+              <View style={styles.successInfoRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color={TEXT_SECONDARY}
+                  style={styles.successInfoIcon}
+                />
+                <Text style={styles.successInfoLabel}>Thời gian</Text>
+                <Text style={styles.successInfoValue}>{timeText}</Text>
+              </View>
+              <View style={styles.successInfoRow}>
+                <Ionicons
+                  name="location-outline"
+                  size={18}
+                  color={TEXT_SECONDARY}
+                  style={styles.successInfoIcon}
+                />
+                <Text style={styles.successInfoLabel}>Địa điểm</Text>
+                <Text style={styles.successInfoValue}>{locationText}</Text>
+              </View>
+              <View style={styles.successInfoRow}>
+                <Ionicons
+                  name="card-outline"
+                  size={18}
+                  color={TEXT_SECONDARY}
+                  style={styles.successInfoIcon}
+                />
+                <Text style={styles.successInfoLabel}>Đã cọc</Text>
+                <Text style={styles.successInfoValue}>
+                  {formatVnd(qrData?.amount ?? deposit)}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.successButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                setPaymentSuccessVisible(false);
+                navigation.navigate('Orders', { initialTab: 'upcoming' });
+              }}
+            >
+              <Text style={styles.successButtonText}>Xem đơn hàng</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -718,5 +843,81 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   qrHint: { marginTop: 10, fontSize: 12, color: TEXT_SECONDARY, textAlign: 'center' },
+  successOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  successCard: {
+    width: '100%',
+    borderRadius: 20,
+    backgroundColor: BACKGROUND_WHITE,
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  successIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#2ecc71',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 6,
+  },
+  successSubtitle: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    marginBottom: 20,
+  },
+  successInfo: {
+    width: '100%',
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  successInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  successInfoIcon: {
+    marginRight: 8,
+  },
+  successInfoLabel: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    width: 80,
+  },
+  successInfoValue: {
+    flex: 1,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  successButton: {
+    marginTop: 8,
+    width: '100%',
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_COLOR,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successButtonText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 16,
+    fontWeight: '800',
+  },
 });
 

@@ -135,3 +135,10 @@ export async function removeCartItem(itemId) {
   await setCart(filtered);
   return filtered;
 }
+
+/**
+ * Xóa toàn bộ giỏ hàng.
+ */
+export async function clearCart() {
+  await setCart([]);
+}
