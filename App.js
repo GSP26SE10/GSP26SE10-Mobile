@@ -1,7 +1,8 @@
 import { StatusBar } from "expo-status-bar";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getAccessToken } from "./utils/auth";
+import { logAccessTokenNow, registerForPushNotificationsAsync } from "./utils/notification";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import HomeScreen from "./screens/HomeScreen";
@@ -36,6 +37,11 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Home");
   const [screenParams, setScreenParams] = useState({});
   const [screenHistory, setScreenHistory] = useState(["Home"]);
+
+  useEffect(() => {
+    logAccessTokenNow();
+    registerForPushNotificationsAsync();
+  }, []);
 
   const navigation = {
     navigate: (screenName, params) => {
