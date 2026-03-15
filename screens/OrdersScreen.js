@@ -19,28 +19,49 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_L
 
 const { width } = Dimensions.get('window');
 
-// Simple in-memory cache so that coming back from detail
-// doesn't refetch the same orders list.
-let upcomingOrdersCache = null;
+// Status: 1 = Sắp tới, 5 = Đang diễn ra, 6 = Hoàn thành, 3 = Bị từ chối, 7 = Khách hủy
+const ORDER_STATUS = {
+  UPCOMING: 1,
+  ONGOING: 5,
+  COMPLETED: 6,
+  REJECTED: 3,
+  CUSTOMER_CANCELLED: 7,
+};
+
+// TODO: Backend đang lỗi query status bằng số. Tạm dùng chữ; sửa xong đổi lại thành số (1,5,6,3,7).
+const STATUS_QUERY_STRING = true;
+const getStatusQuery = (num) =>
+  STATUS_QUERY_STRING
+    ? { 1: 'PENDING', 5: 'ONGOING', 6: 'COMPLETED', 3: 'REJECTED', 7: 'CANCELLED' }[num] ?? num
+    : num;
+
+let ordersCacheByTab = {};
 
 const TABS = [
   { id: 'cart', label: 'Giỏ hàng' },
-  { id: 'upcoming', label: 'Sắp tới' },
-  { id: 'ongoing', label: 'Đang diễn ra' },
-  { id: 'completed', label: 'Hoàn thành' },
-  { id: 'cancelled', label: 'Bị hủy' },
+  { id: 'upcoming', label: 'Sắp tới', status: ORDER_STATUS.UPCOMING },
+  { id: 'ongoing', label: 'Đang diễn ra', status: ORDER_STATUS.ONGOING },
+  { id: 'completed', label: 'Hoàn thành', status: ORDER_STATUS.COMPLETED },
+  { id: 'cancelled', label: 'Bị hủy', statuses: [ORDER_STATUS.REJECTED, ORDER_STATUS.CUSTOMER_CANCELLED] },
 ];
+
+const getTabKey = (index) => TABS[index]?.id ?? 'cart';
 
 export default function OrdersScreen({ navigation, route }) {
   const initialTabKey = route?.params?.initialTab || 'cart';
   const initialIndex = TABS.findIndex((t) => t.id === initialTabKey);
   const [activeTabIndex, setActiveTabIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
   const [cartItems, setCartItems] = useState([]);
-  const [upcomingOrders, setUpcomingOrders] = useState([]);
-  const [upcomingPage, setUpcomingPage] = useState(1);
-  const [upcomingTotalPages, setUpcomingTotalPages] = useState(1);
-  const [isLoadingUpcoming, setIsLoadingUpcoming] = useState(false);
-  const [isRefreshingUpcoming, setIsRefreshingUpcoming] = useState(false);
+  const [ordersByTab, setOrdersByTab] = useState({
+    upcoming: [],
+    ongoing: [],
+    completed: [],
+    cancelled: [],
+  });
+  const [pageByTab, setPageByTab] = useState({ upcoming: 1, ongoing: 1, completed: 1, cancelled: 1 });
+  const [totalPagesByTab, setTotalPagesByTab] = useState({ upcoming: 1, ongoing: 1, completed: 1, cancelled: 1 });
+  const [loadingByTab, setLoadingByTab] = useState({ upcoming: false, ongoing: false, completed: false, cancelled: false });
+  const [refreshingByTab, setRefreshingByTab] = useState({ upcoming: false, ongoing: false, completed: false, cancelled: false });
   const [customerId, setCustomerId] = useState(null);
   const flatListRef = useRef(null);
   const tabScrollRef = useRef(null);
@@ -101,61 +122,80 @@ export default function OrdersScreen({ navigation, route }) {
     }
   };
 
-  const fetchUpcomingOrders = useCallback(
-    async (page = 1, append = false) => {
-      if (!customerId) return;
-      if (isLoadingUpcoming) return;
+  const formatDateShort = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const fetchOrdersForTab = useCallback(
+    async (tabKey, page = 1, append = false) => {
+      if (!customerId || tabKey === 'cart') return;
+      const tab = TABS.find((t) => t.id === tabKey);
+      if (!tab?.status && !tab?.statuses) return;
+
+      const isLoading = loadingByTab[tabKey];
+      if (isLoading) return;
 
       try {
         if (page === 1 && !append) {
-          setIsRefreshingUpcoming(true);
+          setRefreshingByTab((prev) => ({ ...prev, [tabKey]: true }));
         } else {
-          setIsLoadingUpcoming(true);
+          setLoadingByTab((prev) => ({ ...prev, [tabKey]: true }));
         }
 
-        const res = await fetch(
-          `${API_URL}/api/order?CustomerId=${customerId}&page=${page}&pageSize=10`,
-        );
-        const json = await res.json();
-        const items = Array.isArray(json?.items) ? json.items : [];
+        let items = [];
+        let totalPages = 1;
 
-        setUpcomingOrders((prev) => (append ? [...prev, ...items] : items));
-        const nextPage = page;
-        const totalPages = json?.totalPages || 1;
-        setUpcomingPage(nextPage);
-        setUpcomingTotalPages(totalPages);
+        if (tab.statuses) {
+          const [res1, res2] = await Promise.all(
+            tab.statuses.map((status) =>
+              fetch(`${API_URL}/api/order?CustomerId=${customerId}&Status=${getStatusQuery(status)}&page=${page}&pageSize=10`),
+            ),
+          );
+          const json1 = await res1.json();
+          const json2 = await res2.json();
+          const list1 = Array.isArray(json1?.items) ? json1.items : [];
+          const list2 = Array.isArray(json2?.items) ? json2.items : [];
+          items = append ? [...ordersByTab[tabKey], ...list1, ...list2] : [...list1, ...list2];
+          totalPages = Math.max(json1?.totalPages ?? 1, json2?.totalPages ?? 1);
+        } else {
+          const res = await fetch(
+            `${API_URL}/api/order?CustomerId=${customerId}&Status=${getStatusQuery(tab.status)}&page=${page}&pageSize=10`,
+          );
+          const json = await res.json();
+          const list = Array.isArray(json?.items) ? json.items : [];
+          items = append ? [...ordersByTab[tabKey], ...list] : list;
+          totalPages = json?.totalPages ?? 1;
+        }
 
-        // Update cache
-        upcomingOrdersCache = {
-          customerId,
-          items: append ? [...(upcomingOrdersCache?.items || []), ...items] : items,
-          page: nextPage,
-          totalPages,
-        };
+        setOrdersByTab((prev) => ({ ...prev, [tabKey]: items }));
+        setPageByTab((prev) => ({ ...prev, [tabKey]: page }));
+        setTotalPagesByTab((prev) => ({ ...prev, [tabKey]: totalPages }));
+        ordersCacheByTab[tabKey] = { customerId, items, page, totalPages };
       } catch (e) {
-        console.error('Failed to load upcoming orders', e);
+        console.error('Failed to load orders', tabKey, e);
       } finally {
-        setIsLoadingUpcoming(false);
-        setIsRefreshingUpcoming(false);
+        setLoadingByTab((prev) => ({ ...prev, [tabKey]: false }));
+        setRefreshingByTab((prev) => ({ ...prev, [tabKey]: false }));
       }
     },
-    [customerId, isLoadingUpcoming],
+    [customerId, loadingByTab, ordersByTab],
   );
 
-  // Load upcoming orders when we have customerId.
-  // If we already have a cache for this customer, hydrate from it instead of refetching.
   useEffect(() => {
     if (!customerId) return;
-
-    if (upcomingOrdersCache && upcomingOrdersCache.customerId === customerId) {
-      setUpcomingOrders(upcomingOrdersCache.items || []);
-      setUpcomingPage(upcomingOrdersCache.page || 1);
-      setUpcomingTotalPages(upcomingOrdersCache.totalPages || 1);
-      return;
-    }
-
-    fetchUpcomingOrders(1, false);
-  }, [customerId, fetchUpcomingOrders]);
+    ['upcoming', 'ongoing', 'completed', 'cancelled'].forEach((tabKey) => {
+      const cached = ordersCacheByTab[tabKey];
+      if (cached && cached.customerId === customerId) {
+        setOrdersByTab((prev) => ({ ...prev, [tabKey]: cached.items || [] }));
+        setPageByTab((prev) => ({ ...prev, [tabKey]: cached.page || 1 }));
+        setTotalPagesByTab((prev) => ({ ...prev, [tabKey]: cached.totalPages || 1 }));
+      } else {
+        fetchOrdersForTab(tabKey, 1, false);
+      }
+    });
+  }, [customerId]);
 
   const handleTabPress = (index) => {
     setActiveTabIndex(index);
@@ -399,6 +439,21 @@ export default function OrdersScreen({ navigation, route }) {
     );
   };
 
+  const getOrderCardData = (order) => {
+    const first = order?.orderDetails?.[0];
+    const menuSnapshot = first?.menuSnapshot;
+    const imgUrl = menuSnapshot?.imgUrl;
+    const imageUri = Array.isArray(imgUrl) ? imgUrl[0] : imgUrl;
+    return {
+      imageUri,
+      menuName: first?.menuName ?? menuSnapshot?.menuName ?? `#${order?.orderId}`,
+      numberOfGuests: first?.numberOfGuests ?? 0,
+      startTime: first?.startTime,
+      address: first?.address ?? '',
+      totalPrice: order?.totalPrice,
+    };
+  };
+
   const renderEmptyTab = (message) => (
     <View style={styles.tabContent}>
       <View style={styles.emptyContainer}>
@@ -407,63 +462,94 @@ export default function OrdersScreen({ navigation, route }) {
     </View>
   );
 
+  const renderOrderCard = (order, sourceTab) => {
+    const card = getOrderCardData(order);
+    return (
+      <TouchableOpacity
+        style={styles.orderCard}
+        activeOpacity={0.8}
+        onPress={() =>
+          navigation.navigate('OrderDetail', {
+            orderId: order.orderId,
+            sourceTab,
+          })
+        }
+      >
+        <View style={styles.orderCardTop}>
+          {card.imageUri ? (
+            <ExpoImage
+              source={{ uri: card.imageUri }}
+              style={styles.orderImage}
+              contentFit="cover"
+              cachePolicy="disk"
+            />
+          ) : (
+            <View style={[styles.orderImage, styles.orderImagePlaceholder]}>
+              <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+            </View>
+          )}
+          <View style={styles.orderInfo}>
+            <Text style={styles.orderName} numberOfLines={2}>
+              Tiệc {card.menuName}
+            </Text>
+            <Text style={styles.orderQuantity}>
+              {card.numberOfGuests} người - {formatDateShort(card.startTime)}
+            </Text>
+            <Text style={styles.orderAddress} numberOfLines={2}>
+              {card.address}
+            </Text>
+            <Text style={styles.orderPrice}>{formatVnd(card.totalPrice)}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderOrdersList = (tabKey, emptyMessage) => {
+    const orders = ordersByTab[tabKey] ?? [];
+    const loading = loadingByTab[tabKey];
+    const refreshing = refreshingByTab[tabKey];
+    const page = pageByTab[tabKey] ?? 1;
+    const totalPages = totalPagesByTab[tabKey] ?? 1;
+    return (
+      <View style={styles.tabContent}>
+        <FlatList
+          data={orders}
+          keyExtractor={(order) => String(order.orderId)}
+          contentContainerStyle={styles.scrollContent}
+          renderItem={({ item: order }) => renderOrderCard(order, tabKey)}
+          onEndReached={() => {
+            if (!loading && page < totalPages) {
+              fetchOrdersForTab(tabKey, page + 1, true);
+            }
+          }}
+          onEndReachedThreshold={0.2}
+          refreshing={refreshing}
+          onRefresh={() => fetchOrdersForTab(tabKey, 1, false)}
+          ListEmptyComponent={
+            !loading && !refreshing ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>{emptyMessage}</Text>
+              </View>
+            ) : null
+          }
+        />
+      </View>
+    );
+  };
+
   const renderTabContent = ({ item, index }) => {
     switch (index) {
       case 0:
         return renderCartContent();
       case 1:
-        return (
-          <View style={styles.tabContent}>
-            <FlatList
-              data={upcomingOrders}
-              keyExtractor={(order) => String(order.orderId)}
-              contentContainerStyle={styles.scrollContent}
-              renderItem={({ item: order }) => (
-                <TouchableOpacity
-                  style={styles.orderCard}
-                  activeOpacity={0.8}
-                  onPress={() =>
-                    navigation.navigate('OrderDetail', {
-                      orderId: order.orderId,
-                      sourceTab: 'upcoming',
-                    })
-                  }
-                >
-                  <View style={styles.orderInfo}>
-                    <Text style={styles.orderName}>
-                      Tiệc {order.menuName || `#${order.orderId}`}
-                    </Text>
-                    <Text style={styles.orderQuantity}>
-                      {order.status === 'PENDING' ? 'Đang chờ xác nhận' : order.status}
-                    </Text>
-                    <Text style={styles.orderPrice}>{formatVnd(order.totalPrice)}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              onEndReached={() => {
-                if (!isLoadingUpcoming && upcomingPage < upcomingTotalPages) {
-                  fetchUpcomingOrders(upcomingPage + 1, true);
-                }
-              }}
-              onEndReachedThreshold={0.2}
-              refreshing={isRefreshingUpcoming}
-              onRefresh={() => fetchUpcomingOrders(1, false)}
-              ListEmptyComponent={
-                !isLoadingUpcoming && !isRefreshingUpcoming ? (
-                  <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>Chưa có đơn hàng sắp tới</Text>
-                  </View>
-                ) : null
-              }
-            />
-          </View>
-        );
+        return renderOrdersList('upcoming', 'Chưa có đơn hàng sắp tới');
       case 2:
-        return renderEmptyTab('Chưa có đơn hàng đang diễn ra');
+        return renderOrdersList('ongoing', 'Chưa có đơn hàng đang diễn ra');
       case 3:
-        return renderEmptyTab('Chưa có đơn hàng hoàn thành');
+        return renderOrdersList('completed', 'Chưa có đơn hàng hoàn thành');
       case 4:
-        return renderEmptyTab('Chưa có đơn hàng bị hủy');
+        return renderOrdersList('cancelled', 'Chưa có đơn hàng bị hủy');
       default:
         return null;
     }
@@ -616,6 +702,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#E0E0E0',
   },
+  orderImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   orderInfo: {
     flex: 1,
     marginLeft: 16,
@@ -630,6 +720,11 @@ const styles = StyleSheet.create({
   },
   orderQuantity: {
     fontSize: 14,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  orderAddress: {
+    fontSize: 13,
     color: TEXT_SECONDARY,
     marginBottom: 8,
   },

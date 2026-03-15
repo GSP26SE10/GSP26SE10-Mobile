@@ -81,7 +81,9 @@ export default function LoginScreen({ navigation, route }) {
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
       setLoading(false);
       if (result.type === 'success' && result.url) {
+        console.log('[Google Login] callback URL:', result.url);
         const params = parseCallbackUrl(result.url);
+        console.log('[Google Login] parsed params:', JSON.stringify(params, null, 2));
         const accessToken = params.accessToken || params.token;
         if (!accessToken) {
           showToast('Đăng nhập Google thất bại. Không nhận được token.');
@@ -90,8 +92,8 @@ export default function LoginScreen({ navigation, route }) {
         }
         await AsyncStorage.setItem('accessToken', accessToken);
         const roleName = params.roleName || 'USER';
-        const userData = {
-          userId: params.userId,
+        let userData = {
+          userId: params.userId != null ? Number(params.userId) : params.userId,
           userName: params.userName,
           fullName: params.fullName,
           email: params.email,
@@ -100,6 +102,40 @@ export default function LoginScreen({ navigation, route }) {
           status: params.status || 'ACTIVE',
           roleName,
         };
+        try {
+          const userId = userData.userId != null ? userData.userId : params.userId;
+          if (userId != null) {
+            const profileRes = await fetch(
+              `${API_URL}/api/user?UserId=${userId}&page=1&pageSize=1`,
+              { headers: { Authorization: `Bearer ${accessToken}` } },
+            );
+            console.log('[Google Login] profile API status:', profileRes.status, 'userId:', userId);
+          if (profileRes.ok) {
+            const profileJson = await profileRes.json();
+            console.log('[Google Login] profile API response:', JSON.stringify(profileJson, null, 2));
+            const items = Array.isArray(profileJson?.items) ? profileJson.items : [];
+            const profile = items[0] ?? profileJson;
+            if (profile && (profile.fullName || profile.email)) {
+              userData = {
+                userId: profile.userId ?? userData.userId,
+                userName: profile.userName ?? userData.userName,
+                fullName: profile.fullName ?? userData.fullName,
+                email: profile.email ?? userData.email,
+                phone: profile.phone ?? userData.phone,
+                address: profile.address ?? userData.address,
+                status: profile.status ?? userData.status,
+                roleName: profile.roleName ?? roleName,
+              };
+            }
+          } else {
+            const errText = await profileRes.text();
+            console.log('[Google Login] profile API error:', profileRes.status, errText);
+          }
+          }
+        } catch (e) {
+          console.warn('Could not fetch user profile after Google login', e);
+        }
+        console.log('[Google Login] userData saved:', JSON.stringify(userData, null, 2));
         await AsyncStorage.setItem('userData', JSON.stringify(userData));
         showToast('Đăng nhập thành công');
         const returnScreen = route?.params?.returnScreen;

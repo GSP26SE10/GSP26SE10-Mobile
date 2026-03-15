@@ -62,7 +62,11 @@ export default function MenuDetailScreen({ navigation, route }) {
   const baseDetail = getMenuDetail();
   const menuDetail = {
     ...baseDetail,
-    images: menuInfo?.imgUrl ? [menuInfo.imgUrl] : baseDetail.images,
+    images: Array.isArray(menuInfo?.imgUrl)
+      ? menuInfo.imgUrl
+      : menuInfo?.imgUrl
+        ? [menuInfo.imgUrl]
+        : baseDetail.images,
   };
   const flatListRef = useRef(null);
   const fullscreenFlatListRef = useRef(null);

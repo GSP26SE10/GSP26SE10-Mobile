@@ -216,7 +216,7 @@ export default function HomeScreen({ navigation, route }) {
                       activeOpacity={0.8}
                     >
                       <Image
-                        source={{ uri: menu.imgUrl }}
+                        source={{ uri: Array.isArray(menu.imgUrl) ? menu.imgUrl[0] : menu.imgUrl }}
                         style={styles.cardImage}
                         contentFit="cover"
                         cachePolicy="disk"

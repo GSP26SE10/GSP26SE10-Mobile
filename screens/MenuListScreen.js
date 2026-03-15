@@ -169,7 +169,7 @@ export default function MenuListScreen({ navigation, route }) {
               activeOpacity={0.8}
             >
               <Image
-                source={{ uri: item.imgUrl }}
+                source={{ uri: Array.isArray(item.imgUrl) ? item.imgUrl[0] : item.imgUrl }}
                 style={styles.menuImage}
                 contentFit="cover"
                 cachePolicy="disk"
