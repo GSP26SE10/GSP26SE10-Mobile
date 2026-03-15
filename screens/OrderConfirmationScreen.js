@@ -169,50 +169,45 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     };
   }, []);
 
+  // Một effect duy nhất: đồng bộ eventDate/start/end, clamp quá khứ, đảm bảo end > start.
+  // Dùng timestamp để so sánh, chỉ setState khi giá trị thực sự đổi → tránh vòng lặp.
   useEffect(() => {
-    // Đồng bộ ngày của start/end theo eventDate và không cho chọn quá khứ
     const now = new Date();
-    const safeDate = startOfDay(eventDate).getTime() < startOfDay(now).getTime() ? now : eventDate;
+    const todayStart = startOfDay(now).getTime();
+    const eventDayStart = startOfDay(eventDate).getTime();
 
-    // Nếu eventDate bị kéo về quá khứ thì clamp về hôm nay
-    if (!isSameDay(safeDate, eventDate)) {
-      setEventDate(safeDate);
-      return;
-    }
+    const safeDate = eventDayStart < todayStart ? now : eventDate;
+    const safeDateT = startOfDay(safeDate).getTime();
+    const eventDateT = startOfDay(eventDate).getTime();
 
-    const nextStart = combineDateAndTime(eventDate, startTime);
-    const safeStart = isSameDay(eventDate, now) ? clampNotPast(nextStart) : nextStart;
-    if (safeStart.getTime() !== startTime.getTime()) {
-      setStartTime(safeStart);
-      return;
-    }
-
-    const nextEnd = combineDateAndTime(eventDate, endTime);
-    let safeEnd = nextEnd;
-    if (isSameDay(eventDate, now)) safeEnd = clampNotPast(safeEnd);
-    // end phải > start, nếu không thì đẩy end = start + 2h
+    const nextStart = combineDateAndTime(safeDate, startTime);
+    const safeStart = eventDayStart < todayStart ? clampNotPast(nextStart) : nextStart;
+    let safeEnd = combineDateAndTime(safeDate, endTime);
+    if (eventDayStart < todayStart) safeEnd = clampNotPast(safeEnd);
     if (safeEnd.getTime() <= safeStart.getTime()) {
       safeEnd = new Date(safeStart);
       safeEnd.setHours(safeEnd.getHours() + 2);
     }
-    if (safeEnd.getTime() !== endTime.getTime()) {
-      setEndTime(safeEnd);
-    }
-  }, [startTime]);
 
-  useEffect(() => {
-    // Khi đổi ngày tổ chức, giữ giờ nhưng đồng bộ ngày và clamp không quá khứ
-    const now = new Date();
-    const safeDate = startOfDay(eventDate).getTime() < startOfDay(now).getTime() ? now : eventDate;
-    if (!isSameDay(safeDate, eventDate)) {
+    const startT = safeStart.getTime();
+    const endT = safeEnd.getTime();
+
+    if (safeDateT !== eventDateT) {
       setEventDate(safeDate);
       return;
     }
-    const nextStart = combineDateAndTime(eventDate, startTime);
-    const nextEnd = combineDateAndTime(eventDate, endTime);
-    setStartTime(isSameDay(eventDate, now) ? clampNotPast(nextStart) : nextStart);
-    setEndTime(nextEnd);
-  }, [eventDate]);
+    if (startT !== startTime.getTime()) {
+      setStartTime(safeStart);
+      return;
+    }
+    if (endT !== endTime.getTime()) {
+      setEndTime(safeEnd);
+    }
+  }, [
+    eventDate.getTime(),
+    startTime.getTime(),
+    endTime.getTime(),
+  ]);
 
   useEffect(() => {
     // Khi đổi thành phố thì reset ward về phần tử đầu (nếu ward hiện tại không thuộc city mới)
