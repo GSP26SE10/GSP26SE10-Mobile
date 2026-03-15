@@ -37,6 +37,19 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
+/** Trạng thái đơn: 1 Chờ duyệt, 2 Sắp tới, 3 Bị từ chối, 4 Đang chuẩn bị, 5 Đang diễn ra, 6 Hoàn thành, 7 Bị hủy */
+const ORDER_STATUS_HIDE_ON_HOME = [1, 3, 6, 7]; // Chỉ hiện đơn 2, 4, 5 trên trang chủ
+
+const ORDER_STATUS_LABEL = {
+  1: 'Chờ duyệt',
+  2: 'Sắp tới',
+  3: 'Bị từ chối',
+  4: 'Đang chuẩn bị',
+  5: 'Đang diễn ra',
+  6: 'Hoàn thành',
+  7: 'Bị hủy',
+};
+
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */
 function buildOrdersFromTaskItems(items) {
   const map = new Map();
@@ -61,7 +74,10 @@ export default function StaffHomeScreen({ navigation }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const orders = buildOrdersFromTaskItems(allTaskItems);
+  const allOrders = buildOrdersFromTaskItems(allTaskItems);
+  const orders = allOrders.filter(
+    (item) => !ORDER_STATUS_HIDE_ON_HOME.includes(item.orderDetail?.status)
+  );
 
   const fetchPage = useCallback(async (pageNum, append = false) => {
     const token = await getAccessToken();
@@ -245,7 +261,7 @@ export default function StaffHomeScreen({ navigation }) {
               {od.address || '—'}
             </Text>
             <Text style={styles.partyStatus}>
-              {item.tasks?.length ? `${item.tasks.length} công việc` : '—'}
+              {ORDER_STATUS_LABEL[od.status] ?? '—'}
             </Text>
           </View>
         </TouchableOpacity>

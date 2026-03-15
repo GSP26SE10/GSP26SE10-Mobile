@@ -63,30 +63,40 @@ const formatTimeRange = (startIso, endIso) => {
 };
 
 const mockPartyDetail = {
-  id: 1,
-  image: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg',
-  name: 'Buffet Lẩu Bò Mỹ',
-  dishes: '10 MÓN',
-  guests: '10 NGƯỜI',
-  timeRange: '9:30 – 10/01/2026',
-  address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
-  contactName: 'Nguyễn Văn A',
-  phone: '0123456789',
-  status: 'Đang chuẩn bị',
-  subtotal: '2.489.000₫',
-  vat: '248.900₫',
-  deposit: '1.368.950₫',
-  remaining: '1.368.950₫',
+  id: 0,
+  image: null,
+  name: '—',
+  dishes: '—',
+  guests: '—',
+  timeRange: '—',
+  address: '—',
+  contactName: '—',
+  phone: '—',
+  status: '—',
+  subtotal: '—',
+  vat: '—',
+  deposit: '—',
+  remaining: '—',
 };
 
-const mockTasks = [
-  { id: 1, title: 'Chuẩn bị nguyên liệu A – 08:00', done: true },
-  { id: 2, title: 'Chuẩn bị nguyên liệu B – 08:15', done: false },
-  { id: 3, title: 'Chuẩn bị nguyên liệu C – 08:30', done: false },
-];
+const mockTasks = [];
 
 function buildPartyDetailFromOrderDetail(od) {
   if (!od) return null;
+
+  const mapOrderStatusToPartyStatus = (orderStatus) => {
+    switch (orderStatus) {
+      case 4:
+        return 'Đang chuẩn bị';
+      case 5:
+        return 'Đang diễn ra';
+      case 6:
+        return 'Kết thúc tiệc';
+      default:
+        return '—';
+    }
+  };
+
   return {
     id: od.orderDetailId,
     image: null,
@@ -97,7 +107,7 @@ function buildPartyDetailFromOrderDetail(od) {
     address: od.address || '—',
     contactName: '—',
     phone: '—',
-    status: '—',
+    status: mapOrderStatusToPartyStatus(od.status ?? od.orderStatus),
     subtotal: '—',
     vat: '—',
     deposit: '—',
@@ -324,7 +334,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
     const details = encodeURIComponent(
-      `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
+      `${partyDetail.guests}, ${partyDetail.address}`
     );
     let datesParam = '';
     if (orderDetail?.startTime && orderDetail?.endTime) {
@@ -413,10 +423,12 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
+    const currentIndex = steps.indexOf(partyDetail.status);
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive = step === partyDetail.status;
+          const isActive =
+            currentIndex >= 0 ? index <= currentIndex : step === partyDetail.status;
           return (
             <View key={step} style={styles.statusStep}>
               <View
@@ -476,7 +488,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           <View style={styles.partyCardLeft}>
             <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-              {partyDetail.dishes} · {partyDetail.guests}
+             {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>

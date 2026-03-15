@@ -49,25 +49,27 @@ const formatTimeRangeFromOrder = (order) => {
   return `${time(start)} – ${date(start)}`;
 };
 
-const mockPartyDetail = {
-  id: 1,
-  image:
-    'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg',
-  name: 'Buffet Lẩu Bò Mỹ',
-  dishes: '10 MÓN',
-  guests: '10 NGƯỜI',
-  timeRange: '9:30 – 10/01/2026',
-  address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
-  contactName: 'Nguyễn Văn A',
-  phone: '0123456789',
-  status: 'Đang chuẩn bị',
-  subtotal: '2.489.000₫',
-  vat: '248.900₫',
-  deposit: '1.368.950₫',
-  remaining: '1.368.950₫',
+const emptyPartyDetail = {
+  id: 0,
+  image: null,
+  name: '—',
+  dishes: '—',
+  guests: '—',
+  timeRange: '—',
+  address: '—',
+  contactName: '—',
+  phone: '',
+  status: '—',
+  subtotal: '—',
+  vat: '—',
+  deposit: '—',
+  remaining: '—',
 };
 
 const TASK_STATUS_LABEL = {
+  1: 'Chưa bắt đầu',   // PENDING
+  2: 'Đang thực hiện', // IN_PROGRESS
+  3: 'Hoàn thành',     // COMPLETED
   PENDING: 'Chưa bắt đầu',
   IN_PROGRESS: 'Đang thực hiện',
   COMPLETED: 'Hoàn thành',
@@ -75,25 +77,47 @@ const TASK_STATUS_LABEL = {
   CANCELLED: 'Đã hủy',
 };
 
-const mapApiTaskToDisplay = (t) => ({
-  id: t.taskId,
-  title: t.taskName || '—',
-  dateLabel: t.dateLabel || '',
-  timeLabel: t.timeLabel || '',
-  assignee: t.assignee || '',
-  note: t.note || '',
-  status: TASK_STATUS_LABEL[t.status] || t.status || 'Chưa bắt đầu',
-});
+const formatTaskDeadline = (startIso, endIso) => {
+  if (!startIso) return '';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
+  const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time(start)} – ${time(end)}, ${date(start)}`;
+};
+
+const mapApiTaskToDisplay = (t) => {
+  const dateLabel = t.startTime
+    ? `${String(new Date(t.startTime).getDate()).padStart(2, '0')}/${String(new Date(t.startTime).getMonth() + 1).padStart(2, '0')}/${new Date(t.startTime).getFullYear()}`
+    : '';
+  const timeLabel = t.startTime && t.endTime
+    ? `${new Date(t.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} – ${new Date(t.endTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+  return {
+    id: t.taskId,
+    title: t.taskName || '—',
+    dateLabel,
+    timeLabel,
+    assignee: t.assigneeName || t.assignee || '—',
+    note: t.note || '',
+    status: TASK_STATUS_LABEL[t.status] ?? TASK_STATUS_LABEL[String(t.status)] ?? 'Chưa bắt đầu',
+    startTime: t.startTime,
+    endTime: t.endTime,
+  };
+};
 
 export default function LeaderOrderDetailScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
   const initialTasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
     ? orderFromParams.tasks.map(mapApiTaskToDisplay)
     : [];
+  const formatVnd = (n) =>
+    n != null && n !== '' ? `${Number(n).toLocaleString('vi-VN')}₫` : '—';
+
   const partyDetail = orderFromParams
     ? {
         id: orderFromParams.orderDetailId,
-        image: null,
+        image: orderFromParams.menuImage || null,
         name: orderFromParams.menuName || '—',
         dishes: orderFromParams.partyCategory || '—',
         guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
@@ -102,19 +126,31 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         contactName: '—',
         phone: '',
         status: route?.params?.status && typeof route.params.status === 'string' ? route.params.status : '—',
-        subtotal: '—',
+        subtotal: formatVnd(orderFromParams.totalPrice),
         vat: '—',
-        deposit: '—',
-        remaining: '—',
+        deposit: formatVnd(orderFromParams.depositAmount),
+        remaining: formatVnd(orderFromParams.remainingAmount),
       }
-    : mockPartyDetail;
+    : emptyPartyDetail;
+
+  const mapOrderStatusToPartyStatus = (orderStatus) => {
+    switch (orderStatus) {
+      case 4:
+        return 'Đang chuẩn bị';
+      case 5:
+        return 'Đang diễn ra';
+      case 6:
+        return 'Kết thúc tiệc';
+      default:
+        return null;
+    }
+  };
 
   const initialStatus =
     route?.params?.status && typeof route.params.status === 'string'
       ? route.params.status
-      : partyDetail.status !== '—'
-        ? partyDetail.status
-        : 'Đang chuẩn bị';
+      : mapOrderStatusToPartyStatus(orderFromParams?.orderStatus) ||
+        (partyDetail.status !== '—' ? partyDetail.status : 'Đang chuẩn bị');
   const [partyStatus, setPartyStatus] = useState(initialStatus);
   const [activeTab, setActiveTab] = useState('overview');
   const [tasks, setTasks] = useState(initialTasks);
@@ -556,13 +592,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           )}
 
           <View style={[styles.summaryRow, { marginTop: 8 }]}>
-            <Text style={styles.summaryLabel}>Tạm tính</Text>
+            <Text style={styles.summaryLabel}>Tổng tiền</Text>
             <Text style={styles.summaryValue}>{partyDetail.subtotal}</Text>
           </View>
+          {/* Thuế VAT (10%) - chưa dùng
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Thuế VAT (10%)</Text>
             <Text style={styles.summaryValue}>{partyDetail.vat}</Text>
           </View>
+          */}
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Đã cọc</Text>
             <Text style={styles.summaryValue}>{partyDetail.deposit}</Text>
@@ -696,14 +734,16 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               <View key={task.id} style={styles.taskRow}>
                 <View style={styles.taskInfo}>
                   <Text style={styles.taskTitle}>{task.title}</Text>
-                  {!!task.timeLabel && (
+                  {(task.timeLabel || task.dateLabel) && (
                     <Text style={styles.taskMeta}>
-                      {task.dateLabel ? `${task.dateLabel} · ` : ''}
-                      {task.timeLabel}
+                      Deadline: {task.dateLabel ? `${task.dateLabel} · ` : ''}{task.timeLabel || formatTaskDeadline(task.startTime, task.endTime)}
                     </Text>
                   )}
-                  {!!task.assignee && (
+                  {!!task.assignee && task.assignee !== '—' && (
                     <Text style={styles.taskMeta}>Nhân viên: {task.assignee}</Text>
+                  )}
+                  {!!task.note && (
+                    <Text style={styles.taskNote} numberOfLines={2}>Ghi chú: {task.note}</Text>
                   )}
                 </View>
                 <View
@@ -1479,6 +1519,13 @@ const styles = StyleSheet.create({
   taskMeta: {
     fontSize: 12,
     color: TEXT_SECONDARY,
+    marginBottom: 2,
+  },
+  taskNote: {
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+    fontStyle: 'italic',
+    marginTop: 2,
   },
   taskStatusBadge: {
     paddingHorizontal: 10,

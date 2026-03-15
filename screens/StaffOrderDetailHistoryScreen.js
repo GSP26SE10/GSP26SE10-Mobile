@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,42 +12,77 @@ import {
   BORDER_LIGHT,
 } from '../constants/colors';
 
-const mockPartyDetailHistory = {
-  id: 1,
-  name: 'Buffet Lẩu Bò Mỹ',
-  dishes: '10 MÓN',
-  guests: '10 NGƯỜI',
-  timeRange: '9:30 – 10/01/2025',
-  address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
-  contactName: 'Nguyễn Văn A',
-  phone: '0123456789',
-  status: 'Kết thúc tiệc',
-  subtotal: '2.489.000₫',
-  vat: '248.900₫',
-  deposit: '1.368.950₫',
-  remaining: '0₫',
-  reviewerName: 'Nguyễn Văn B',
-  rating: 5,
-  reviewText:
-    'Thịt bò tươi, mềm, để nhúng lẩu, ba chỉ và gầu bò được yêu thích nhất. Rau và nấm tươi, menu đa dạng, dễ ăn, phù hợp đi nhóm và gia đình.',
+const formatTimeRange = (startIso, endIso) => {
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
+  const time = (d) =>
+    d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = (d) =>
+    `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time(start)} – ${date(start)}`;
 };
 
-const mockTasksHistory = [
-  { id: 1, title: 'Chuẩn bị nguyên liệu A – 08:00', done: true },
-  { id: 2, title: 'Chuẩn bị nguyên liệu B – 08:15', done: true },
-  { id: 3, title: 'Chuẩn bị nguyên liệu C – 08:30', done: true },
-];
+const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 'Hoàn thành' };
+
+function buildPartyDetailFromOrderDetail(od) {
+  if (!od) return null;
+  return {
+    id: od.orderDetailId,
+    name: od.menuName || '—',
+    dishes: od.partyCategory || '—',
+    guests: `${od.numberOfGuests ?? 0} người`,
+    timeRange: formatTimeRange(od.startTime, od.endTime),
+    address: od.address || '—',
+    contactName: '—',
+    phone: '—',
+    status: 'Kết thúc tiệc',
+  };
+}
+
+function mapTaskToDisplay(t) {
+  return {
+    id: t.taskId,
+    title: t.taskName || '—',
+    statusLabel: TASK_STATUS_MAP[t.taskStatus] || 'Chưa bắt đầu',
+    done: t.taskStatus === 3,
+  };
+}
 
 export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
+  const orderDetail = route?.params?.orderDetail;
+  const paramsTasks = route?.params?.tasks ?? [];
+  const fromParams = orderDetail && Array.isArray(paramsTasks);
+
+  const partyDetail = useMemo(
+    () => buildPartyDetailFromOrderDetail(orderDetail) || {
+      id: 0,
+      name: '—',
+      dishes: '—',
+      guests: '—',
+      timeRange: '—',
+      address: '—',
+      contactName: '—',
+      phone: '—',
+      status: 'Kết thúc tiệc',
+    },
+    [orderDetail]
+  );
+
+  const tasks = useMemo(
+    () => (fromParams ? paramsTasks.map(mapTaskToDisplay) : []),
+    [fromParams, paramsTasks]
+  );
+
   const swipeBack = useSwipeBack(() => navigation.goBack());
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const currentIndex = steps.indexOf(mockPartyDetailHistory.status);
+    const currentIndex = 2;
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive = currentIndex >= 0 ? index <= currentIndex : step === mockPartyDetailHistory.status;
+          const isActive = index <= currentIndex;
           return (
             <View key={step} style={styles.statusStep}>
               <View
@@ -74,108 +109,81 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
     );
   };
 
-  const renderOverviewTab = () => {
-    return (
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+  const renderOverviewTab = () => (
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <TouchableOpacity
+        style={styles.partyCard}
+        activeOpacity={0.8}
+        onPress={() =>
+          navigation.navigate('MenuDetail', {
+            menuId: orderDetail?.menuId ?? 1,
+            menuName: partyDetail.name,
+            buffetType: partyDetail.dishes,
+            fromStaff: true,
+          })
+        }
       >
-        <TouchableOpacity
-          style={styles.partyCard}
-          activeOpacity={0.8}
-          onPress={() =>
-            navigation.navigate('MenuDetail', {
-              menuId: 1,
-              buffetType: 'Buffet Bò',
-              fromStaff: true,
-            })
-          }
-        >
-          <Image
-            source={{
-              uri: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg',
-            }}
-            style={styles.partyImage}
-            resizeMode="cover"
-          />
-          <View style={styles.partyInfo}>
-            <Text style={styles.partyName}>{mockPartyDetailHistory.name}</Text>
-            <Text style={styles.partyMeta}>
-              {mockPartyDetailHistory.dishes} · {mockPartyDetailHistory.guests} ·{' '}
-              {mockPartyDetailHistory.timeRange}
-            </Text>
-            <Text style={styles.partyAddress} numberOfLines={2}>
-              {mockPartyDetailHistory.address}
-            </Text>
-            <Text style={styles.partyContact}>
-              Khách hàng: {mockPartyDetailHistory.contactName} – {mockPartyDetailHistory.phone}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
-        </TouchableOpacity>
-
-        {renderStatusSteps()}
-
-        <View style={styles.summarySection}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tạm tính</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetailHistory.subtotal}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Thuế VAT (10%)</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetailHistory.vat}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Đã cọc</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetailHistory.deposit}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
-              Còn lại
-            </Text>
-            <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-              {mockPartyDetailHistory.remaining}
-            </Text>
-          </View>
+        <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
+          <Ionicons name="image-outline" size={40} color={TEXT_SECONDARY} />
         </View>
-
-        {/* Đánh giá từ khách hàng */}
-        <View style={styles.reviewSection}>
-          <Text style={styles.reviewTitle}>Đánh giá từ khách hàng</Text>
-          <View style={styles.reviewHeader}>
-            <Text style={styles.reviewerName}>{mockPartyDetailHistory.reviewerName}</Text>
-            <View style={styles.reviewRatingRow}>
-              <Text style={styles.reviewScore}>{mockPartyDetailHistory.rating}</Text>
-              <Ionicons name="star" size={16} color="#FFD700" />
-            </View>
-          </View>
-          <Text style={styles.reviewText}>{mockPartyDetailHistory.reviewText}</Text>
+        <View style={styles.partyInfo}>
+          <Text style={styles.partyName}>{partyDetail.name}</Text>
+          <Text style={styles.partyMeta}>
+            {partyDetail.dishes} · {partyDetail.guests} · {partyDetail.timeRange}
+          </Text>
+          <Text style={styles.partyAddress} numberOfLines={2}>
+            {partyDetail.address}
+          </Text>
+          <Text style={styles.partyContact}>
+            Khách hàng: {partyDetail.contactName}
+            {partyDetail.phone ? ` – ${partyDetail.phone}` : ''}
+          </Text>
         </View>
-      </ScrollView>
-    );
-  };
+        <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
+      </TouchableOpacity>
 
-  const renderTasksTab = () => {
-    return (
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {mockTasksHistory.map((task) => (
+      {renderStatusSteps()}
+    </ScrollView>
+  );
+
+  const renderTasksTab = () => (
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {tasks.length === 0 ? (
+        <View style={styles.emptyTasks}>
+          <Text style={styles.emptyTasksText}>Không có công việc</Text>
+        </View>
+      ) : (
+        tasks.map((task) => (
           <View key={task.id} style={styles.taskRow}>
             <Text style={styles.taskTitle}>{task.title}</Text>
-            <View style={[styles.taskStatusBadge, styles.taskStatusBadgeDone]}>
-              <Text style={[styles.taskStatusText, styles.taskStatusTextDone]}>
-                Đã xong
+            <View
+              style={[
+                styles.taskStatusBadge,
+                task.done && styles.taskStatusBadgeDone,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.taskStatusText,
+                  task.done && styles.taskStatusTextDone,
+                ]}
+              >
+                {task.statusLabel}
               </Text>
             </View>
           </View>
-        ))}
-      </ScrollView>
-    );
-  };
+        ))
+      )}
+    </ScrollView>
+  );
 
   const [activeTab, setActiveTab] = React.useState('overview');
 
@@ -320,6 +328,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0E0E0',
     marginRight: 10,
   },
+  partyImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   partyInfo: {
     flex: 1,
     marginRight: 4,
@@ -440,6 +452,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: TEXT_SECONDARY,
     lineHeight: 20,
+  },
+  emptyTasks: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyTasksText: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
   },
   taskRow: {
     flexDirection: 'row',

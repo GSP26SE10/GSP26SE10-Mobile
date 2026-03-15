@@ -38,7 +38,7 @@ const queryClient = new QueryClient();
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Home");
   const [screenParams, setScreenParams] = useState({});
-  const [screenHistory, setScreenHistory] = useState(["Home"]);
+  const [screenHistory, setScreenHistory] = useState([{ name: "Home", params: {} }]);
 
   useEffect(() => {
     logAccessTokenNow();
@@ -50,28 +50,32 @@ export default function App() {
       if (PROTECTED_TABS.includes(screenName)) {
         getAccessToken().then((token) => {
           if (!token) {
-            setScreenParams({ returnScreen: screenName, returnParams: null, fromAuthRequired: true, ...(params || {}) });
-            setScreenHistory((prev) => [...prev, 'Login']);
+            const nextParams = { returnScreen: screenName, returnParams: null, fromAuthRequired: true, ...(params || {}) };
+            setScreenParams(nextParams);
+            setScreenHistory((prev) => [...prev, { name: 'Login', params: nextParams }]);
             setCurrentScreen('Login');
             return;
           }
-          setScreenParams(params || {});
-          setScreenHistory((prev) => [...prev, screenName]);
+          const nextParams = params || {};
+          setScreenParams(nextParams);
+          setScreenHistory((prev) => [...prev, { name: screenName, params: nextParams }]);
           setCurrentScreen(screenName);
         });
         return;
       }
-      setScreenParams(params || {});
-      setScreenHistory((prev) => [...prev, screenName]);
+      const nextParams = params || {};
+      setScreenParams(nextParams);
+      setScreenHistory((prev) => [...prev, { name: screenName, params: nextParams }]);
       setCurrentScreen(screenName);
     },
     goBack: () => {
       if (screenHistory.length > 1) {
         const newHistory = [...screenHistory];
         newHistory.pop(); // Remove current screen
-        const previousScreen = newHistory[newHistory.length - 1];
+        const previousEntry = newHistory[newHistory.length - 1];
         setScreenHistory(newHistory);
-        setCurrentScreen(previousScreen);
+        setCurrentScreen(previousEntry.name);
+        setScreenParams(previousEntry.params || {});
       }
     },
   };

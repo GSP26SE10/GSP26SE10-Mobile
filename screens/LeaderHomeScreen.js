@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,10 +22,53 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
+const ORDER_STATUS_LABEL = {
+  1: 'Chờ duyệt',
+  2: 'Sắp tới',
+  3: 'Bị từ chối',
+  4: 'Đang chuẩn bị',
+  5: 'Đang diễn ra',
+  6: 'Hoàn thành',
+  7: 'Bị hủy',
+};
+
 export default function LeaderHomeScreen({ navigation }) {
   const [greetingText, setGreetingText] = useState('Xin chào!');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/staff-group/leader/orders-overview`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        setOverview({ orders: [], members: [] });
+        return;
+      }
+      const data = await res.json();
+      const payload = {
+        staffGroupId: data.staffGroupId,
+        staffGroupName: data.staffGroupName,
+        leaderId: data.leaderId,
+        leaderName: data.leaderName,
+        members: Array.isArray(data.members) ? data.members : [],
+        orders: Array.isArray(data.orders) ? data.orders : [],
+      };
+      setOverview(payload);
+      await AsyncStorage.setItem(LEADER_OVERVIEW_CACHE_KEY, JSON.stringify({ data: payload, at: Date.now() }));
+      if (Array.isArray(data.members) && data.members.length > 0) {
+        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(data.members));
+      }
+    } catch (e) {
+      console.warn('Leader orders-overview refresh failed', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -86,7 +129,8 @@ export default function LeaderHomeScreen({ navigation }) {
     return () => { cancelled = true; };
   }, []);
 
-  const orders = overview?.orders ?? [];
+  const allOrders = overview?.orders ?? [];
+  const orders = allOrders.filter((o) => ![1, 3, 6, 7].includes(o.orderStatus));
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -94,6 +138,9 @@ export default function LeaderHomeScreen({ navigation }) {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[PRIMARY_COLOR]} />
+        }
       >
         <View style={styles.header}>
           <Text style={styles.greeting}>{greetingText}</Text>
@@ -133,9 +180,17 @@ export default function LeaderHomeScreen({ navigation }) {
               }
             >
               <View style={styles.partyImageWrap}>
-                <View style={styles.partyImagePlaceholder}>
-                  <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
-                </View>
+                {order.menuImage ? (
+                  <Image
+                    source={{ uri: order.menuImage }}
+                    style={styles.partyImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.partyImagePlaceholder}>
+                    <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
+                  </View>
+                )}
               </View>
               <View style={styles.partyInfo}>
                 <Text style={styles.partyName}>{order.menuName || '—'}</Text>
@@ -145,7 +200,9 @@ export default function LeaderHomeScreen({ navigation }) {
                 <Text style={styles.partyAddress} numberOfLines={1}>
                   {order.address || '—'}
                 </Text>
-                <Text style={styles.partyStatus}>—</Text>
+                <Text style={styles.partyStatus}>
+                  {ORDER_STATUS_LABEL[order.orderStatus] ?? '—'}
+                </Text>
               </View>
             </TouchableOpacity>
           ))
