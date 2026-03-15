@@ -43,6 +43,7 @@ export default function MenuDetailScreen({ navigation, route }) {
   const menuCategoryId = route?.params?.menuCategoryId;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
   const fromStaff = route?.params?.fromStaff || false;
+  const menuNameFromParams = route?.params?.menuName;
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState(0);
@@ -280,13 +281,17 @@ export default function MenuDetailScreen({ navigation, route }) {
           )}
         </View>
 
-        {/* Menu title */}
-        {isLoadingMenuInfo ? (
+        {/* Menu title: từ API hoặc params (staff/leader không có menuCategoryId nên dùng params) */}
+        {isLoadingMenuInfo && !menuNameFromParams ? (
           <View style={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 }}>
             <SkeletonBox style={{ width: 220, height: 28, borderRadius: 6 }} />
           </View>
         ) : (
-          menuInfo && <Text style={styles.menuTitle}>{menuInfo.menuName}</Text>
+          (menuInfo?.menuName ?? menuNameFromParams) != null && (
+            <Text style={styles.menuTitle}>
+              {menuInfo?.menuName ?? menuNameFromParams}
+            </Text>
+          )
         )}
 
         {/* Dish List */}

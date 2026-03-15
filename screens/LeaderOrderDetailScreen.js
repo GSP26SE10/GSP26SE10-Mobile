@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,18 @@ import {
   Image,
   TextInput,
   Modal,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
   Linking,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from '@react-native-community/datetimepicker';
@@ -30,6 +33,21 @@ import {
   PRIMARY_COLOR,
   INPUT_BACKGROUND,
 } from '../constants/colors';
+import { getAccessToken } from '../utils/auth';
+import API_URL from '../constants/api';
+
+const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
+const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
+const LEADER_OVERVIEW_API = '/api/staff-group/leader/orders-overview';
+
+const formatTimeRangeFromOrder = (order) => {
+  if (!order?.startTime) return '—';
+  const start = new Date(order.startTime);
+  const end = order?.endTime ? new Date(order.endTime) : start;
+  const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time(start)} – ${date(start)}`;
+};
 
 const mockPartyDetail = {
   id: 1,
@@ -49,44 +67,78 @@ const mockPartyDetail = {
   remaining: '1.368.950₫',
 };
 
-const mockTasksInitial = [
-  {
-    id: 1,
-    title: 'Chuẩn bị nguyên liệu (An)',
-    dateLabel: '10 tháng 1 2026',
-    timeLabel: '8:00 AM',
-    assignee: 'An',
-    note: '',
-    status: 'Đang chuẩn bị',
-  },
-  {
-    id: 2,
-    title: 'Setup bàn ghế (Bình)',
-    dateLabel: '10 tháng 1 2026',
-    timeLabel: '9:00 AM',
-    assignee: 'Bình',
-    note: '',
-    status: 'Chưa bắt đầu',
-  },
-];
+const TASK_STATUS_LABEL = {
+  PENDING: 'Chưa bắt đầu',
+  IN_PROGRESS: 'Đang thực hiện',
+  COMPLETED: 'Hoàn thành',
+  DONE: 'Hoàn thành',
+  CANCELLED: 'Đã hủy',
+};
+
+const mapApiTaskToDisplay = (t) => ({
+  id: t.taskId,
+  title: t.taskName || '—',
+  dateLabel: t.dateLabel || '',
+  timeLabel: t.timeLabel || '',
+  assignee: t.assignee || '',
+  note: t.note || '',
+  status: TASK_STATUS_LABEL[t.status] || t.status || 'Chưa bắt đầu',
+});
 
 export default function LeaderOrderDetailScreen({ navigation, route }) {
+  const orderFromParams = route?.params?.order;
+  const initialTasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
+    ? orderFromParams.tasks.map(mapApiTaskToDisplay)
+    : [];
+  const partyDetail = orderFromParams
+    ? {
+        id: orderFromParams.orderDetailId,
+        image: null,
+        name: orderFromParams.menuName || '—',
+        dishes: orderFromParams.partyCategory || '—',
+        guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
+        timeRange: formatTimeRangeFromOrder(orderFromParams),
+        address: orderFromParams.address || '—',
+        contactName: '—',
+        phone: '',
+        status: route?.params?.status && typeof route.params.status === 'string' ? route.params.status : '—',
+        subtotal: '—',
+        vat: '—',
+        deposit: '—',
+        remaining: '—',
+      }
+    : mockPartyDetail;
+
   const initialStatus =
     route?.params?.status && typeof route.params.status === 'string'
       ? route.params.status
-      : mockPartyDetail.status;
-  const [partyStatus, setPartyStatus] = useState(initialStatus); // 'Đang chuẩn bị' | 'Đang diễn ra' | 'Kết thúc tiệc'
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
-  const [tasks, setTasks] = useState(mockTasksInitial);
+      : partyDetail.status !== '—'
+        ? partyDetail.status
+        : 'Đang chuẩn bị';
+  const [partyStatus, setPartyStatus] = useState(initialStatus);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [tasks, setTasks] = useState(initialTasks);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [createVisible, setCreateVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newAssignee, setNewAssignee] = useState('');
+  const [selectedMember, setSelectedMember] = useState(null);
   const [newDateTime, setNewDateTime] = useState(new Date());
+  const [newEndDateTime, setNewEndDateTime] = useState(() => {
+    const d = new Date();
+    d.setTime(d.getTime() + 60 * 60 * 1000);
+    return d;
+  });
   const [newNote, setNewNote] = useState('');
+  const [members, setMembers] = useState([]);
+  const [assigneeModalVisible, setAssigneeModalVisible] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [refreshingTasks, setRefreshingTasks] = useState(false);
+  const [tasksReady, setTasksReady] = useState(false);
   const swipeBack = useSwipeBack(() => navigation.goBack());
+  const refreshFnRef = useRef(null);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerMode, setPickerMode] = useState('date'); // 'date' | 'time'
+  const [pickerMode, setPickerMode] = useState('date');
+  const [pickerTarget, setPickerTarget] = useState('start');
   const [compModalVisible, setCompModalVisible] = useState(false);
   const [compName, setCompName] = useState('');
   const [compAmount, setCompAmount] = useState('');
@@ -94,39 +146,90 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [totalCompAmount, setTotalCompAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('zalopay');
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(LEADER_GROUP_MEMBERS_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        setMembers(Array.isArray(list) ? list : []);
+      } catch (e) {
+        setMembers([]);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const orderTasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
+      ? orderFromParams.tasks.map(mapApiTaskToDisplay)
+      : [];
+    setTasks(orderTasks);
+  }, [orderFromParams?.orderDetailId]);
+
+  const refreshTasksForOrder = async () => {
+    const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
+    if (orderDetailId == null) return;
+    setRefreshingTasks(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}${LEADER_OVERVIEW_API}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const orders = Array.isArray(data?.orders) ? data.orders : [];
+      const order = orders.find((o) => o.orderDetailId === orderDetailId);
+      const orderTasks = (order?.tasks && Array.isArray(order.tasks))
+        ? order.tasks.map(mapApiTaskToDisplay)
+        : [];
+      setTasks(orderTasks);
+      const payload = {
+        staffGroupId: data.staffGroupId,
+        staffGroupName: data.staffGroupName,
+        leaderId: data.leaderId,
+        leaderName: data.leaderName,
+        members: Array.isArray(data.members) ? data.members : [],
+        orders,
+      };
+      await AsyncStorage.setItem(
+        LEADER_OVERVIEW_CACHE_KEY,
+        JSON.stringify({ data: payload, at: Date.now() })
+      );
+      if (Array.isArray(data.members) && data.members.length > 0) {
+        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(data.members));
+      }
+    } catch (e) {
+      // keep current tasks on error
+    } finally {
+      setRefreshingTasks(false);
+      setTasksReady(true);
+    }
+  };
+
+  refreshFnRef.current = refreshTasksForOrder;
+
+  useLayoutEffect(() => {
+    const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
+    if (orderDetailId != null && refreshFnRef.current) {
+      refreshFnRef.current();
+    }
+  }, [orderFromParams?.orderDetailId, partyDetail?.id]);
+
   const handleOpenCalendar = async () => {
-    const title = encodeURIComponent(`Tiệc ${mockPartyDetail.name}`);
+    const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
     const details = encodeURIComponent(
-      `${mockPartyDetail.dishes}, ${mockPartyDetail.guests}, ${mockPartyDetail.address}`
+      `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
     );
     let datesParam = '';
-    try {
-      const [timePartRaw, datePartRaw] = mockPartyDetail.timeRange
-        .split('–')
-        .map((s) => s.trim());
-      const timePart = timePartRaw.replace('h', ':');
-      const [hourStr, minuteStr] = timePart.split(':');
-      const [dayStr, monthStr, yearStr] = datePartRaw.split('/');
-      const year = parseInt(yearStr, 10);
-      const month = parseInt(monthStr, 10) - 1;
-      const day = parseInt(dayStr, 10);
-      const hour = parseInt(hourStr, 10);
-      const minute = parseInt(minuteStr, 10) || 0;
-
-      const start = new Date(year, month, day, hour, minute);
-      const end = new Date(year, month, day, hour + 2, minute);
-
-      const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-      const format = (d) =>
-        `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(
-          d.getHours()
-        )}${pad(d.getMinutes())}00`;
-
-      datesParam = `&dates=${format(start)}/${format(end)}`;
-    } catch (e) {
-      // ignore parse failures
+    if (orderFromParams?.startTime) {
+      try {
+        const start = new Date(orderFromParams.startTime);
+        const end = orderFromParams.endTime ? new Date(orderFromParams.endTime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+        const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+        const format = (d) =>
+          `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+        datesParam = `&dates=${format(start)}/${format(end)}`;
+      } catch (e) {}
     }
-
     const url = `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}${datesParam}`;
     try {
       await Linking.openURL(url);
@@ -136,7 +239,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const handleOpenMaps = async () => {
-    const query = encodeURIComponent(mockPartyDetail.address);
+    const query = encodeURIComponent(partyDetail.address || '');
     const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
     try {
       await Linking.openURL(url);
@@ -146,15 +249,18 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const handleCallPhone = () => {
-    Alert.alert('Gọi điện', `Bạn có muốn gọi ${mockPartyDetail.phone} không?`, [
+    if (!partyDetail.phone) {
+      Alert.alert('Thông báo', 'Chưa có số điện thoại.');
+      return;
+    }
+    Alert.alert('Gọi điện', `Bạn có muốn gọi ${partyDetail.phone} không?`, [
       { text: 'Hủy', style: 'cancel' },
       {
         text: 'Gọi',
         style: 'destructive',
         onPress: async () => {
-          const url = `tel:${mockPartyDetail.phone}`;
           try {
-            await Linking.openURL(url);
+            await Linking.openURL(`tel:${partyDetail.phone}`);
           } catch (e) {
             Alert.alert('Lỗi', 'Không thể thực hiện cuộc gọi.');
           }
@@ -197,9 +303,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   );
 
   const resetForm = () => {
+    const start = new Date();
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
     setNewTitle('');
-    setNewAssignee('');
-    setNewDateTime(new Date());
+    setSelectedMember(null);
+    setNewDateTime(start);
+    setNewEndDateTime(end);
     setNewNote('');
   };
 
@@ -214,45 +323,44 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     return d.getTime() < now.getTime() ? now : d;
   };
 
-  const showAndroidPicker = (mode) => {
+  const showAndroidPicker = (mode, target) => {
+    const value = target === 'end' ? newEndDateTime : newDateTime;
+    const setter = target === 'end' ? setNewEndDateTime : setNewDateTime;
+    const minDate = target === 'end' ? newDateTime : new Date();
     DateTimePickerAndroid.open({
-      value: newDateTime,
+      value,
       mode,
       is24Hour: false,
-      ...(mode === 'date' ? { minimumDate: new Date() } : {}),
+      ...(mode === 'date' ? { minimumDate: minDate } : {}),
       onChange: (event, selected) => {
-        if (event?.type === 'dismissed' || !selected) {
-          return;
-        }
-        setNewDateTime((prev) => {
+        if (event?.type === 'dismissed' || !selected) return;
+        setter((prev) => {
           const next = new Date(prev);
           if (mode === 'date') {
-            next.setFullYear(
-              selected.getFullYear(),
-              selected.getMonth(),
-              selected.getDate()
-            );
+            next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
           } else {
             next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
           }
-          return clampToNow(next);
+          return target === 'start' ? clampToNow(next) : next;
         });
       },
     });
   };
 
-  const openDatePicker = () => {
+  const openDatePicker = (target = 'start') => {
+    setPickerTarget(target);
     if (Platform.OS === 'android') {
-      showAndroidPicker('date');
+      showAndroidPicker('date', target);
     } else {
       setPickerMode('date');
       setPickerVisible(true);
     }
   };
 
-  const openTimePicker = () => {
+  const openTimePicker = (target = 'start') => {
+    setPickerTarget(target);
     if (Platform.OS === 'android') {
-      showAndroidPicker('time');
+      showAndroidPicker('time', target);
     } else {
       setPickerMode('time');
       setPickerVisible(true);
@@ -261,42 +369,70 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
   const handlePickerChange = (_event, selected) => {
     if (!selected) return;
-
-    setNewDateTime((prev) => {
+    const setter = pickerTarget === 'end' ? setNewEndDateTime : setNewDateTime;
+    setter((prev) => {
       const next = new Date(prev);
       if (pickerMode === 'date') {
-        next.setFullYear(
-          selected.getFullYear(),
-          selected.getMonth(),
-          selected.getDate()
-        );
+        next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
       } else {
         next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
       }
-      return clampToNow(next);
+      return pickerTarget === 'start' ? clampToNow(next) : next;
     });
-
-    if (Platform.OS === 'ios') {
-      setPickerVisible(false);
-    }
+    if (Platform.OS === 'ios') setPickerVisible(false);
   };
 
-  const handleAddTask = () => {
-    if (!newTitle.trim()) {
+  const pickerValue = pickerTarget === 'end' ? newEndDateTime : newDateTime;
+  const pickerMinDate = pickerTarget === 'end' ? newDateTime : new Date();
+
+  const handleAddTask = async () => {
+    if (!newTitle.trim()) return;
+    if (!selectedMember?.staffId) {
+      Alert.alert('Thiếu thông tin', 'Vui lòng chọn nhân viên.');
       return;
     }
-    const nextTask = {
-      id: tasks.length ? tasks[tasks.length - 1].id + 1 : 1,
-      title: newTitle.trim(),
-      assignee: newAssignee.trim(),
-      dateLabel: formatDateLabel(newDateTime),
-      timeLabel: formatTimeLabel(newDateTime),
-      note: newNote.trim(),
-      status: 'Chưa bắt đầu',
-    };
-    setTasks((prev) => [...prev, nextTask]);
-    setCreateVisible(false);
-    resetForm();
+    const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
+    if (orderDetailId == null) {
+      Alert.alert('Lỗi', 'Không xác định được đơn.');
+      return;
+    }
+    const startTime = new Date(newDateTime.getTime());
+    const endTime = new Date(newEndDateTime.getTime());
+    if (endTime.getTime() <= startTime.getTime()) {
+      Alert.alert('Lỗi', 'Giờ kết thúc phải sau giờ bắt đầu.');
+      return;
+    }
+    setCreatingTask(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail-staff-task`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          orderDetailId: Number(orderDetailId),
+          staffId: Number(selectedMember.staffId),
+          taskName: newTitle.trim(),
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          note: newNote.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        Alert.alert('Lỗi', err || 'Tạo công việc thất bại.');
+        return;
+      }
+      setCreateVisible(false);
+      resetForm();
+      await refreshTasksForOrder();
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể tạo công việc.');
+    } finally {
+      setCreatingTask(false);
+    }
   };
 
   const parseMoney = (text) => {
@@ -347,26 +483,33 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           activeOpacity={0.8}
           onPress={() =>
             navigation.navigate('MenuDetail', {
-              menuId: 1,
-              buffetType: 'Buffet Bò',
+              menuId: orderFromParams?.menuId ?? 1,
+              menuName: partyDetail.name,
+              buffetType: partyDetail.dishes,
               fromStaff: true,
             })
           }
         >
-          <Image
-            source={{ uri: mockPartyDetail.image }}
-            style={styles.partyImage}
-            resizeMode="cover"
-          />
+          {partyDetail.image ? (
+            <Image
+              source={{ uri: partyDetail.image }}
+              style={styles.partyImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.partyImagePlaceholder}>
+              <Ionicons name="image-outline" size={40} color={TEXT_SECONDARY} />
+            </View>
+          )}
           <View style={styles.partyCardLeft}>
-            <Text style={styles.partyName}>{mockPartyDetail.name}</Text>
+            <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-              {mockPartyDetail.dishes} · {mockPartyDetail.guests}
+              {partyDetail.dishes} · {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>
               <Text style={styles.partyLink} onPress={handleOpenCalendar}>
-                {mockPartyDetail.timeRange}
+                {partyDetail.timeRange}
               </Text>
             </Text>
 
@@ -376,17 +519,22 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               numberOfLines={2}
               onPress={handleOpenMaps}
             >
-              {mockPartyDetail.address}
+              {partyDetail.address}
             </Text>
             <Text style={styles.partyContact}>
-              Khách hàng: {mockPartyDetail.contactName}
+              Khách hàng: {partyDetail.contactName}
             </Text>
-            <Text
-              style={[styles.partyContact, styles.partyPhone]}
-              onPress={handleCallPhone}
-            >
-              Số điện thoại: {mockPartyDetail.phone}
-            </Text>
+            {partyDetail.phone ? (
+              <Text
+                style={[styles.partyContact, styles.partyPhone]}
+                onPress={handleCallPhone}
+              >
+                Số điện thoại: {partyDetail.phone}
+              </Text>
+            ) : null}
+            {partyDetail.status === '—' ? (
+              <Text style={styles.partyStatusPlaceholder}>Trạng thái: —</Text>
+            ) : null}
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
@@ -409,15 +557,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
           <View style={[styles.summaryRow, { marginTop: 8 }]}>
             <Text style={styles.summaryLabel}>Tạm tính</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.subtotal}</Text>
+            <Text style={styles.summaryValue}>{partyDetail.subtotal}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Thuế VAT (10%)</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.vat}</Text>
+            <Text style={styles.summaryValue}>{partyDetail.vat}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Đã cọc</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.deposit}</Text>
+            <Text style={styles.summaryValue}>{partyDetail.deposit}</Text>
           </View>
           {totalCompAmount > 0 && (
             <View style={styles.summaryRow}>
@@ -430,7 +578,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               Còn lại
             </Text>
             <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-              {mockPartyDetail.remaining}
+              {partyDetail.remaining}
             </Text>
           </View>
         </View>
@@ -478,7 +626,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const renderTasksTab = () => {
-    const showEmptyState = filteredTasks.length === 0;
+    const showEmptyState = tasksReady && filteredTasks.length === 0;
+    const showTaskList = tasksReady;
     return (
       <View style={styles.tasksContainer}>
         <View style={styles.searchRow}>
@@ -506,24 +655,44 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        {showEmptyState ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="cube-outline"
-              size={64}
-              color={PRIMARY_COLOR}
-              style={styles.emptyIcon}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={
+            !showTaskList ? styles.tasksListEmpty
+              : showEmptyState ? styles.tasksListEmpty : styles.tasksList
+          }
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshingTasks}
+              onRefresh={refreshTasksForOrder}
+              colors={[PRIMARY_COLOR]}
             />
-            <Text style={styles.emptyTitle}>Chưa có công việc</Text>
-            <Text style={styles.emptySubtitle}>Tạo công việc ngay</Text>
-          </View>
-        ) : (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.tasksList}
-            showsVerticalScrollIndicator={false}
-          >
-            {filteredTasks.map((task) => (
+          }
+        >
+          {!showTaskList ? (
+            [1, 2, 3, 4].map((i) => (
+              <View key={i} style={styles.taskRow}>
+                <View style={styles.taskInfo}>
+                  <View style={[styles.taskTitleSkeleton, styles.skeleton]} />
+                  <View style={[styles.taskMetaSkeleton, styles.skeleton]} />
+                </View>
+                <View style={[styles.taskStatusBadgeSkeleton, styles.skeleton]} />
+              </View>
+            ))
+          ) : showEmptyState ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="cube-outline"
+                size={64}
+                color={PRIMARY_COLOR}
+                style={styles.emptyIcon}
+              />
+              <Text style={styles.emptyTitle}>Chưa có công việc</Text>
+              <Text style={styles.emptySubtitle}>Tạo công việc ngay</Text>
+            </View>
+          ) : (
+            filteredTasks.map((task) => (
               <View key={task.id} style={styles.taskRow}>
                 <View style={styles.taskInfo}>
                   <Text style={styles.taskTitle}>{task.title}</Text>
@@ -553,9 +722,9 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   </Text>
                 </View>
               </View>
-            ))}
-          </ScrollView>
-        )}
+            ))
+          )}
+        </ScrollView>
       </View>
     );
   };
@@ -647,21 +816,69 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   />
 
                   <Text style={styles.fieldLabel}>Nhân viên</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Chọn / nhập nhân viên"
-                    placeholderTextColor={TEXT_SECONDARY}
-                    value={newAssignee}
-                    onChangeText={setNewAssignee}
-                    returnKeyType="done"
-                  />
+                  <TouchableOpacity
+                    style={styles.assigneeSelectOnly}
+                    onPress={() => setAssigneeModalVisible(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={selectedMember ? styles.assigneeSelectText : styles.assigneeSelectPlaceholder}>
+                      {selectedMember ? selectedMember.staffName : 'Chọn nhân viên'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={TEXT_SECONDARY} />
+                  </TouchableOpacity>
+                  <Modal
+                    visible={assigneeModalVisible}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setAssigneeModalVisible(false)}
+                  >
+                    <TouchableOpacity
+                      style={styles.memberModalOverlay}
+                      activeOpacity={1}
+                      onPress={() => setAssigneeModalVisible(false)}
+                    >
+                      <TouchableOpacity
+                        style={styles.memberModalContent}
+                        activeOpacity={1}
+                        onPress={() => {}}
+                      >
+                        <Text style={styles.memberModalTitle}>Chọn nhân viên</Text>
+                        {members.length === 0 ? (
+                          <Text style={styles.memberModalEmpty}>Chưa có danh sách nhân viên</Text>
+                        ) : (
+                          <FlatList
+                            data={members}
+                            keyExtractor={(item) => String(item.staffId)}
+                            renderItem={({ item }) => (
+                              <TouchableOpacity
+                                style={styles.memberModalItem}
+                                onPress={() => {
+                                  setSelectedMember({ staffId: item.staffId, staffName: item.staffName || `#${item.staffId}` });
+                                  setAssigneeModalVisible(false);
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.memberModalItemText}>{item.staffName || `#${item.staffId}`}</Text>
+                              </TouchableOpacity>
+                            )}
+                          />
+                        )}
+                        <TouchableOpacity
+                          style={styles.memberModalClose}
+                          onPress={() => setAssigneeModalVisible(false)}
+                        >
+                          <Text style={styles.memberModalCloseText}>Đóng</Text>
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </Modal>
 
                   <View style={styles.row}>
                     <View style={[styles.rowItem, { marginRight: 6 }]}>
-                      <Text style={styles.fieldLabel}>Ngày</Text>
+                      <Text style={styles.fieldLabel}>Ngày bắt đầu</Text>
                       <TouchableOpacity
                         style={[styles.textInput, styles.selectInput]}
-                        onPress={openDatePicker}
+                        onPress={() => openDatePicker('start')}
                         activeOpacity={0.7}
                       >
                         <Text style={styles.selectText}>
@@ -670,10 +887,10 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                       </TouchableOpacity>
                     </View>
                     <View style={[styles.rowItem, { marginLeft: 6 }]}>
-                      <Text style={styles.fieldLabel}>Giờ</Text>
+                      <Text style={styles.fieldLabel}>Giờ bắt đầu</Text>
                       <TouchableOpacity
                         style={[styles.textInput, styles.selectInput]}
-                        onPress={openTimePicker}
+                        onPress={() => openTimePicker('start')}
                         activeOpacity={0.7}
                       >
                         <Text style={styles.selectText}>
@@ -683,13 +900,40 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     </View>
                   </View>
 
+                  <View style={styles.row}>
+                    <View style={[styles.rowItem, { marginRight: 6 }]}>
+                      <Text style={styles.fieldLabel}>Ngày kết thúc</Text>
+                      <TouchableOpacity
+                        style={[styles.textInput, styles.selectInput]}
+                        onPress={() => openDatePicker('end')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.selectText}>
+                          {formatDateLabel(newEndDateTime)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={[styles.rowItem, { marginLeft: 6 }]}>
+                      <Text style={styles.fieldLabel}>Giờ kết thúc</Text>
+                      <TouchableOpacity
+                        style={[styles.textInput, styles.selectInput]}
+                        onPress={() => openTimePicker('end')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.selectText}>
+                          {formatTimeLabel(newEndDateTime)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
                   {Platform.OS === 'ios' && pickerVisible && (
                     <View style={styles.inlinePickerContainer}>
                       <View style={styles.inlinePickerCard}>
                         <DateTimePicker
-                          value={newDateTime}
+                          value={pickerValue}
                           mode={pickerMode}
-                          minimumDate={new Date()}
+                          minimumDate={pickerMinDate}
                           display="spinner"
                           onChange={handlePickerChange}
                           style={styles.inlinePicker}
@@ -732,11 +976,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     <Text style={styles.modalButtonSecondaryText}>Hủy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    style={[styles.modalButton, styles.modalButtonPrimary, creatingTask && styles.modalButtonDisabled]}
                     onPress={handleAddTask}
+                    disabled={creatingTask}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.modalButtonPrimaryText}>Thêm</Text>
+                    <Text style={styles.modalButtonPrimaryText}>{creatingTask ? 'Đang tạo...' : 'Thêm'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -948,6 +1193,110 @@ const styles = StyleSheet.create({
     color: PRIMARY_COLOR,
     textDecorationLine: 'underline',
   },
+  partyImagePlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#E0E0E0',
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  partyStatusPlaceholder: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  assigneeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  assigneeInput: {
+    flex: 1,
+  },
+  assigneeSelectButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  assigneeSelectButtonText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  assigneeSelectOnly: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: INPUT_BACKGROUND,
+    minHeight: 48,
+  },
+  assigneeSelectText: {
+    fontSize: 15,
+    color: TEXT_PRIMARY,
+    flex: 1,
+  },
+  assigneeSelectPlaceholder: {
+    fontSize: 15,
+    color: TEXT_SECONDARY,
+    flex: 1,
+  },
+  modalButtonDisabled: {
+    opacity: 0.6,
+  },
+  memberModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  memberModalContent: {
+    width: '100%',
+    maxHeight: 360,
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 16,
+    padding: 16,
+  },
+  memberModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 12,
+  },
+  memberModalEmpty: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    paddingVertical: 20,
+  },
+  memberModalItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_LIGHT,
+  },
+  memberModalItemText: {
+    fontSize: 15,
+    color: TEXT_PRIMARY,
+  },
+  memberModalClose: {
+    marginTop: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  memberModalCloseText: {
+    fontSize: 15,
+    color: PRIMARY_COLOR,
+    fontWeight: '600',
+  },
   statusSteps: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1088,6 +1437,10 @@ const styles = StyleSheet.create({
   tasksList: {
     paddingTop: 4,
   },
+  tasksListEmpty: {
+    flexGrow: 1,
+    paddingTop: 4,
+  },
   taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1099,6 +1452,24 @@ const styles = StyleSheet.create({
   taskInfo: {
     flex: 1,
     marginRight: 12,
+  },
+  skeleton: {
+    backgroundColor: '#E5E5E5',
+    borderRadius: 4,
+  },
+  taskTitleSkeleton: {
+    height: 16,
+    width: '80%',
+    marginBottom: 8,
+  },
+  taskMetaSkeleton: {
+    height: 12,
+    width: '50%',
+  },
+  taskStatusBadgeSkeleton: {
+    width: 90,
+    height: 28,
+    borderRadius: 12,
   },
   taskTitle: {
     fontSize: 14,
@@ -1199,9 +1570,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: BACKGROUND_WHITE,
+    maxHeight: 160,
+    maxWidth: '100%',
   },
   inlinePicker: {
-    height: 190,
+    height: 100,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginLeft: -15,
+    marginRight: 10,
+    marginBottom: 10,
     backgroundColor: BACKGROUND_WHITE,
   },
   modalButton: {

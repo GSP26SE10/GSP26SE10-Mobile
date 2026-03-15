@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getAccessToken } from "./utils/auth";
 import { logAccessTokenNow, registerForPushNotificationsAsync } from "./utils/notification";
 import LoginScreen from "./screens/LoginScreen";
@@ -32,6 +33,7 @@ import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 import OrderDetail from "./screens/OrderDetail";
 
 const PROTECTED_TABS = ['Orders', 'Contact', 'Account'];
+const queryClient = new QueryClient();
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Home");
@@ -136,9 +138,11 @@ export default function App() {
   };
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="auto" />
-      {renderScreen()}
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <StatusBar style="auto" />
+        {renderScreen()}
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }

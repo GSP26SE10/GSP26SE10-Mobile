@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,15 @@ import {
   Modal,
   Linking,
   Alert,
+  RefreshControl,
 } from 'react-native';
+import { useMutation } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { getAccessToken } from '../utils/auth';
+import API_URL from '../constants/api';
 import {
   TEXT_PRIMARY,
   BACKGROUND_WHITE,
@@ -24,6 +28,39 @@ import {
   BORDER_LIGHT,
   BUTTON_TEXT_WHITE,
 } from '../constants/colors';
+
+const TASK_STATUS_MAP = {
+  1: 'Chưa bắt đầu',   // PENDING
+  2: 'Đang thực hiện',  // IN_PROGRESS
+  3: 'Hoàn thành',      // COMPLETED
+};
+
+/** Trạng thái tiếp theo: chỉ 1→2, 2→3. 3 → null (không đổi). */
+const getNextTaskStatus = (current) =>
+  current === 1 ? 2 : current === 2 ? 3 : null;
+
+const formatTaskTime = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
+const formatTimeRange = (startIso, endIso) => {
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
+  const time = (d) =>
+    d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = (d) =>
+    `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time(start)} – ${date(start)}`;
+};
 
 const mockPartyDetail = {
   id: 1,
@@ -47,6 +84,38 @@ const mockTasks = [
   { id: 2, title: 'Chuẩn bị nguyên liệu B – 08:15', done: false },
   { id: 3, title: 'Chuẩn bị nguyên liệu C – 08:30', done: false },
 ];
+
+function buildPartyDetailFromOrderDetail(od) {
+  if (!od) return null;
+  return {
+    id: od.orderDetailId,
+    image: null,
+    name: od.menuName || '—',
+    dishes: '—',
+    guests: `${od.numberOfGuests ?? 0} người`,
+    timeRange: formatTimeRange(od.startTime, od.endTime),
+    address: od.address || '—',
+    contactName: '—',
+    phone: '—',
+    status: '—',
+    subtotal: '—',
+    vat: '—',
+    deposit: '—',
+    remaining: '—',
+  };
+}
+
+function mapApiTaskToDisplay(t) {
+  const statusNum = t.taskStatus;
+  const done = statusNum === 3;
+  return {
+    ...t,
+    id: t.taskId,
+    title: t.taskName || '—',
+    statusLabel: TASK_STATUS_MAP[statusNum] || 'Chưa bắt đầu',
+    done,
+  };
+}
 
 const SLIDER_WIDTH = 260;
 const SLIDER_KNOB_SIZE = 52;
@@ -139,54 +208,165 @@ function SlideToConfirm({ onComplete, disabled }) {
 }
 
 export default function StaffOrderDetailScreen({ navigation, route }) {
+  const orderDetail = route?.params?.orderDetail;
+  const paramsTasks = route?.params?.tasks;
+  const fromApi = orderDetail && Array.isArray(paramsTasks);
+  const partyDetailFromParams = buildPartyDetailFromOrderDetail(orderDetail);
+  const partyDetail = partyDetailFromParams || mockPartyDetail;
+  const initialTasksFromApi = (paramsTasks || []).map(mapApiTaskToDisplay);
+
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
-  const [tasks, setTasks] = useState(mockTasks);
+  const [tasks, setTasks] = useState(fromApi ? initialTasksFromApi : mockTasks);
   const [confirmTask, setConfirmTask] = useState(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [refreshingTasks, setRefreshingTasks] = useState(false);
+  const [tasksReady, setTasksReady] = useState(!fromApi);
   const swipeBack = useSwipeBack(() => navigation.goBack());
+  const refreshFnRef = useRef(null);
+
+  const allTasksDisplay = fromApi ? tasks : tasks.map((t) => ({ ...t, statusLabel: t.done ? 'Đã xong' : 'Chưa xong' }));
+
+  const refreshTasksForOrder = async () => {
+    if (!fromApi) return;
+    const orderDetailId = route?.params?.orderDetailId ?? orderDetail?.orderDetailId;
+    if (orderDetailId == null) return;
+    setRefreshingTasks(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task/staff-tasks?page=1&pageSize=50`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const forOrder = items.filter(
+        (t) => t.orderDetail?.orderDetailId === orderDetailId
+      );
+      setTasks(forOrder.map(mapApiTaskToDisplay));
+    } catch (e) {
+      // keep current tasks
+    } finally {
+      setRefreshingTasks(false);
+      setTasksReady(true);
+    }
+  };
+
+  refreshFnRef.current = refreshTasksForOrder;
+
+  useLayoutEffect(() => {
+    if (!fromApi) return;
+    const orderDetailId = route?.params?.orderDetailId ?? orderDetail?.orderDetailId;
+    if (orderDetailId != null && refreshFnRef.current) {
+      refreshFnRef.current();
+    }
+  }, [fromApi, route?.params?.orderDetailId, orderDetail?.orderDetailId]);
 
   const handleConfirmTask = (taskId) => {
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === taskId ? { ...t, done: true } : t
+        t.id === taskId ? { ...t, done: true, statusLabel: 'Hoàn thành' } : t
       )
     );
   };
 
-  const handleOpenCalendar = async () => {
-    const title = encodeURIComponent(`Tiệc ${mockPartyDetail.name}`);
-    const details = encodeURIComponent(
-      `${mockPartyDetail.dishes}, ${mockPartyDetail.guests}, ${mockPartyDetail.address}`
+  const applyOptimisticTaskStatus = (taskList, taskId, nextStatus) =>
+    taskList.map((t) =>
+      t.id === taskId
+        ? {
+            ...t,
+            taskStatus: nextStatus,
+            statusLabel: TASK_STATUS_MAP[nextStatus] || t.statusLabel,
+            done: nextStatus === 3,
+          }
+        : t
     );
-    // Parse thời gian & ngày từ chuỗi timeRange (vd: "9:30 – 10/01/2026")
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: async ({ taskId, nextStatus }) => {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task/${taskId}/staff-task-status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ taskStatus: nextStatus }),
+        }
+      );
+      if (!res.ok) throw new Error('API failed');
+    },
+    onMutate: async ({ taskId, nextStatus, previousTasks }) => {
+      const optimisticList = applyOptimisticTaskStatus(
+        previousTasks,
+        taskId,
+        nextStatus
+      );
+      setTasks(optimisticList);
+      return { previousTasks };
+    },
+    onError: (err, { previousTasks }, context) => {
+      if (context?.previousTasks != null) {
+        setTasks(context.previousTasks);
+      }
+      Alert.alert(
+        'Lỗi',
+        'Không thể cập nhật trạng thái. Vui lòng thử lại.'
+      );
+    },
+    onSettled: () => {
+      if (fromApi) refreshTasksForOrder();
+    },
+  });
+
+  const handleOpenCalendar = async () => {
+    const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
+    const details = encodeURIComponent(
+      `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
+    );
     let datesParam = '';
-    try {
-      const [timePartRaw, datePartRaw] = mockPartyDetail.timeRange
-        .split('–')
-        .map((s) => s.trim());
-      const timePart = timePartRaw.replace('h', ':');
-      const [hourStr, minuteStr] = timePart.split(':');
-      const [dayStr, monthStr, yearStr] = datePartRaw.split('/');
-      const year = parseInt(yearStr, 10);
-      const month = parseInt(monthStr, 10) - 1;
-      const day = parseInt(dayStr, 10);
-      const hour = parseInt(hourStr, 10);
-      const minute = parseInt(minuteStr, 10) || 0;
-
-      const start = new Date(year, month, day, hour, minute);
-      const end = new Date(year, month, day, hour + 2, minute); // giả định tiệc kéo dài 2h
-
-      const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-      const format = (d) =>
-        `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(
-          d.getHours()
-        )}${pad(d.getMinutes())}00`;
-
-      datesParam = `&dates=${format(start)}/${format(end)}`;
-    } catch (e) {
-      console.warn('Cannot parse timeRange for calendar, fallback to current date.', e);
+    if (orderDetail?.startTime && orderDetail?.endTime) {
+      try {
+        const start = new Date(orderDetail.startTime);
+        const end = new Date(orderDetail.endTime);
+        const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+        const format = (d) =>
+          `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(
+            d.getHours()
+          )}${pad(d.getMinutes())}00`;
+        datesParam = `&dates=${format(start)}/${format(end)}`;
+      } catch (e) {
+        console.warn('Parse calendar dates failed', e);
+      }
     }
-
+    if (!datesParam) {
+      try {
+        const [timePartRaw, datePartRaw] = (partyDetail.timeRange || '–')
+          .split('–')
+          .map((s) => s?.trim() || '');
+        if (datePartRaw) {
+          const [hourStr, minuteStr] = (timePartRaw || '0:0').split(':');
+          const [dayStr, monthStr, yearStr] = datePartRaw.split('/');
+          const year = parseInt(yearStr, 10);
+          const month = parseInt(monthStr, 10) - 1;
+          const day = parseInt(dayStr, 10);
+          const hour = parseInt(hourStr, 10) || 0;
+          const minute = parseInt(minuteStr, 10) || 0;
+          const start = new Date(year, month, day, hour, minute);
+          const end = new Date(year, month, day, hour + 2, minute);
+          const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+          const format = (d) =>
+            `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(
+              d.getHours()
+            )}${pad(d.getMinutes())}00`;
+          datesParam = `&dates=${format(start)}/${format(end)}`;
+        }
+      } catch (e) {
+        console.warn('Cannot parse timeRange for calendar.', e);
+      }
+    }
     const url = `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}${datesParam}`;
     try {
       await Linking.openURL(url);
@@ -197,7 +377,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   };
 
   const handleOpenMaps = async () => {
-    const query = encodeURIComponent(mockPartyDetail.address);
+    const query = encodeURIComponent(partyDetail.address || '');
     const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
     try {
       await Linking.openURL(url);
@@ -208,9 +388,10 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   };
 
   const handleCallPhone = () => {
+    if (partyDetail.phone === '—' || !partyDetail.phone) return;
     Alert.alert(
       'Gọi điện',
-      `Bạn có muốn gọi ${mockPartyDetail.phone} không?`,
+      `Bạn có muốn gọi ${partyDetail.phone} không?`,
       [
         { text: 'Hủy', style: 'cancel' },
         {
@@ -235,7 +416,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive = step === mockPartyDetail.status;
+          const isActive = step === partyDetail.status;
           return (
             <View key={step} style={styles.statusStep}>
               <View
@@ -274,117 +455,173 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           activeOpacity={0.8}
           onPress={() =>
             navigation.navigate('MenuDetail', {
-              menuId: 1,
-              buffetType: 'Buffet Bò',
+              menuId: orderDetail?.menuId ?? 1,
+              menuName: partyDetail.name,
+              buffetType: orderDetail?.partyCategory ?? partyDetail.dishes ?? 'Buffet Bò',
               fromStaff: true,
             })
           }
         >
-          <Image
-            source={{
-              uri: mockPartyDetail.image,
-            }}
-            style={styles.partyImage}
-            resizeMode="cover"
-          />
+          {partyDetail.image ? (
+            <Image
+              source={{ uri: partyDetail.image }}
+              style={styles.partyImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
+              <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+            </View>
+          )}
           <View style={styles.partyCardLeft}>
-            <Text style={styles.partyName}>{mockPartyDetail.name}</Text>
+            <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-              {mockPartyDetail.dishes} · {mockPartyDetail.guests}
+              {partyDetail.dishes} · {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>
               <Text style={styles.partyLink} onPress={handleOpenCalendar}>
-                {mockPartyDetail.timeRange}
+                {partyDetail.timeRange}
               </Text>
             </Text>
-          
-              <Text style={styles.partyMeta}>Địa chỉ: </Text>
+            <Text style={styles.partyMeta}>Địa chỉ: </Text>
             <Text
               style={[styles.partyAddress, styles.partyLink]}
               numberOfLines={2}
               onPress={handleOpenMaps}
             >
-              {mockPartyDetail.address}
+              {partyDetail.address}
             </Text>
-            <Text style={styles.partyContact}>
-              Khách hàng: {mockPartyDetail.contactName}
-            </Text>
-            <Text
-              style={[styles.partyContact, styles.partyPhone]}
-              onPress={handleCallPhone}
-            >
-              Số điện thoại: {mockPartyDetail.phone}
-            </Text>
+            {partyDetail.contactName !== '—' && (
+              <Text style={styles.partyContact}>
+                Khách hàng: {partyDetail.contactName}
+              </Text>
+            )}
+            {partyDetail.phone !== '—' && (
+              <Text
+                style={[styles.partyContact, styles.partyPhone]}
+                onPress={handleCallPhone}
+              >
+                Số điện thoại: {partyDetail.phone}
+              </Text>
+            )}
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
 
         {renderStatusSteps()}
 
-        <View style={styles.summarySection}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tạm tính</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.subtotal}</Text>
+        {(partyDetail.subtotal !== '—' || partyDetail.remaining !== '—') && (
+          <View style={styles.summarySection}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Tạm tính</Text>
+              <Text style={styles.summaryValue}>{partyDetail.subtotal}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thuế VAT (10%)</Text>
+              <Text style={styles.summaryValue}>{partyDetail.vat}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Đã cọc</Text>
+              <Text style={styles.summaryValue}>{partyDetail.deposit}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
+                Còn lại
+              </Text>
+              <Text style={[styles.summaryValue, styles.summaryHighlight]}>
+                {partyDetail.remaining}
+              </Text>
+            </View>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Thuế VAT (10%)</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.vat}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Đã cọc</Text>
-            <Text style={styles.summaryValue}>{mockPartyDetail.deposit}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
-              Còn lại
-            </Text>
-            <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-              {mockPartyDetail.remaining}
-            </Text>
-          </View>
-        </View>
+        )}
       </ScrollView>
     );
   };
 
   const renderTasksTab = () => {
+    const list = fromApi ? allTasksDisplay : tasks;
+    const showTaskList = !fromApi || tasksReady;
     return (
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshingTasks}
+            onRefresh={refreshTasksForOrder}
+            colors={[PRIMARY_COLOR]}
+          />
+        }
       >
-        {tasks.map((task) => (
+        {!showTaskList ? (
+          [1, 2, 3, 4].map((i) => (
+            <View key={i} style={styles.taskRowWrap}>
+              <View style={styles.taskRow}>
+                <View style={styles.taskRowLeft}>
+                  <View style={[styles.taskTitleSkeleton, styles.skeleton]} />
+                  <View style={[styles.taskTimeSkeleton, styles.skeleton]} />
+                </View>
+                <View style={[styles.taskStatusBadgeSkeleton, styles.skeleton]} />
+              </View>
+            </View>
+          ))
+        ) : (
+        list.map((task) => {
+          const canChangeStatus = fromApi
+            ? task.taskStatus !== 3 && getNextTaskStatus(task.taskStatus) != null
+            : !task.done;
+          return (
           <TouchableOpacity
             key={task.id}
-            style={styles.taskRow}
+            style={styles.taskRowWrap}
             activeOpacity={0.8}
             onPress={() => {
-              if (!task.done) {
+              if (canChangeStatus) {
                 setConfirmTask(task);
                 setConfirmVisible(true);
               }
             }}
           >
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <View
-              style={[
-                styles.taskStatusBadge,
-                task.done && styles.taskStatusBadgeDone,
-              ]}
-            >
-              <Text
+            <View style={styles.taskRow}>
+              <View style={styles.taskRowLeft}>
+                <Text style={styles.taskTitle} numberOfLines={2}>
+                  {task.title}
+                </Text>
+                {fromApi && (task.taskStartTime != null || task.taskEndTime != null) && (
+                  <Text style={styles.taskTime}>
+                    {formatTaskTime(task.taskStartTime)} → {formatTaskTime(task.taskEndTime)}
+                  </Text>
+                )}
+                {fromApi && task.note != null && task.note !== '' && (
+                  <Text style={styles.taskNote} numberOfLines={2}>
+                    {task.note}
+                  </Text>
+                )}
+              </View>
+              <View
                 style={[
-                  styles.taskStatusText,
-                  task.done && styles.taskStatusTextDone,
+                  styles.taskStatusBadge,
+                  (task.done || task.statusLabel === 'Hoàn thành') &&
+                    styles.taskStatusBadgeDone,
                 ]}
               >
-                {task.done ? 'Đã xong' : 'Chưa xong'}
-              </Text>
+                <Text
+                  style={[
+                    styles.taskStatusText,
+                    (task.done || task.statusLabel === 'Hoàn thành') &&
+                      styles.taskStatusTextDone,
+                  ]}
+                >
+                  {task.statusLabel || (task.done ? 'Đã xong' : 'Chưa xong')}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
-        ))}
+          );
+        })
+        )}
       </ScrollView>
     );
   };
@@ -442,7 +679,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
 
       {activeTab === 'overview' ? renderOverviewTab() : renderTasksTab()}
 
-      {/* Modal xác nhận hoàn thành công việc */}
+      {/* Modal đổi trạng thái: 1→2 (bắt đầu), 2→3 (hoàn thành). Trượt để xác nhận. Bấm ra ngoài để tắt. */}
       <Modal
         visible={confirmVisible}
         transparent
@@ -450,6 +687,11 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
         onRequestClose={() => setConfirmVisible(false)}
       >
         <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setConfirmVisible(false)}
+          />
           <View style={styles.modalCard}>
             <TouchableOpacity
               style={styles.modalCloseButton}
@@ -458,16 +700,31 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             >
               <Ionicons name="close" size={20} color={TEXT_PRIMARY} />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Xác nhận hoàn thành công việc</Text>
+            <Text style={styles.modalTitle}>
+              {confirmTask?.taskStatus === 1
+                ? 'Bắt đầu công việc'
+                : 'Xác nhận hoàn thành công việc'}
+            </Text>
             <Text style={styles.modalTaskTitle}>
-              {confirmTask?.title || ''}
+              {confirmTask?.title || confirmTask?.taskName || ''}
             </Text>
             <SlideToConfirm
               disabled={!confirmTask}
               onComplete={() => {
-                if (confirmTask) {
+                if (!confirmTask) return;
+                setConfirmVisible(false);
+                if (fromApi) {
+                  const nextStatus = getNextTaskStatus(confirmTask.taskStatus);
+                  if (nextStatus != null) {
+                    const taskId = confirmTask.taskId ?? confirmTask.id;
+                    updateTaskStatusMutation.mutate({
+                      taskId,
+                      nextStatus,
+                      previousTasks: tasks,
+                    });
+                  }
+                } else {
                   handleConfirmTask(confirmTask.id);
-                  setConfirmVisible(false);
                 }
               }}
             />
@@ -563,6 +820,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0E0E0',
     marginRight: 10,
   },
+  partyImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   partyCardLeft: {
     flex: 1,
     marginRight: 4,
@@ -657,13 +918,48 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: PRIMARY_COLOR,
   },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+  taskRowWrap: {
     borderBottomWidth: 1,
     borderBottomColor: BORDER_LIGHT,
+    paddingVertical: 14,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  taskRowLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  skeleton: {
+    backgroundColor: '#E5E5E5',
+    borderRadius: 4,
+  },
+  taskTitleSkeleton: {
+    height: 16,
+    width: '80%',
+    marginBottom: 8,
+  },
+  taskTimeSkeleton: {
+    height: 12,
+    width: '50%',
+  },
+  taskStatusBadgeSkeleton: {
+    width: 90,
+    height: 28,
+    borderRadius: 12,
+  },
+  taskTime: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+  },
+  taskNote: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   taskTitle: {
     fontSize: 14,

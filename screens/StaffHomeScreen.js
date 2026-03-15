@@ -1,24 +1,125 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
-import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '../constants/colors';
+import { getAccessToken } from '../utils/auth';
+import API_URL from '../constants/api';
+import {
+  TEXT_PRIMARY,
+  BACKGROUND_WHITE,
+  TEXT_SECONDARY,
+  PRIMARY_COLOR,
+} from '../constants/colors';
 
-const mockParties = [
-  {
-    id: 1,
-    name: 'Buffet Lẩu Bò Mỹ',
-    dishes: '10 MÓN',
-    guests: '10 NGƯỜI',
-    timeRange: '9:30 – 10/01/2026',
-    address: '16 Nguyễn Trãi, Quận 1, Thành phố Hồ Chí Minh',
-    status: 'Đang chuẩn bị',
-  },
-];
+const STAFF_TASKS_CACHE_KEY = 'staffTasksCache';
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 phút
+const PAGE_SIZE = 10;
+
+const formatTimeRange = (startIso, endIso) => {
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
+  const time = (d) =>
+    d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = (d) =>
+    `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time(start)} – ${date(start)}`;
+};
+
+/** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */
+function buildOrdersFromTaskItems(items) {
+  const map = new Map();
+  (items || []).forEach((task) => {
+    const od = task.orderDetail;
+    if (!od || od.orderDetailId == null) return;
+    const id = od.orderDetailId;
+    if (!map.has(id)) {
+      map.set(id, { orderDetail: od, tasks: [] });
+    }
+    map.get(id).tasks.push(task);
+  });
+  return Array.from(map.values());
+}
 
 export default function StaffHomeScreen({ navigation }) {
   const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [allTaskItems, setAllTaskItems] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const orders = buildOrdersFromTaskItems(allTaskItems);
+
+  const fetchPage = useCallback(async (pageNum, append = false) => {
+    const token = await getAccessToken();
+    const res = await fetch(
+      `${API_URL}/api/order-detail-staff-task/staff-tasks?page=${pageNum}&pageSize=${PAGE_SIZE}`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }
+    );
+    if (!res.ok) return null;
+    return res.json();
+  }, []);
+
+  const loadFirst = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(STAFF_TASKS_CACHE_KEY);
+      if (raw) {
+        const { data, at } = JSON.parse(raw);
+        if (data && at && Date.now() - at < CACHE_MAX_AGE_MS && Array.isArray(data.items)) {
+          setAllTaskItems(data.items);
+          setPage(data.page ?? 1);
+          setTotalPages(data.totalPages ?? 1);
+          setLoading(false);
+          return;
+        }
+      }
+    } catch (_) {}
+
+    setLoading(true);
+    try {
+      const data = await fetchPage(1);
+      if (data && Array.isArray(data.items)) {
+        setAllTaskItems(data.items);
+        setPage(data.page ?? 1);
+        setTotalPages(data.totalPages ?? 1);
+        await AsyncStorage.setItem(
+          STAFF_TASKS_CACHE_KEY,
+          JSON.stringify({
+            data: {
+              items: data.items,
+              page: data.page,
+              totalPages: data.totalPages ?? 1,
+            },
+            at: Date.now(),
+          })
+        );
+      } else {
+        setAllTaskItems([]);
+        setTotalPages(1);
+      }
+    } catch (e) {
+      console.warn('Staff staff-tasks failed', e);
+      setAllTaskItems([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchPage]);
 
   useEffect(() => {
     (async () => {
@@ -27,46 +128,194 @@ export default function StaffHomeScreen({ navigation }) {
     })();
   }, []);
 
+  useEffect(() => {
+    loadFirst();
+  }, [loadFirst]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchPage(1);
+      if (data && Array.isArray(data.items)) {
+        setAllTaskItems(data.items);
+        setPage(data.page ?? 1);
+        setTotalPages(data.totalPages ?? 1);
+        await AsyncStorage.setItem(
+          STAFF_TASKS_CACHE_KEY,
+          JSON.stringify({
+            data: {
+              items: data.items,
+              page: data.page,
+              totalPages: data.totalPages ?? 1,
+            },
+            at: Date.now(),
+          })
+        );
+      }
+    } catch (e) {
+      console.warn('Staff staff-tasks refresh failed', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchPage]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || page >= totalPages) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const data = await fetchPage(nextPage);
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
+        setAllTaskItems((prev) => [...prev, ...data.items]);
+        setPage(data.page ?? nextPage);
+        setTotalPages(data.totalPages ?? 1);
+      } else {
+        setPage(nextPage);
+      }
+    } catch (e) {
+      console.warn('Staff staff-tasks loadMore failed', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [page, totalPages, loadingMore, fetchPage]);
+
+  const onPressOrder = useCallback(
+    (item) => {
+      navigation.navigate('StaffOrderDetail', {
+        orderDetailId: item.orderDetail?.orderDetailId,
+        orderDetail: item.orderDetail,
+        tasks: item.tasks || [],
+      });
+    },
+    [navigation]
+  );
+
+  const renderSkeleton = () => (
+    <>
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={styles.partyCard}>
+          <View style={[styles.partyImagePlaceholder, styles.skeleton]} />
+          <View style={styles.partyInfo}>
+            <View
+              style={[
+                styles.skeleton,
+                { height: 16, width: '70%', marginBottom: 8, borderRadius: 4 },
+              ]}
+            />
+            <View
+              style={[
+                styles.skeleton,
+                { height: 12, width: '90%', marginBottom: 6, borderRadius: 4 },
+              ]}
+            />
+            <View
+              style={[
+                styles.skeleton,
+                { height: 12, width: '60%', marginBottom: 6, borderRadius: 4 },
+              ]}
+            />
+            <View
+              style={[styles.skeleton, { height: 12, width: '50%', borderRadius: 4 }]}
+            />
+          </View>
+        </View>
+      ))}
+    </>
+  );
+
+  const renderOrderCard = useCallback(
+    ({ item }) => {
+      const od = item.orderDetail || {};
+      return (
+        <TouchableOpacity
+          style={styles.partyCard}
+          activeOpacity={0.8}
+          onPress={() => onPressOrder(item)}
+        >
+          <View style={styles.partyImagePlaceholder}>
+            <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
+          </View>
+          <View style={styles.partyInfo}>
+            <Text style={styles.partyName}>{od.menuName || '—'}</Text>
+            <Text style={styles.partyMeta}>
+              {od.partyCategory || '—'} · {od.numberOfGuests ?? 0} người ·{' '}
+              {formatTimeRange(od.startTime, od.endTime)}
+            </Text>
+            <Text style={styles.partyAddress} numberOfLines={1}>
+              {od.address || '—'}
+            </Text>
+            <Text style={styles.partyStatus}>
+              {item.tasks?.length ? `${item.tasks.length} công việc` : '—'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [onPressOrder]
+  );
+
+  const renderFooter = () =>
+    loadingMore ? (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={PRIMARY_COLOR} />
+      </View>
+    ) : null;
+
+  const renderEmpty = () =>
+    !loading ? (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.emptyText}>Chưa có đơn nào</Text>
+      </View>
+    ) : null;
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <Text style={styles.greeting}>{greetingText}</Text>
-          <Text style={styles.subtitle}>Danh sách tiệc và công việc cần làm.</Text>
-        </View>
+      <View style={styles.header}>
+        <Text style={styles.greeting}>{greetingText}</Text>
+        <Text style={styles.subtitle}>
+          Danh sách tiệc và công việc cần làm.
+        </Text>
+      </View>
 
-        {mockParties.map((party) => (
-          <TouchableOpacity
-            key={party.id}
-            style={styles.partyCard}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('StaffOrderDetail', { partyId: party.id })}
-          >
-            <Image
-              source={{
-                uri: 'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg',
-              }}
-              style={styles.partyImage}
-              resizeMode="cover"
+      {loading && orders.length === 0 ? (
+        <FlatList
+          data={[]}
+          keyExtractor={() => 'skeleton'}
+          renderItem={null}
+          ListHeaderComponent={renderSkeleton}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        />
+      ) : (
+        <FlatList
+          data={orders}
+          keyExtractor={(item) =>
+            String(item.orderDetail?.orderDetailId ?? `order-${Math.random()}`)
+          }
+          renderItem={renderOrderCard}
+          contentContainerStyle={[
+            styles.content,
+            orders.length === 0 && styles.contentEmpty,
+          ]}
+          showsVerticalScrollIndicator={false}
+          onEndReached={() => loadMore()}
+          onEndReachedThreshold={0.3}
+          ListEmptyComponent={renderEmpty}
+          ListFooterComponent={renderFooter}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[PRIMARY_COLOR]}
             />
-            <View style={styles.partyInfo}>
-              <Text style={styles.partyName}>{party.name}</Text>
-              <Text style={styles.partyMeta}>
-                {party.dishes} · {party.guests} · {party.timeRange}
-              </Text>
-              <Text style={styles.partyAddress} numberOfLines={1}>
-                {party.address}
-              </Text>
-              <Text style={styles.partyStatus}>{party.status}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-      <BottomNavigationStaff activeTab="StaffHome" onTabPress={(tab) => navigation.navigate(tab)} />
+          }
+        />
+      )}
+
+      <BottomNavigationStaff
+        activeTab="StaffHome"
+        onTabPress={(tab) => navigation.navigate(tab)}
+      />
     </SafeAreaView>
   );
 }
@@ -76,16 +325,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BACKGROUND_WHITE,
   },
-  scrollView: {
-    flex: 1,
-  },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingTop: 8,
     paddingBottom: 100,
   },
+  contentEmpty: {
+    flexGrow: 1,
+  },
+  loadingWrap: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+    color: TEXT_SECONDARY,
+  },
+  footerLoader: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
   header: {
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 8,
   },
   greeting: {
     fontSize: 22,
@@ -104,11 +367,16 @@ const styles = StyleSheet.create({
     padding: 10,
     marginTop: 12,
   },
-  partyImage: {
+  partyImagePlaceholder: {
     width: 90,
     height: 90,
     borderRadius: 12,
     backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  skeleton: {
+    backgroundColor: '#E5E5E5',
   },
   partyInfo: {
     flex: 1,

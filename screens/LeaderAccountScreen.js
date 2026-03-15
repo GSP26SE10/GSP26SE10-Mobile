@@ -36,7 +36,7 @@ export default function LeaderAccountScreen({ navigation }) {
     } catch (error) {
       console.error('Failed to clear auth data', error);
     }
-    navigation.navigate('Login');
+    navigation.navigate('Login', { fromLogout: true });
   };
 
   return (

@@ -255,14 +255,17 @@ export default function LoginScreen({ navigation, route }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
-          </TouchableOpacity>
-         
+          {route?.params?.fromLogout ? (
+            <View style={styles.backButton} />
+          ) : (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
+            </TouchableOpacity>
+          )}
           <View style={styles.backButton} />
         </View>
         <View style={styles.content}>
