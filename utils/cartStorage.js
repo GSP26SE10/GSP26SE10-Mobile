@@ -52,7 +52,8 @@ export async function addMenuToCart(menu) {
   const id = `menu-${menu.menuId}`;
   const existing = items.find((i) => i.id === id);
   const priceFormatted = formatPrice(menu.basePrice);
-  const image = menu.imgUrl || menu.image || '';
+  const imageArray = Array.isArray(menu.imgUrl) ? menu.imgUrl : null;
+  const image = imageArray ? imageArray[0] : (menu.imgUrl || menu.image || '');
   const menuCategoryId = menu.menuCategoryId ?? null;
   const buffetType = menu.buffetType ?? null;
 
