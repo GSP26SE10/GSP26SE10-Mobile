@@ -1,18 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CART_KEY = 'cart';
+const LEGACY_CART_KEY = 'cart';
+const PARTIES_KEY_PREFIX = 'orderParties';
+const ACTIVE_PARTY_KEY_PREFIX = 'activePartyId';
 
-async function getCurrentUserCartKey() {
+async function getCurrentUserId() {
   try {
     const raw = await AsyncStorage.getItem('userData');
-    if (!raw) return CART_KEY;
+    if (!raw) return null;
     const data = JSON.parse(raw);
-    const userId = data?.userId;
-    if (!userId) return CART_KEY;
-    return `${CART_KEY}:${userId}`;
+    return data?.userId ?? null;
   } catch {
-    return CART_KEY;
+    return null;
   }
+}
+
+async function getPartiesKey() {
+  const userId = await getCurrentUserId();
+  return userId ? `${PARTIES_KEY_PREFIX}:${userId}` : PARTIES_KEY_PREFIX;
+}
+
+async function getActivePartyKey() {
+  const userId = await getCurrentUserId();
+  return userId ? `${ACTIVE_PARTY_KEY_PREFIX}:${userId}` : ACTIVE_PARTY_KEY_PREFIX;
+}
+
+function makePartyId() {
+  return `party-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 const formatPrice = (price) => {
@@ -28,20 +42,115 @@ const formatPrice = (price) => {
   }
 };
 
+async function migrateLegacyCartIfNeeded() {
+  // Nếu trước đây app lưu theo key cart:<userId> hoặc 'cart', migrate sang parties (1 party).
+  try {
+    const partiesKey = await getPartiesKey();
+    const existingPartiesRaw = await AsyncStorage.getItem(partiesKey);
+    if (existingPartiesRaw) return;
+
+    const userId = await getCurrentUserId();
+    const legacyKey = userId ? `${LEGACY_CART_KEY}:${userId}` : LEGACY_CART_KEY;
+    const legacyRaw = await AsyncStorage.getItem(legacyKey);
+    if (!legacyRaw) return;
+    const legacyItems = JSON.parse(legacyRaw);
+    const items = Array.isArray(legacyItems) ? legacyItems : [];
+    const partyId = makePartyId();
+    const parties = [{ partyId, items }];
+    await AsyncStorage.setItem(partiesKey, JSON.stringify(parties));
+    await AsyncStorage.setItem(await getActivePartyKey(), partyId);
+  } catch {
+    // ignore
+  }
+}
+
+export async function getOrderParties() {
+  await migrateLegacyCartIfNeeded();
+  try {
+    const key = await getPartiesKey();
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setOrderParties(parties) {
+  try {
+    const key = await getPartiesKey();
+    await AsyncStorage.setItem(key, JSON.stringify(Array.isArray(parties) ? parties : []));
+  } catch (e) {
+    console.error('Failed to save order parties', e);
+  }
+}
+
+export async function getActivePartyId() {
+  await migrateLegacyCartIfNeeded();
+  try {
+    const key = await getActivePartyKey();
+    const id = await AsyncStorage.getItem(key);
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setActivePartyId(partyId) {
+  try {
+    const key = await getActivePartyKey();
+    await AsyncStorage.setItem(key, String(partyId));
+  } catch {
+    // ignore
+  }
+}
+
+async function ensureActiveParty(parties) {
+  const list = Array.isArray(parties) ? parties : [];
+  let activeId = await getActivePartyId();
+  if (!list.length) {
+    const partyId = makePartyId();
+    const next = [{ partyId, items: [] }];
+    await setOrderParties(next);
+    await setActivePartyId(partyId);
+    return { parties: next, activePartyId: partyId };
+  }
+  if (!activeId || !list.some((p) => p.partyId === activeId)) {
+    activeId = list[0].partyId;
+    await setActivePartyId(activeId);
+  }
+  return { parties: list, activePartyId: activeId };
+}
+
+async function normalizePartiesAndActive(parties, activePartyId) {
+  const list = (Array.isArray(parties) ? parties : []).filter(
+    (p) => Array.isArray(p?.items) && p.items.length > 0
+  );
+  if (!list.length) {
+    const activeKey = await getActivePartyKey();
+    await AsyncStorage.removeItem(activeKey);
+    await setOrderParties([]);
+    return { parties: [], activePartyId: null };
+  }
+  let nextActive = activePartyId;
+  if (!nextActive || !list.some((p) => p.partyId === nextActive)) {
+    nextActive = list[0].partyId;
+    await setActivePartyId(nextActive);
+  }
+  await setOrderParties(list);
+  return { parties: list, activePartyId: nextActive };
+}
+
 /**
  * Lấy toàn bộ giỏ hàng từ AsyncStorage.
  * @returns {Promise<Array>} Mảng item: { id, type, name, basePrice, priceFormatted, image, count }
  */
 export async function getCart() {
-  try {
-    const key = await getCurrentUserCartKey();
-    const raw = await AsyncStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    return [];
-  }
+  const parties = await getOrderParties();
+  const ensured = await ensureActiveParty(parties);
+  const active = ensured.parties.find((p) => p.partyId === ensured.activePartyId);
+  return Array.isArray(active?.items) ? active.items : [];
 }
 
 /**
@@ -49,12 +158,12 @@ export async function getCart() {
  * @param {Array} items
  */
 export async function setCart(items) {
-  try {
-    const key = await getCurrentUserCartKey();
-    await AsyncStorage.setItem(key, JSON.stringify(items));
-  } catch (e) {
-    console.error('Failed to save cart', e);
-  }
+  const parties = await getOrderParties();
+  const ensured = await ensureActiveParty(parties);
+  const next = ensured.parties.map((p) =>
+    p.partyId === ensured.activePartyId ? { ...p, items: Array.isArray(items) ? items : [] } : p
+  );
+  await normalizePartiesAndActive(next, ensured.activePartyId);
 }
 
 /**
@@ -156,5 +265,32 @@ export async function removeCartItem(itemId) {
  * Xóa toàn bộ giỏ hàng.
  */
 export async function clearCart() {
-  await setCart([]);
+  // clear toàn bộ parties của user hiện tại
+  await setOrderParties([]);
+  const activeKey = await getActivePartyKey();
+  await AsyncStorage.removeItem(activeKey);
+}
+
+export async function addParty() {
+  const parties = await getOrderParties();
+  const ensured = await ensureActiveParty(parties);
+  const activeIdx = ensured.parties.findIndex((p) => p.partyId === ensured.activePartyId);
+  const insertAt = activeIdx >= 0 ? activeIdx + 1 : ensured.parties.length;
+  const partyId = makePartyId();
+  const next = [
+    ...ensured.parties.slice(0, insertAt),
+    { partyId, items: [] },
+    ...ensured.parties.slice(insertAt),
+  ];
+  await setOrderParties(next);
+  await setActivePartyId(partyId);
+  return { parties: next, partyId, index: insertAt };
+}
+
+export async function setActivePartyByIndex(index) {
+  const parties = await getOrderParties();
+  const p = parties[index];
+  if (!p?.partyId) return null;
+  await setActivePartyId(p.partyId);
+  return p.partyId;
 }

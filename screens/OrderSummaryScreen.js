@@ -8,7 +8,7 @@ import * as MediaLibrary from 'expo-media-library';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
 import { getAccessToken } from '../utils/auth';
-import { getCart, clearCart } from '../utils/cartStorage';
+import { getOrderParties, clearCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
@@ -36,7 +36,8 @@ const formatTimeRange = (startIso, endIso) => {
 
 export default function OrderSummaryScreen({ navigation, route }) {
   const params = route?.params || {};
-  const [cartItems, setCartItems] = useState([]);
+  const [orderParties, setOrderParties] = useState([]);
+  const [partyDrafts, setPartyDrafts] = useState({});
   const [termsChecked, setTermsChecked] = useState(false);
   const [termsVisible, setTermsVisible] = useState(false);
   const [calendarPromptVisible, setCalendarPromptVisible] = useState(false);
@@ -54,25 +55,49 @@ export default function OrderSummaryScreen({ navigation, route }) {
 
   useEffect(() => {
     (async () => {
-      const items = await getCart();
-      setCartItems(items);
+      const parties = await getOrderParties();
+      setOrderParties(parties);
     })();
   }, []);
 
-  const menuCount = Number(params.menuCount || 1);
-  const menuItems = cartItems.filter((i) => i.type === 'menu');
-  const serviceItems = cartItems.filter((i) => i.type === 'service');
+  useEffect(() => {
+    (async () => {
+      try {
+        const out = {};
+        for (let i = 0; i < (orderParties || []).length; i++) {
+          const raw = await AsyncStorage.getItem(`orderConfirmationDraft:${i}`);
+          if (!raw) continue;
+          const d = JSON.parse(raw);
+          out[i] = d;
+        }
+        setPartyDrafts(out);
+      } catch {
+        setPartyDrafts({});
+      }
+    })();
+  }, [orderParties]);
 
-  const menuBaseSum = useMemo(
-    () => menuItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0),
-    [menuItems]
-  );
-  const serviceSum = useMemo(
-    () => serviceItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0), 0),
-    [serviceItems]
-  );
+  const partiesPricing = useMemo(() => {
+    return (orderParties || []).map((p, index) => {
+      const items = p.items || [];
+      const menuItems = items.filter((i) => i.type === 'menu');
+      const serviceItems = items.filter((i) => i.type === 'service');
+      const menuCount = menuItems.reduce((sum, i) => sum + Number(i.count ?? 0), 0) || 1;
+      const menuBaseSum = menuItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
+      const serviceSum = serviceItems.reduce(
+        (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
+        0
+      );
+      const subTotal = menuBaseSum * menuCount + serviceSum;
+      const hasMenu = !!menuItems.find((m) => m.menuId);
+      return { index, partyId: p.partyId, items, menuItems, serviceItems, hasMenu, menuCount, menuBaseSum, serviceSum, subTotal };
+    });
+  }, [orderParties]);
 
-  const subTotal = menuBaseSum * menuCount + serviceSum;
+  const subTotal = useMemo(
+    () => partiesPricing.filter((p) => p.hasMenu).reduce((sum, p) => sum + Number(p.subTotal ?? 0), 0),
+    [partiesPricing]
+  );
   const vat = Math.round(subTotal * 0.1);
   const total = subTotal + vat;
   const deposit = Math.round(total * 0.5);
@@ -243,33 +268,46 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const userData = userDataRaw ? JSON.parse(userDataRaw) : null;
       const customerId = userData?.userId ?? 0;
 
-      const menu = cartItems.find((i) => i.type === 'menu');
-      const menuId = menu?.menuId ?? 0;
-      const numberOfGuests = Number(params.menuCount || 1);
-      const services = cartItems
-        .filter((i) => i.type === 'service')
-        .map((s) => ({
-          serviceId: s.serviceId ?? 0,
-          quantity: Number(s.count ?? 0),
-        }))
-        .filter((s) => s.serviceId && s.quantity > 0);
+      const partiesAll = orderParties || [];
+      const itemsPayload = [];
+      for (let originalIndex = 0; originalIndex < partiesAll.length; originalIndex++) {
+        const p = partiesAll[originalIndex];
+        const partyItems = p.items || [];
+        const menu = partyItems.find((i) => i.type === 'menu');
+        const menuId = menu?.menuId ?? 0;
+        if (!menuId) continue; // bỏ qua tiệc chưa chọn menu
+        const numberOfGuests =
+          partyItems.filter((i) => i.type === 'menu').reduce((sum, i) => sum + Number(i.count ?? 0), 0) || 1;
+        const services = partyItems
+          .filter((i) => i.type === 'service')
+          .map((s) => ({
+            serviceId: s.serviceId ?? 0,
+            quantity: Number(s.count ?? 0),
+          }))
+          .filter((s) => s.serviceId && s.quantity > 0);
 
-      const payload = {
-        customerId,
-        items: [
-          {
-            menuId,
-            partyCategoryId: 0,
-            numberOfGuests,
-            address: locationText,
-            startTime: params.startTime,
-            endTime: params.endTime,
-            services,
-          },
-        ],
-      };
+        // Draft theo partyIndex
+        const draftKey = `orderConfirmationDraft:${originalIndex}`;
+        const rawDraft = await AsyncStorage.getItem(draftKey);
+        const draft = rawDraft ? JSON.parse(rawDraft) : null;
+        const address = [draft?.addressLine, draft?.wardName, draft?.cityName]
+          .filter(Boolean)
+          .join(', ');
+        const startTime = draft?.startTime || params.startTime || null;
+        const endTime = draft?.endTime || params.endTime || null;
 
-      console.log('[order/create] services', JSON.stringify(services, null, 2));
+        itemsPayload.push({
+          menuId,
+          partyCategoryId: 0,
+          numberOfGuests,
+          address: address || '',
+          startTime,
+          endTime,
+          services,
+        });
+      }
+
+      const payload = { customerId, items: itemsPayload };
       console.log('[order/create] payload', JSON.stringify(payload, null, 2));
 
       const res = await fetch(`${API_URL}/api/order/create`, {
@@ -362,42 +400,55 @@ export default function OrderSummaryScreen({ navigation, route }) {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryBlock}>
-          {menuItems.map((m) => (
-            <View key={m.id} style={styles.summaryRow}>
-              <Text style={styles.summaryPrefix}>＋</Text>
-              <Text style={styles.summaryText} numberOfLines={2}>
-                <Text style={styles.summaryBold}>Menu:</Text> {m.name} x{menuCount}
-              </Text>
-            </View>
-          ))}
+          {partiesPricing
+            .filter((p) => p.hasMenu)
+            .map((p, displayIdx, arr) => {
+              const draft = partyDrafts[p.index] || {};
+              const partyLocation = [draft.addressLine, draft.wardName, draft.cityName].filter(Boolean).join(', ');
+              const partyTime = formatTimeRange(draft.startTime, draft.endTime);
+              return (
+                <View key={p.partyId || String(p.index)} style={styles.partySummarySection}>
+                  {p.menuItems.map((m) => (
+                    <View key={m.id} style={styles.summaryRow}>
+                      <Text style={styles.summaryPrefix}>＋</Text>
+                      <Text style={styles.summaryText} numberOfLines={2}>
+                        <Text style={styles.summaryBold}>Menu:</Text> {m.name} x{p.menuCount}
+                      </Text>
+                    </View>
+                  ))}
 
-          {serviceItems.map((s) => (
-            <View key={s.id} style={styles.summaryRow}>
-              <Text style={styles.summaryPrefix}>＋</Text>
-              <Text style={styles.summaryText} numberOfLines={2}>
-                <Text style={styles.summaryBold}>Dịch vụ:</Text> {s.name} x{s.count}
-              </Text>
-            </View>
-          ))}
+                  {p.serviceItems.map((s) => (
+                    <View key={s.id} style={styles.summaryRow}>
+                      <Text style={styles.summaryPrefix}>＋</Text>
+                      <Text style={styles.summaryText} numberOfLines={2}>
+                        <Text style={styles.summaryBold}>Dịch vụ:</Text> {s.name} x{s.count}
+                      </Text>
+                    </View>
+                  ))}
 
-          <View style={styles.summaryRow}>
-            <Ionicons name="time-outline" size={16} color={TEXT_SECONDARY} style={styles.iconLeft} />
-            <Text style={styles.summaryText}>
-              <Text style={styles.summaryBold}>Thời gian:</Text>{' '}
-              <Text style={styles.inlineLink} onPress={() => setCalendarPromptVisible(true)}>
-                {timeText}
-              </Text>
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Ionicons name="location-outline" size={16} color={TEXT_SECONDARY} style={styles.iconLeft} />
-            <Text style={styles.summaryText}>
-              <Text style={styles.summaryBold}>Địa điểm:</Text>{' '}
-              <Text style={styles.inlineLink} onPress={() => setMapsPromptVisible(true)}>
-                {locationText}
-              </Text>
-            </Text>
-          </View>
+                  <View style={styles.summaryRow}>
+                    <Ionicons name="time-outline" size={16} color={TEXT_SECONDARY} style={styles.iconLeft} />
+                    <Text style={styles.summaryText}>
+                      <Text style={styles.summaryBold}>Thời gian:</Text>{' '}
+                      <Text style={styles.inlineLink} onPress={() => setCalendarPromptVisible(true)}>
+                        {partyTime}
+                      </Text>
+                    </Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Ionicons name="location-outline" size={16} color={TEXT_SECONDARY} style={styles.iconLeft} />
+                    <Text style={styles.summaryText}>
+                      <Text style={styles.summaryBold}>Địa điểm:</Text>{' '}
+                      <Text style={styles.inlineLink} onPress={() => setMapsPromptVisible(true)}>
+                        {partyLocation}
+                      </Text>
+                    </Text>
+                  </View>
+
+                  {displayIdx !== arr.length - 1 && <View style={styles.partyDivider} />}
+                </View>
+              );
+            })}
         </View>
 
         <View style={styles.section}>
@@ -716,6 +767,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_LIGHT,
     marginBottom: 12,
+  },
+  partySummarySection: {
+    marginTop: 6,
+  },
+  partyDivider: {
+    height: 2,
+    backgroundColor: '#E6E0EB',
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 2,
   },
   summaryRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 },
   summaryPrefix: { width: 18, color: TEXT_SECONDARY, fontWeight: '900', marginRight: 6 },

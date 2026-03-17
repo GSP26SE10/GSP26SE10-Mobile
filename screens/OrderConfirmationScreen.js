@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCart } from '../utils/cartStorage';
+import { getOrderParties, setActivePartyByIndex } from '../utils/cartStorage';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const CITIES = require('../constants/city.json');
@@ -65,7 +65,8 @@ const clampNotPast = (d) => {
 };
 
 export default function OrderConfirmationScreen({ navigation, route }) {
-  const [cartItems, setCartItems] = useState([]);
+  const [orderParties, setOrderParties] = useState([]);
+  const [partyIndex, setPartyIndex] = useState(Number(route?.params?.partyIndex ?? 0));
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const [eventDate, setEventDate] = useState(new Date());
@@ -105,13 +106,23 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const [selectModalVisible, setSelectModalVisible] = useState(false);
   const [selectMode, setSelectMode] = useState('city'); // 'city' | 'ward'
   const [searchQuery, setSearchQuery] = useState('');
+  const currentParty = (orderParties || [])[partyIndex] || (orderParties || [])[0] || null;
+  const cartItems = currentParty?.items || [];
 
-  const DRAFT_KEY = 'orderConfirmationDraft';
+  useEffect(() => {
+    // sync active party để các thao tác add-to-cart sau này rơi đúng tiệc đang xem
+    if (!orderParties.length) return;
+    const idx = Math.max(0, Math.min(partyIndex, orderParties.length - 1));
+    setActivePartyByIndex(idx).catch(() => {});
+  }, [partyIndex, orderParties.length]);
+
+
+  const DRAFT_KEY = (idx) => `orderConfirmationDraft:${idx}`;
 
   useEffect(() => {
     (async () => {
-      const itemsFromStorage = await getCart();
-      setCartItems(itemsFromStorage);
+      const parties = await getOrderParties();
+      setOrderParties(parties);
     })();
   }, []);
 
@@ -119,7 +130,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        const raw = await AsyncStorage.getItem(DRAFT_KEY(partyIndex));
         if (!raw) return;
         const draft = JSON.parse(raw);
         if (draft?.addressLine != null) setAddressLine(String(draft.addressLine));
@@ -142,7 +153,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         // ignore
       }
     })();
-  }, []);
+  }, [partyIndex]);
 
   // Save draft (debounced) whenever user changes fields
   useEffect(() => {
@@ -154,8 +165,10 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         endTime: endTime?.toISOString?.() || null,
         cityCode: selectedCity?.code || null,
         wardCode: selectedWard?.code || null,
+        cityName: selectedCity?.fullName || '',
+        wardName: selectedWard?.name || '',
       };
-      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+      AsyncStorage.setItem(DRAFT_KEY(partyIndex), JSON.stringify(draft)).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
   }, [addressLine, eventDate, startTime, endTime, selectedCity, selectedWard]);
@@ -273,7 +286,28 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     return wards.filter((w) => `${w.name} ${w.fullName}`.toLowerCase().includes(q));
   }, [selectedCity, searchQuery]);
 
+  const saveDraftNow = async () => {
+    try {
+      const draft = {
+        addressLine,
+        eventDate: eventDate?.toISOString?.() || null,
+        startTime: startTime?.toISOString?.() || null,
+        endTime: endTime?.toISOString?.() || null,
+        cityCode: selectedCity?.code || null,
+        wardCode: selectedWard?.code || null,
+        cityName: selectedCity?.fullName || '',
+        wardName: selectedWard?.name || '',
+      };
+      await AsyncStorage.setItem(DRAFT_KEY(partyIndex), JSON.stringify(draft));
+    } catch {
+      // ignore
+    }
+  };
+
   const canContinue = addressLine.trim().length > 0;
+  const isMultiParty = orderParties.length > 1;
+  const isLastParty = partyIndex >= orderParties.length - 1;
+  const continueLabel = isMultiParty && !isLastParty ? 'Tiếp theo' : 'Tiếp tục';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -302,6 +336,20 @@ export default function OrderConfirmationScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Party dots indicator */}
+          {orderParties.length > 1 && (
+            <View style={styles.dotsRow}>
+              {orderParties.map((_, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[styles.dot, idx === partyIndex && styles.dotActive]}
+                  onPress={() => setPartyIndex(idx)}
+                  activeOpacity={0.8}
+                />
+              ))}
+            </View>
+          )}
+
           {/* Cart preview */}
           <View style={styles.section}>
             {cartItems.map((item) => (
@@ -433,8 +481,14 @@ export default function OrderConfirmationScreen({ navigation, route }) {
             style={[styles.primaryButton, !canContinue && styles.primaryButtonDisabled]}
             activeOpacity={0.8}
             disabled={!canContinue}
-            onPress={() =>
+            onPress={async () => {
+              await saveDraftNow();
+              if (isMultiParty && !isLastParty) {
+                setPartyIndex((p) => Math.min(p + 1, orderParties.length - 1));
+                return;
+              }
               navigation.navigate('OrderSummary', {
+                // giữ params hiện tại cho backward compatibility (summary sẽ đọc draft từng party từ AsyncStorage)
                 eventDate: eventDate?.toISOString?.() || null,
                 startTime: startTime?.toISOString?.() || null,
                 endTime: endTime?.toISOString?.() || null,
@@ -442,10 +496,10 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 city: selectedCity?.fullName || '',
                 ward: selectedWard?.name || '',
                 menuCount,
-              })
-            }
+              });
+            }}
           >
-            <Text style={styles.primaryButtonText}>Tiếp tục</Text>
+            <Text style={styles.primaryButtonText}>{continueLabel}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -679,6 +733,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 6,
     paddingBottom: 16,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 6,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D9D9D9',
+  },
+  dotActive: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: PRIMARY_COLOR,
   },
   section: {
     backgroundColor: '#FAFAFA',

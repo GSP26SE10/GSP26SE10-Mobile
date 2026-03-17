@@ -14,7 +14,7 @@ import { Image as ExpoImage } from 'expo-image';
 import BottomNavigation from '../components/BottomNavigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
-import { getCart, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
+import { getOrderParties, addParty, setActivePartyByIndex, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -51,7 +51,7 @@ export default function OrdersScreen({ navigation, route }) {
   const initialTabKey = route?.params?.initialTab || 'cart';
   const initialIndex = TABS.findIndex((t) => t.id === initialTabKey);
   const [activeTabIndex, setActiveTabIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
-  const [cartItems, setCartItems] = useState([]);
+  const [orderParties, setOrderParties] = useState([]);
   const [ordersByTab, setOrdersByTab] = useState({
     upcoming: [],
     ongoing: [],
@@ -70,8 +70,8 @@ export default function OrdersScreen({ navigation, route }) {
   const initialIndexRef = useRef(initialIndex >= 0 ? initialIndex : 0);
 
   const loadCart = useCallback(async () => {
-    const items = await getCart();
-    setCartItems(items);
+    const parties = await getOrderParties();
+    setOrderParties(parties);
   }, []);
 
   useEffect(() => {
@@ -242,14 +242,18 @@ export default function OrdersScreen({ navigation, route }) {
     }
   }, [activeTabIndex]);
 
-  const handleQuantityChange = async (itemId, delta) => {
-    const next = await updateCartItemQuantity(itemId, delta);
-    setCartItems(next);
+  const handleQuantityChange = async (partyIndex, itemId, delta) => {
+    await setActivePartyByIndex(partyIndex);
+    await updateCartItemQuantity(itemId, delta);
+    const parties = await getOrderParties();
+    setOrderParties(parties);
   };
 
-  const handleRemoveItem = async (itemId) => {
-    const next = await removeCartItem(itemId);
-    setCartItems(next);
+  const handleRemoveItem = async (partyIndex, itemId) => {
+    await setActivePartyByIndex(partyIndex);
+    await removeCartItem(itemId);
+    const parties = await getOrderParties();
+    setOrderParties(parties);
   };
 
   const openCartItemDetail = (item) => {
@@ -338,7 +342,8 @@ export default function OrdersScreen({ navigation, route }) {
   );
 
   const renderCartContent = () => {
-    if (cartItems.length === 0) {
+    const partiesWithItems = (orderParties || []).filter((p) => (p.items || []).length > 0);
+    if (partiesWithItems.length === 0) {
       return (
         <View style={styles.tabContent}>
           <View style={styles.emptyContainer}>
@@ -355,76 +360,99 @@ export default function OrdersScreen({ navigation, route }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {cartItems.map((item) => (
-            <View key={item.id} style={styles.orderCard}>
-              <TouchableOpacity
-                style={styles.orderCardTop}
-                onPress={() => openCartItemDetail(item)}
-                activeOpacity={0.8}
-              >
-                {item.image ? (
-                  <ExpoImage
-                    source={{ uri: item.image }}
-                    style={styles.orderImage}
-                    contentFit="cover"
-                    cachePolicy="disk"
-                  />
-                ) : (
-                  <View style={[styles.orderImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
-                    <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+          {partiesWithItems.map((party, partyIndex) => (
+            <View key={party.partyId || String(partyIndex)} style={styles.partySection}>
+              {(party.items || []).map((item) => (
+                <View key={item.id} style={styles.orderCard}>
+                  <TouchableOpacity
+                    style={styles.orderCardTop}
+                    onPress={() => openCartItemDetail(item)}
+                    activeOpacity={0.8}
+                  >
+                    {item.image ? (
+                      <ExpoImage
+                        source={{ uri: item.image }}
+                        style={styles.orderImage}
+                        contentFit="cover"
+                        cachePolicy="disk"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.orderImage,
+                          { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
+                        ]}
+                      >
+                        <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
+                      </View>
+                    )}
+                    <View style={styles.orderInfo}>
+                      <Text style={styles.orderName} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.orderPrice} numberOfLines={1}>
+                        {item.priceFormatted}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <View style={styles.quantityContainer}>
+                    {item.count > 1 ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          onPress={() => handleQuantityChange(partyIndex, item.id, -1)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.quantityButtonText}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.quantityText}>{item.count}</Text>
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          onPress={() => handleQuantityChange(partyIndex, item.id, 1)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.quantityButtonText}>+</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleRemoveItem(partyIndex, item.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="trash-outline" size={20} color="#FF0000" />
+                        </TouchableOpacity>
+                        <Text style={styles.quantityText}>{item.count}</Text>
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          onPress={() => handleQuantityChange(partyIndex, item.id, 1)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.quantityButtonText}>+</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
                   </View>
-                )}
-                <View style={styles.orderInfo}>
-                  <Text style={styles.orderName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.orderPrice} numberOfLines={1}>{item.priceFormatted}</Text>
                 </View>
-              </TouchableOpacity>
-              <View style={styles.quantityContainer}>
-                {item.count > 1 ? (
-                  <>
-                    <TouchableOpacity
-                      style={styles.quantityButton}
-                      onPress={() => handleQuantityChange(item.id, -1)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.quantityButtonText}>-</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.quantityText}>{item.count}</Text>
-                    <TouchableOpacity
-                      style={styles.quantityButton}
-                      onPress={() => handleQuantityChange(item.id, 1)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.quantityButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => handleRemoveItem(item.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="trash-outline" size={20} color="#FF0000" />
-                    </TouchableOpacity>
-                    <Text style={styles.quantityText}>{item.count}</Text>
-                    <TouchableOpacity
-                      style={styles.quantityButton}
-                      onPress={() => handleQuantityChange(item.id, 1)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.quantityButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
+              ))}
+              {partyIndex !== partiesWithItems.length - 1 && <View style={styles.partyDivider} />}
             </View>
           ))}
         </ScrollView>
         
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.addPartyButton} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.addPartyButton}
+            activeOpacity={0.7}
+            onPress={async () => {
+              await addParty(); // tạo party mới ngay sau party hiện tại và set active
+              const parties = await getOrderParties();
+              setOrderParties(parties);
+              navigation.navigate('Home'); // về Home để chọn menu cho tiệc mới
+            }}
+          >
             <Text style={styles.addPartyText}>Thêm tiệc</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -801,6 +829,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: BACKGROUND_WHITE,
+  },
+  partySection: {
+    marginBottom: 12,
+  },
+  partyDivider: {
+    height: 2,
+    backgroundColor: '#E6E0EB',
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 2,
   },
   emptyContainer: {
     flex: 1,
