@@ -6,6 +6,7 @@ import { getAccessToken } from "./utils/auth";
 import { logAccessTokenNow, registerForPushNotificationsAsync } from "./utils/notification";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
+import EmailVerificationScreen from "./screens/EmailVerificationScreen";
 import HomeScreen from "./screens/HomeScreen";
 import ServiceScreen from "./screens/ServiceScreen";
 import OrdersScreen from "./screens/OrdersScreen";
@@ -31,6 +32,7 @@ import StaffOrderDetailHistoryScreen from "./screens/StaffOrderDetailHistoryScre
 import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistoryScreen";
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 import OrderDetail from "./screens/OrderDetail";
+import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 
 const PROTECTED_TABS = ['Orders', 'Contact', 'Account'];
 const queryClient = new QueryClient();
@@ -86,6 +88,10 @@ export default function App() {
         return <LoginScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Register":
         return <RegisterScreen navigation={navigation} />;
+      case "ForgotPassword":
+        return <ForgotPasswordScreen navigation={navigation} />;
+      case "EmailVerification":
+        return <EmailVerificationScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Home":
         return <HomeScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Search":

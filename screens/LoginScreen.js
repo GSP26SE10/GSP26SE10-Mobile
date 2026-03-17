@@ -224,9 +224,19 @@ export default function LoginScreen({ navigation, route }) {
           }
         }, 500);
       } else {
-        // Xử lý lỗi từ API
-        const errorMessage = result.message || result.error || 'Đăng nhập thất bại. Vui lòng thử lại.';
-        showToast(errorMessage);
+        // Xử lý lỗi từ API (map theo HTTP status)
+        const rawMsg = (result?.message || result?.error || '').toString();
+        if (response.status === 401) {
+          showToast('Email/Tên đăng nhập hoặc mật khẩu không đúng');
+        } else if (response.status === 403) {
+          showToast('Bạn không có quyền truy cập. Vui lòng đăng nhập lại');
+        } else if (response.status >= 500) {
+          showToast('Hệ thống đang bận, vui lòng thử lại sau');
+        } else if (rawMsg.includes('Email/Username or password is invalid')) {
+          showToast('Email/Tên đăng nhập hoặc mật khẩu không đúng');
+        } else {
+          showToast(rawMsg || 'Đăng nhập thất bại. Vui lòng thử lại.');
+        }
         setLoading(false);
       }
     } catch (error) {
@@ -310,7 +320,11 @@ export default function LoginScreen({ navigation, route }) {
           </View>
 
           {/* Forgot Password Link */}
-          <TouchableOpacity style={styles.forgotPassword}>
+          <TouchableOpacity
+            style={styles.forgotPassword}
+            onPress={() => navigation.navigate('ForgotPassword')}
+            activeOpacity={0.8}
+          >
             <Text style={styles.forgotPasswordText}>Quên mật khẩu</Text>
           </TouchableOpacity>
 
