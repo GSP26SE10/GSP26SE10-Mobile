@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,8 @@ import API_URL from '../constants/api';
 import { TEXT_PRIMARY, TEXT_SECONDARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
+
+let otherServicesCache = { fetched: false, items: null };
 
 const formatPrice = (price) => {
   if (price == null) return '0₫';
@@ -24,6 +26,13 @@ const formatPrice = (price) => {
     return `${Number(price).toLocaleString('vi-VN')} đ`;
   }
 };
+
+const getServiceDetailMeta = () => ({
+  rating: 4.8,
+  reviewCount: '1.2k',
+  aiSummary:
+    'Dịch vụ được đánh giá cao về chất lượng và sự chuyên nghiệp. Thời gian thi công nhanh, phù hợp nhiều loại sự kiện và dễ phối hợp với thực đơn.',
+});
 
 /** Chuẩn hóa service từ route: API shape (serviceId, serviceName, basePrice, description, image/img) */
 const normalizeService = (serviceFromRoute) => {
@@ -46,6 +55,10 @@ export default function ServiceDetailScreen({ navigation, route }) {
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [otherServices, setOtherServices] = useState([]);
+  const [loadingOther, setLoadingOther] = useState(false);
+
+  const meta = useMemo(() => getServiceDetailMeta(), []);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -65,6 +78,38 @@ export default function ServiceDetailScreen({ navigation, route }) {
     await addServiceToCart(service);
     showToast('Đã thêm vào giỏ hàng');
   };
+
+  useEffect(() => {
+    const load = async (force = false) => {
+      try {
+        if (!force && otherServicesCache.fetched && Array.isArray(otherServicesCache.items)) {
+          setOtherServices(
+            otherServicesCache.items.filter((s) => s?.serviceId !== service.serviceId),
+          );
+          return;
+        }
+        setLoadingOther(true);
+        const res = await fetch(`${API_URL}/api/Service?page=1&pageSize=50`);
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const mapped = items.map((item) => ({
+          serviceId: item.serviceId,
+          serviceName: item.serviceName,
+          description: item.description,
+          basePrice: item.basePrice,
+          status: item.status,
+          image: item.img ? `${API_URL}${item.img}` : null,
+        }));
+        otherServicesCache = { fetched: true, items: mapped };
+        setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));
+      } catch (e) {
+        setOtherServices([]);
+      } finally {
+        setLoadingOther(false);
+      }
+    };
+    load(false);
+  }, [service.serviceId]);
 
   return (
     <SafeAreaView
@@ -114,6 +159,81 @@ export default function ServiceDetailScreen({ navigation, route }) {
           <Text style={styles.serviceTitle}>{service.serviceName}</Text>
           <Text style={styles.servicePrice}>{priceText}</Text>
           <Text style={styles.serviceDescription}>{service.description}</Text>
+        </View>
+
+        {/* Rating + AI summary */}
+        <View style={styles.ratingSection}>
+          <View style={styles.ratingRow}>
+            <View style={styles.ratingLeft}>
+              <Ionicons name="star" size={20} color="#FFD700" />
+              <Text style={styles.ratingText}>{meta.rating}</Text>
+              <Text style={styles.reviewCount}>{meta.reviewCount} đánh giá</Text>
+            </View>
+            <TouchableOpacity activeOpacity={0.7}>
+              <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
+          <Text style={styles.aiSummaryText}>{meta.aiSummary}</Text>
+        </View>
+
+        {/* Other services */}
+        <View style={styles.otherSection}>
+          <Text style={styles.otherTitle}>Các dịch vụ khác</Text>
+          {loadingOther ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {[1, 2, 3].map((i) => (
+                <View key={`other-skel-${i}`} style={styles.otherCard}>
+                  <View style={[styles.otherImage, { backgroundColor: '#E5E5E5' }]} />
+                  <View style={{ height: 10 }} />
+                  <View style={{ width: 110, height: 14, backgroundColor: '#E5E5E5', borderRadius: 4 }} />
+                  <View style={{ height: 6 }} />
+                  <View style={{ width: 70, height: 12, backgroundColor: '#E5E5E5', borderRadius: 4 }} />
+                </View>
+              ))}
+            </ScrollView>
+          ) : otherServices.length === 0 ? (
+            <Text style={styles.otherEmpty}>Chưa có dịch vụ khác</Text>
+          ) : (
+            <FlatList
+              data={otherServices}
+              keyExtractor={(item) => String(item.serviceId)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.otherList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.otherCard}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate('ServiceDetail', {
+                      service: item,
+                    })
+                  }
+                >
+                  {item.image ? (
+                    <Image
+                      source={{ uri: item.image }}
+                      style={styles.otherImage}
+                      contentFit="cover"
+                      cachePolicy="disk"
+                      transition={150}
+                    />
+                  ) : (
+                    <View style={[styles.otherImage, styles.imagePlaceholder]}>
+                      <Ionicons name="image-outline" size={22} color={TEXT_SECONDARY} />
+                    </View>
+                  )}
+                  <Text style={styles.otherName} numberOfLines={2}>
+                    {item.serviceName || 'Dịch vụ'}
+                  </Text>
+                  <Text style={styles.otherPrice} numberOfLines={1}>
+                    {item.basePrice != null ? formatPrice(item.basePrice) : ''}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
         </View>
       </ScrollView>
 
@@ -202,6 +322,85 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: TEXT_SECONDARY,
     lineHeight: 20,
+  },
+  ratingSection: {
+    marginTop: 14,
+    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ratingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ratingText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  reviewCount: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  },
+  aiSummaryTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 6,
+  },
+  aiSummaryText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    lineHeight: 18,
+  },
+  otherSection: {
+    marginTop: 14,
+  },
+  otherTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 10,
+  },
+  otherEmpty: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  },
+  otherList: {
+    paddingRight: 8,
+  },
+  otherCard: {
+    width: 150,
+    marginRight: 12,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 16,
+    padding: 10,
+  },
+  otherImage: {
+    width: '100%',
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#E5E5E5',
+  },
+  otherName: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  otherPrice: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
   },
   bottomBarSafe: {
     position: 'absolute',

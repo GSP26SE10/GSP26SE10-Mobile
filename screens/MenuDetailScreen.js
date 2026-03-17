@@ -21,6 +21,8 @@ import API_URL from '../constants/api';
 
 const { width, height } = Dimensions.get('window');
 
+let similarMenusCacheByCategory = {};
+
 const SkeletonBox = ({ style }) => (
   <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
 );
@@ -52,6 +54,8 @@ export default function MenuDetailScreen({ navigation, route }) {
   const [isLoadingDishes, setIsLoadingDishes] = useState(false);
   const [isLoadingMenuInfo, setIsLoadingMenuInfo] = useState(false);
   const [menuInfo, setMenuInfo] = useState(null);
+  const [similarMenus, setSimilarMenus] = useState([]);
+  const [isLoadingSimilar, setIsLoadingSimilar] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -180,6 +184,38 @@ export default function MenuDetailScreen({ navigation, route }) {
 
     fetchMenuInfo();
   }, [menuId, menuCategoryId]);
+
+  useEffect(() => {
+    const fetchSimilarMenus = async (force = false) => {
+      if (!menuCategoryId) {
+        setSimilarMenus([]);
+        return;
+      }
+
+      const cached = similarMenusCacheByCategory[menuCategoryId];
+      if (!force && cached?.fetched && Array.isArray(cached.items)) {
+        setSimilarMenus(cached.items.filter((m) => m?.menuId !== menuId));
+        return;
+      }
+
+      try {
+        setIsLoadingSimilar(true);
+        const res = await fetch(
+          `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=20`,
+        );
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : [];
+        similarMenusCacheByCategory[menuCategoryId] = { items, fetched: true };
+        setSimilarMenus(items.filter((m) => m?.menuId !== menuId));
+      } catch (e) {
+        setSimilarMenus([]);
+      } finally {
+        setIsLoadingSimilar(false);
+      }
+    };
+
+    fetchSimilarMenus(false);
+  }, [menuCategoryId, menuId]);
 
   // Render dishes in 2 columns
   const renderDishes = () => {
@@ -351,6 +387,68 @@ export default function MenuDetailScreen({ navigation, route }) {
             </>
           )}
         </View>
+
+        {/* Similar Menus */}
+        {!!menuCategoryId && (
+          <View style={styles.similarSection}>
+            <Text style={styles.similarTitle}>Menu tương tự</Text>
+            {isLoadingSimilar ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[1, 2, 3].map((i) => (
+                  <View key={`similar-skel-${i}`} style={styles.similarCard}>
+                    <SkeletonBox style={styles.similarImage} />
+                    <View style={{ height: 10 }} />
+                    <SkeletonBox style={{ width: 110, height: 14, borderRadius: 4 }} />
+                    <View style={{ height: 6 }} />
+                    <SkeletonBox style={{ width: 70, height: 12, borderRadius: 4 }} />
+                  </View>
+                ))}
+              </ScrollView>
+            ) : similarMenus.length === 0 ? (
+              <Text style={styles.similarEmpty}>Chưa có menu tương tự</Text>
+            ) : (
+              <FlatList
+                data={similarMenus}
+                keyExtractor={(item) => String(item.menuId)}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.similarList}
+                renderItem={({ item }) => {
+                  const imgUrl = Array.isArray(item?.imgUrl) ? item.imgUrl[0] : item?.imgUrl;
+                  return (
+                    <TouchableOpacity
+                      style={styles.similarCard}
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        navigation.navigate('MenuDetail', {
+                          menuId: item.menuId,
+                          menuCategoryId,
+                          buffetType,
+                          fromStaff,
+                          menuName: item.menuName,
+                        })
+                      }
+                    >
+                      {imgUrl ? (
+                        <Image source={{ uri: imgUrl }} style={styles.similarImage} resizeMode="cover" />
+                      ) : (
+                        <View style={[styles.similarImage, styles.similarImagePlaceholder]}>
+                          <Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
+                        </View>
+                      )}
+                      <Text style={styles.similarName} numberOfLines={2}>
+                        {item.menuName || 'Menu'}
+                      </Text>
+                      <Text style={styles.similarPrice} numberOfLines={1}>
+                        {item.basePrice != null ? formatPrice(item.basePrice) : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Bottom Action Bar (ẩn với staff) */}
@@ -571,6 +669,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: TEXT_SECONDARY,
     lineHeight: 22,
+  },
+  similarSection: {
+    marginTop: 6,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  similarTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 10,
+  },
+  similarEmpty: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  },
+  similarList: {
+    paddingRight: 8,
+  },
+  similarCard: {
+    width: 150,
+    marginRight: 12,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 16,
+    padding: 10,
+  },
+  similarImage: {
+    width: '100%',
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#E5E5E5',
+  },
+  similarImagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  similarName: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  similarPrice: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
   },
   bottomBar: {
     position: 'absolute',
