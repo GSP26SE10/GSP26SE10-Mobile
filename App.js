@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { View, Text, ActivityIndicator } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getAccessToken } from "./utils/auth";
 import { logAccessTokenNow, registerForPushNotificationsAsync } from "./utils/notification";
@@ -33,6 +34,8 @@ import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistorySc
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 import OrderDetail from "./screens/OrderDetail";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY } from "./constants/colors";
 
 const PROTECTED_TABS = ['Orders', 'Contact', 'Account'];
 const queryClient = new QueryClient();
@@ -41,10 +44,32 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState("Home");
   const [screenParams, setScreenParams] = useState({});
   const [screenHistory, setScreenHistory] = useState([{ name: "Home", params: {} }]);
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    logAccessTokenNow();
-    registerForPushNotificationsAsync();
+    (async () => {
+      logAccessTokenNow();
+      registerForPushNotificationsAsync();
+      try {
+        const raw = await AsyncStorage.getItem("userData");
+        if (raw) {
+          const data = JSON.parse(raw);
+          const role = data?.roleName;
+          let initialScreen = "Home";
+          if (role === "STAFF") {
+            initialScreen = "StaffHome";
+          } else if (role === "GROUP_LEADER") {
+            initialScreen = "LeaderHome";
+          }
+          setCurrentScreen(initialScreen);
+          setScreenHistory([{ name: initialScreen, params: {} }]);
+        }
+      } catch (e) {
+        // fallback giữ Home
+      } finally {
+        setInitializing(false);
+      }
+    })();
   }, []);
 
   const navigation = {
@@ -151,7 +176,30 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
-        {renderScreen()}
+        {initializing ? (
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: BACKGROUND_WHITE,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 40,
+                fontWeight: "800",
+                color: PRIMARY_COLOR,
+                marginBottom: 16,
+              }}
+            >
+              BOOKFET
+            </Text>
+            <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+          </View>
+        ) : (
+          renderScreen()
+        )}
       </SafeAreaProvider>
     </QueryClientProvider>
   );

@@ -2,6 +2,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CART_KEY = 'cart';
 
+async function getCurrentUserCartKey() {
+  try {
+    const raw = await AsyncStorage.getItem('userData');
+    if (!raw) return CART_KEY;
+    const data = JSON.parse(raw);
+    const userId = data?.userId;
+    if (!userId) return CART_KEY;
+    return `${CART_KEY}:${userId}`;
+  } catch {
+    return CART_KEY;
+  }
+}
+
 const formatPrice = (price) => {
   if (price == null) return '0₫';
   try {
@@ -21,7 +34,8 @@ const formatPrice = (price) => {
  */
 export async function getCart() {
   try {
-    const raw = await AsyncStorage.getItem(CART_KEY);
+    const key = await getCurrentUserCartKey();
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -36,7 +50,8 @@ export async function getCart() {
  */
 export async function setCart(items) {
   try {
-    await AsyncStorage.setItem(CART_KEY, JSON.stringify(items));
+    const key = await getCurrentUserCartKey();
+    await AsyncStorage.setItem(key, JSON.stringify(items));
   } catch (e) {
     console.error('Failed to save cart', e);
   }
