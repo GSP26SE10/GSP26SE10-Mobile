@@ -34,6 +34,8 @@ import LeaderOrderDetailHistoryScreen from "./screens/LeaderOrderDetailHistorySc
 import LeaderOrderDetailScreen from "./screens/LeaderOrderDetailScreen";
 import OrderDetail from "./screens/OrderDetail";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
+import StaffNotificationScreen from "./screens/StaffNotificationScreen";
+import LeaderNotificationScreen from "./screens/LeaderNotificationScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY } from "./constants/colors";
 
@@ -143,6 +145,8 @@ export default function App() {
         return <TransactionHistoryScreen navigation={navigation} />;
       case "StaffHome":
         return <StaffHomeScreen navigation={navigation} />;
+      case "StaffNotification":
+        return <StaffNotificationScreen navigation={navigation} />;
       case "StaffOrderHistory":
         return <StaffOrderHistoryScreen navigation={navigation} />;
       case "StaffCalendar":
@@ -151,6 +155,8 @@ export default function App() {
         return <StaffAccountScreen navigation={navigation} />;
       case "LeaderHome":
         return <LeaderHomeScreen navigation={navigation} />;
+      case "LeaderNotification":
+        return <LeaderNotificationScreen navigation={navigation} />;
       case "LeaderOrderHistory":
         return <LeaderOrderHistoryScreen navigation={navigation} />;
       case "LeaderCalendar":

@@ -287,10 +287,21 @@ export default function StaffHomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.greeting}>{greetingText}</Text>
-        <Text style={styles.subtitle}>
-          Danh sách tiệc và công việc cần làm.
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greeting}>{greetingText}</Text>
+            <Text style={styles.subtitle}>
+              Danh sách tiệc và công việc cần làm.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.bellButton}
+            onPress={() => navigation.navigate('StaffNotification')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="notifications-outline" size={22} color={TEXT_PRIMARY} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading && orders.length === 0 ? (
@@ -365,6 +376,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bellButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0)',
+    marginLeft: 12,
   },
   greeting: {
     fontSize: 22,

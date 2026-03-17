@@ -143,8 +143,19 @@ export default function LeaderHomeScreen({ navigation }) {
         }
       >
         <View style={styles.header}>
-          <Text style={styles.greeting}>{greetingText}</Text>
-          <Text style={styles.subtitle}>Danh sách các buổi tiệc bạn đang quản lý.</Text>
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.greeting}>{greetingText}</Text>
+              <Text style={styles.subtitle}>Danh sách các buổi tiệc bạn đang quản lý.</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.bellButton}
+              onPress={() => navigation.navigate('LeaderNotification')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="notifications-outline" size={22} color={TEXT_PRIMARY} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {loading ? (
@@ -232,6 +243,19 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bellButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0)',
+    marginLeft: 12,
   },
   greeting: {
     fontSize: 22,
