@@ -2,6 +2,15 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
+// Hiển thị thông báo cả khi app đang mở (foreground)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export const logAccessTokenNow = async () => {
   try {
     const accessToken = await AsyncStorage.getItem('accessToken');
