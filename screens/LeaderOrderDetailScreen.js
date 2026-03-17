@@ -35,6 +35,7 @@ import {
 } from '../constants/colors';
 import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
@@ -181,6 +182,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [compNote, setCompNote] = useState('');
   const [totalCompAmount, setTotalCompAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('zalopay');
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     (async () => {
@@ -249,6 +251,35 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       refreshFnRef.current();
     }
   }, [orderFromParams?.orderDetailId, partyDetail?.id]);
+
+  const createTaskMutation = useMutation({
+    mutationFn: async (payload) => {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail-staff-task`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Tạo công việc thất bại.');
+      }
+      return res.json().catch(() => null);
+    },
+    onError: (error, _variables, context) => {
+      // rollback optimistic UI
+      if (context?.previousTasks) {
+        setTasks(context.previousTasks);
+      }
+      Alert.alert('Lỗi', error?.message || 'Không thể tạo công việc.');
+    },
+    onSettled: () => {
+      setCreatingTask(false);
+    },
+  });
 
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
@@ -438,37 +469,39 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       Alert.alert('Lỗi', 'Giờ kết thúc phải sau giờ bắt đầu.');
       return;
     }
+
+    const payload = {
+      orderDetailId: Number(orderDetailId),
+      staffId: Number(selectedMember.staffId),
+      taskName: newTitle.trim(),
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      note: newNote.trim() || null,
+    };
+
+    // Optimistic: thêm ngay vào list
+    const optimisticTask = mapApiTaskToDisplay({
+      taskId: `tmp-${Date.now()}`,
+      taskName: payload.taskName,
+      startTime: payload.startTime,
+      endTime: payload.endTime,
+      assigneeName: selectedMember.staffName,
+      note: payload.note,
+      status: 1,
+    });
+
+    const previousTasks = tasks;
+    setTasks((prev) => [optimisticTask, ...prev]);
+    setCreateVisible(false);
+    resetForm();
     setCreatingTask(true);
-    try {
-      const token = await getAccessToken();
-      const res = await fetch(`${API_URL}/api/order-detail-staff-task`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          orderDetailId: Number(orderDetailId),
-          staffId: Number(selectedMember.staffId),
-          taskName: newTitle.trim(),
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          note: newNote.trim() || null,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        Alert.alert('Lỗi', err || 'Tạo công việc thất bại.');
-        return;
-      }
-      setCreateVisible(false);
-      resetForm();
-      await refreshTasksForOrder();
-    } catch (e) {
-      Alert.alert('Lỗi', e?.message || 'Không thể tạo công việc.');
-    } finally {
-      setCreatingTask(false);
-    }
+
+    createTaskMutation.mutate(payload, {
+      context: { previousTasks },
+      onSuccess: async () => {
+        await refreshTasksForOrder();
+      },
+    });
   };
 
   const parseMoney = (text) => {
