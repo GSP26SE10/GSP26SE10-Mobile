@@ -132,12 +132,25 @@ const SLIDER_KNOB_SIZE = 52;
 
 function SlideToConfirm({ onComplete, disabled }) {
   const [completed, setCompleted] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const translateX = useRef(new Animated.Value(0)).current;
   const arrowOpacity = useRef(new Animated.Value(1)).current;
+  const maxTranslate = SLIDER_WIDTH - SLIDER_KNOB_SIZE;
+  const progress = translateX.interpolate({
+    inputRange: [0, maxTranslate],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => !disabled && !completed,
+      onPanResponderGrant: () => {
+        if (disabled || completed) return;
+        setIsDragging(true);
+        arrowOpacity.stopAnimation();
+        arrowOpacity.setValue(1);
+      },
       onMoveShouldSetPanResponder: (evt, gestureState) => {
         if (disabled || completed) return false;
         const { dx, dy } = gestureState;
@@ -159,6 +172,7 @@ function SlideToConfirm({ onComplete, disabled }) {
             useNativeDriver: true,
           }).start(() => {
             setCompleted(true);
+            setIsDragging(false);
             onComplete && onComplete();
           });
         } else {
@@ -166,14 +180,24 @@ function SlideToConfirm({ onComplete, disabled }) {
             toValue: 0,
             duration: 200,
             useNativeDriver: true,
-          }).start();
+          }).start(() => {
+            setIsDragging(false);
+          });
         }
+      },
+      onPanResponderTerminate: () => {
+        setIsDragging(false);
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }).start();
       },
     })
   ).current;
 
   useEffect(() => {
-    if (completed || disabled) {
+    if (completed || disabled || isDragging) {
       arrowOpacity.setValue(1);
       return;
     }
@@ -193,7 +217,7 @@ function SlideToConfirm({ onComplete, disabled }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [completed, disabled, arrowOpacity]);
+  }, [completed, disabled, isDragging, arrowOpacity]);
 
   return (
     <View style={styles.sliderContainer}>
@@ -201,13 +225,26 @@ function SlideToConfirm({ onComplete, disabled }) {
         style={styles.sliderTrack}
         {...(!disabled && !completed ? panResponder.panHandlers : {})}
       >
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.sliderProgressFill,
+            {
+              transform: [
+                { translateX: -SLIDER_WIDTH / 2 },
+                { scaleX: progress },
+                { translateX: SLIDER_WIDTH / 2 },
+              ],
+            },
+          ]}
+        />
         <Text style={styles.sliderText}>
           {completed ? 'Đã xác nhận' : 'Trượt để xác nhận'}
         </Text>
         <Animated.View
           style={[
             styles.sliderKnob,
-            { transform: [{ translateX }], opacity: arrowOpacity },
+            { transform: [{ translateX }], opacity: isDragging ? 1 : arrowOpacity },
           ]}
         >
           <Ionicons name="chevron-forward" size={24} color={BUTTON_TEXT_WHITE} />
@@ -1017,6 +1054,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
     overflow: 'hidden',
+  },
+  sliderProgressFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: SLIDER_WIDTH,
+    backgroundColor: PRIMARY_COLOR,
+    opacity: 0.6,
   },
   sliderKnob: {
     width: SLIDER_KNOB_SIZE,

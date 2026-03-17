@@ -47,6 +47,12 @@ function addWeeks(date, weeks) {
   return d;
 }
 
+function addMonths(date, months) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
 export default function StaffCalendarScreen({ navigation }) {
   const [greetingText, setGreetingText] = useState('Xin chào!');
 
@@ -167,7 +173,7 @@ export default function StaffCalendarScreen({ navigation }) {
             <View style={styles.monthPickerHeader}>
               <TouchableOpacity
                 style={styles.arrowButton}
-                onPress={() => setMonthPickerDate((prev) => addWeeks(prev, -4))}
+                onPress={() => setMonthPickerDate((prev) => addMonths(prev, -1))}
                 activeOpacity={0.7}
               >
                 <Ionicons name="chevron-back" size={20} color={TEXT_PRIMARY} />
@@ -180,7 +186,7 @@ export default function StaffCalendarScreen({ navigation }) {
               </Text>
               <TouchableOpacity
                 style={styles.arrowButton}
-                onPress={() => setMonthPickerDate((prev) => addWeeks(prev, 4))}
+                onPress={() => setMonthPickerDate((prev) => addMonths(prev, 1))}
                 activeOpacity={0.7}
               >
                 <Ionicons name="chevron-forward" size={20} color={TEXT_PRIMARY} />

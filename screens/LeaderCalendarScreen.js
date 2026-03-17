@@ -52,6 +52,12 @@ function addWeeks(date, weeks) {
   return d;
 }
 
+function addMonths(date, months) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
 export default function LeaderCalendarScreen({ navigation }) {
   const [greetingText, setGreetingText] = useState('Xin chào!');
 
