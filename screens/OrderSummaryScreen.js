@@ -231,7 +231,13 @@ export default function OrderSummaryScreen({ navigation, route }) {
         );
         const json = await res.json();
         const payment = json?.items?.[0];
-        if (payment?.paymentStatus === 'PAID') {
+        // Backend đang trả paymentStatus dạng number (vd: 2), không phải chuỗi 'PAID'
+        const isPaid =
+          payment &&
+          (payment.paymentStatus === 2 ||
+            payment.paymentStatus === '2' ||
+            payment.paymentStatus === 'PAID');
+        if (isPaid) {
           if (paymentPollRef.current) {
             clearInterval(paymentPollRef.current);
             paymentPollRef.current = null;

@@ -28,8 +28,10 @@ const ORDER_STATUS = {
   CUSTOMER_CANCELLED: 7,
 };
 
-// TODO: Backend đang lỗi query status bằng số. Tạm dùng chữ; sửa xong đổi lại thành số (1,5,6,3,7).
-const STATUS_QUERY_STRING = true;
+
+// Hiện tại API đã trả về status dạng số (vd: 5 cho Đang diễn ra) và filter theo số.
+// Vì vậy phải gửi đúng số (1,5,6,3,7) để backend trả về dữ liệu.
+const STATUS_QUERY_STRING = false;
 const getStatusQuery = (num) =>
   STATUS_QUERY_STRING
     ? { 1: 'PENDING', 5: 'ONGOING', 6: 'COMPLETED', 3: 'REJECTED', 7: 'CANCELLED' }[num] ?? num

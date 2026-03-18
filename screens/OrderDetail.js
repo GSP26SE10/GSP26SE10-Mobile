@@ -5,6 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Modal,
+  TextInput,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -87,10 +91,20 @@ const formatPaymentStatus = (status) => {
 
 export default function OrderDetail({ navigation, route }) {
   const orderId = route?.params?.orderId;
+  const sourceTab = route?.params?.sourceTab || 'cart';
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState(null);
   const [payment, setPayment] = useState(null);
   const [expandedDishesSet, setExpandedDishesSet] = useState(() => new Set());
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackTargets, setFeedbackTargets] = useState([]);
+  const [currentFeedbackIndex, setCurrentFeedbackIndex] = useState(0);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
+  const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
+  const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
   const toggleDishes = (idx) => {
     setExpandedDishesSet((prev) => {
       const next = new Set(prev);
@@ -113,7 +127,7 @@ export default function OrderDetail({ navigation, route }) {
             const user = JSON.parse(raw);
             customerId = user?.userId ?? user?.customerId;
           }
-        } catch (_) {}
+        } catch (_) { }
 
         const orderUrl = customerId
           ? `${API_URL}/api/order?OrderId=${orderId}&CustomerId=${customerId}&page=1&pageSize=1`
@@ -165,10 +179,156 @@ export default function OrderDetail({ navigation, route }) {
 
   const orderDetails = order?.orderDetails ?? [];
   const canCancel = order?.status === 1;
+  const showCancelButton = canCancel && sourceTab !== 'ongoing';
+  const isCompleted = order?.status === 6;
+  const hasExistingFeedback =
+    (existingMenuFeedbacks?.length ?? 0) > 0 || (existingServiceFeedbacks?.length ?? 0) > 0;
+
+  const mapOrderStatusToPartyStatus = (orderStatus) => {
+    switch (orderStatus) {
+      case 4:
+        return 'Đang chuẩn bị';
+      case 5:
+        return 'Đang diễn ra';
+      case 6:
+        return 'Kết thúc tiệc';
+      default:
+        return null;
+    }
+  };
+
+  const partyStatusLabel = mapOrderStatusToPartyStatus(order?.status);
 
   const getDetailImageUri = (detail) => {
     const imgUrl = detail?.menuSnapshot?.imgUrl;
     return Array.isArray(imgUrl) ? imgUrl[0] : imgUrl;
+  };
+
+  const buildFeedbackTargets = () => {
+    if (!orderDetails || orderDetails.length === 0) return [];
+    const targets = [];
+    orderDetails.forEach((od) => {
+      if (od.menuId) {
+        targets.push({
+          type: 'menu',
+          id: od.menuId,
+          name: od.menuName || od.menuSnapshot?.menuName || 'Menu',
+        });
+      }
+      const services = Array.isArray(od.serviceSnapshot?.services)
+        ? od.serviceSnapshot.services
+        : [];
+      services.forEach((s) => {
+        if (s.serviceId) {
+          targets.push({
+            type: 'service',
+            id: s.serviceId,
+            name: s.serviceName || 'Dịch vụ',
+          });
+        }
+      });
+    });
+    return targets;
+  };
+
+  useEffect(() => {
+    if (!orderId) return;
+    if (!isCompleted) {
+      setExistingMenuFeedbacks([]);
+      setExistingServiceFeedbacks([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingFeedbacks(true);
+      try {
+        const [menuRes, serviceRes] = await Promise.all([
+          fetch(`${API_URL}/api/feedback-menu?OrderId=${orderId}&page=1&pageSize=10`),
+          fetch(`${API_URL}/api/feedback-service?OrderId=${orderId}&page=1&pageSize=10`),
+        ]);
+        const menuJson = await menuRes.json().catch(() => null);
+        const serviceJson = await serviceRes.json().catch(() => null);
+        const menuItems = Array.isArray(menuJson?.items) ? menuJson.items : [];
+        const serviceItems = Array.isArray(serviceJson?.items) ? serviceJson.items : [];
+        if (cancelled) return;
+        setExistingMenuFeedbacks(menuItems);
+        setExistingServiceFeedbacks(serviceItems);
+      } catch (e) {
+        if (cancelled) return;
+        setExistingMenuFeedbacks([]);
+        setExistingServiceFeedbacks([]);
+      } finally {
+        if (!cancelled) setLoadingFeedbacks(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, isCompleted]);
+
+  const openFeedbackFlow = () => {
+    const targets = buildFeedbackTargets();
+    if (!targets.length) return;
+    setFeedbackTargets(targets);
+    setCurrentFeedbackIndex(0);
+    setFeedbackRating(5);
+    setFeedbackComment('');
+    setFeedbackVisible(true);
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (submittingFeedback) return;
+    const target = feedbackTargets[currentFeedbackIndex];
+    if (!target || !orderId) return;
+    setSubmittingFeedback(true);
+    try {
+      let customerId = null;
+      try {
+        const raw = await AsyncStorage.getItem('userData');
+        if (raw) {
+          const user = JSON.parse(raw);
+          customerId = user?.userId ?? user?.customerId ?? null;
+        }
+      } catch (e) { }
+
+      const payloadBase = {
+        orderId: Number(orderId),
+        customerId: customerId ? Number(customerId) : 0,
+        rating: feedbackRating,
+        comment: feedbackComment?.trim() || '',
+      };
+
+      let url = '';
+      let body = {};
+      if (target.type === 'menu') {
+        url = `${API_URL}/api/feedback-menu`;
+        body = { ...payloadBase, menuId: target.id };
+      } else {
+        url = `${API_URL}/api/feedback-service`;
+        body = { ...payloadBase, serviceId: target.id };
+      }
+
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }).catch(() => { });
+
+      const nextIndex = currentFeedbackIndex + 1;
+      if (nextIndex < feedbackTargets.length) {
+        setCurrentFeedbackIndex(nextIndex);
+        setFeedbackRating(5);
+        setFeedbackComment('');
+      } else {
+        setFeedbackVisible(false);
+      }
+    } catch (e) {
+      // bỏ qua lỗi, có thể bổ sung toast sau
+    } finally {
+      setSubmittingFeedback(false);
+    }
   };
 
   return (
@@ -348,6 +508,34 @@ export default function OrderDetail({ navigation, route }) {
             );
           })}
 
+        {!loading && partyStatusLabel && (
+          <View style={styles.statusSteps}>
+            {['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
+              const currentIndex = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
+                partyStatusLabel,
+              );
+              const isActive =
+                currentIndex >= 0 ? index <= currentIndex : step === partyStatusLabel;
+              return (
+                <View key={step} style={styles.statusStep}>
+                  <View
+                    style={[styles.statusDot, isActive && styles.statusDotActive]}
+                  />
+                  <Text
+                    style={[
+                      styles.statusLabel,
+                      isActive && styles.statusLabelActive,
+                    ]}
+                  >
+                    {step}
+                  </Text>
+                  {index < arr.length - 1 && <View style={styles.statusLine} />}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {/* Payment info */}
         <View style={styles.section}>
           <View style={styles.payHeaderRow}>
@@ -432,24 +620,193 @@ export default function OrderDetail({ navigation, route }) {
           )}
         </View>
 
+        {!loading && isCompleted && !hasExistingFeedback && !loadingFeedbacks && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.feedbackButton}
+              activeOpacity={0.85}
+              onPress={openFeedbackFlow}
+            >
+              <Ionicons
+                name="star"
+                size={18}
+                color={BACKGROUND_WHITE}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.feedbackButtonText}>Đánh giá đơn hàng</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {!loading && isCompleted && (hasExistingFeedback || loadingFeedbacks) && (
+          <View style={styles.section}>
+            {loadingFeedbacks ? (
+              <Text style={styles.feedbackSectionTitle}>Đang tải đánh giá...</Text>
+            ) : (
+              <>
+                {(existingMenuFeedbacks?.length ?? 0) > 0 && (
+                  <View style={{ marginBottom: (existingServiceFeedbacks?.length ?? 0) > 0 ? 14 : 0 }}>
+                    <Text style={styles.feedbackSectionTitle}>Đánh giá của bạn về menu</Text>
+                    {existingMenuFeedbacks.map((fb, idx) => (
+                      <View key={`${fb.menuId ?? 'menu'}-${fb.feedbackId ?? idx}`} style={styles.feedbackItem}>
+                        <Text style={styles.feedbackItemName} numberOfLines={2}>
+                          {fb.menuName || `Menu #${fb.menuId ?? ''}`}
+                        </Text>
+                        <View style={styles.feedbackStarsSmallRow}>
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Ionicons
+                              key={s}
+                              name={s <= Number(fb.rating ?? 0) ? 'star' : 'star-outline'}
+                              size={16}
+                              color={PRIMARY_COLOR}
+                            />
+                          ))}
+                        </View>
+                        {!!fb.comment && (
+                          <Text style={styles.feedbackItemComment}>{String(fb.comment)}</Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {(existingServiceFeedbacks?.length ?? 0) > 0 && (
+                  <View>
+                    <Text style={styles.feedbackSectionTitle}>Đánh giá của bạn về dịch vụ</Text>
+                    {existingServiceFeedbacks.map((fb, idx) => (
+                      <View key={`${fb.serviceId ?? 'service'}-${fb.feedbackId ?? idx}`} style={styles.feedbackItem}>
+                        <Text style={styles.feedbackItemName} numberOfLines={2}>
+                          {fb.serviceName || `Dịch vụ #${fb.serviceId ?? ''}`}
+                        </Text>
+                        <View style={styles.feedbackStarsSmallRow}>
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Ionicons
+                              key={s}
+                              name={s <= Number(fb.rating ?? 0) ? 'star' : 'star-outline'}
+                              size={16}
+                              color={PRIMARY_COLOR}
+                            />
+                          ))}
+                        </View>
+                        {!!fb.comment && (
+                          <Text style={styles.feedbackItemComment}>{String(fb.comment)}</Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        )}
+
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Bottom: cancel button if pending */}
-      <SafeAreaView edges={['bottom']} style={styles.bottomSafe}>
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={[styles.cancelButton, !canCancel && styles.cancelButtonDisabled]}
-            activeOpacity={0.8}
-            disabled={!canCancel}
-            onPress={() => {
-              // TODO: call cancel API when backend ready
-            }}
-          >
-            <Text style={styles.cancelButtonText}>Hủy đơn</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      {/* Feedback modal */}
+      <Modal
+        visible={feedbackVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!submittingFeedback) setFeedbackVisible(false);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.feedbackOverlay}>
+            <TouchableWithoutFeedback onPress={() => { }}>
+              <View style={styles.feedbackCard}>
+                <TouchableOpacity
+                  style={styles.feedbackCloseButton}
+                  onPress={() => !submittingFeedback && setFeedbackVisible(false)}
+                  activeOpacity={0.7}
+                >
+
+                </TouchableOpacity>
+                {feedbackTargets[currentFeedbackIndex] && (
+                  <>
+                    <Text style={styles.feedbackTitle}>
+                      Đánh giá{' '}
+                      {feedbackTargets[currentFeedbackIndex].type === 'menu'
+                        ? 'menu'
+                        : 'dịch vụ'}
+                    </Text>
+                    <Text style={styles.feedbackSubtitle} numberOfLines={2}>
+                      {feedbackTargets[currentFeedbackIndex].name}
+                    </Text>
+                  </>
+                )}
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity
+                      key={star}
+                      style={styles.starButton}
+                      activeOpacity={0.7}
+                      onPress={() => setFeedbackRating(star)}
+                      disabled={submittingFeedback}
+                    >
+                      <Ionicons
+                        name={star <= feedbackRating ? 'star' : 'star-outline'}
+                        size={28}
+                        color={PRIMARY_COLOR}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.feedbackInputBox}>
+                  <Text style={styles.feedbackInputLabel}>Nhận xét</Text>
+                  <TextInput
+                    style={styles.feedbackInput}
+                    multiline
+                    placeholder="Hãy chia sẻ trải nghiệm của bạn..."
+                    placeholderTextColor={TEXT_SECONDARY}
+                    value={feedbackComment}
+                    onChangeText={setFeedbackComment}
+                    editable={!submittingFeedback}
+                  />
+                </View>
+                <View style={styles.feedbackActions}>
+                  <TouchableOpacity
+                    style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
+                    activeOpacity={0.8}
+                    disabled={submittingFeedback}
+                    onPress={() => setFeedbackVisible(false)}
+                  >
+                    <Text style={styles.feedbackCancelText}>Đóng</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
+                    activeOpacity={0.8}
+                    disabled={submittingFeedback}
+                    onPress={handleSubmitFeedback}
+                  >
+                    <Text style={styles.feedbackSubmitText}>
+                      {submittingFeedback ? 'Đang gửi...' : 'Gửi đánh giá'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Bottom: cancel button if pending and not from "Đang diễn ra" tab */}
+      {showCancelButton && (
+        <SafeAreaView edges={['bottom']} style={styles.bottomSafe}>
+          <View style={styles.bottomBar}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              activeOpacity={0.8}
+              onPress={() => {
+                // TODO: call cancel API when backend ready
+              }}
+            >
+              <Text style={styles.cancelButtonText}>Hủy đơn</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )}
     </SafeAreaView>
   );
 }
@@ -707,6 +1064,43 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     marginLeft: 8,
   },
+  statusSteps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  statusStep: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E0E0E0',
+  },
+  statusDotActive: {
+    backgroundColor: PRIMARY_COLOR,
+  },
+  statusLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+  },
+  statusLabelActive: {
+    color: PRIMARY_COLOR,
+    fontWeight: '600',
+  },
+  statusLine: {
+    position: 'absolute',
+    top: 6,
+    right: -40,
+    width: 80,
+    height: 2,
+    backgroundColor: '#E0E0E0',
+  },
   serviceRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -804,6 +1198,148 @@ const styles = StyleSheet.create({
     color: BACKGROUND_WHITE,
     fontSize: 16,
     fontWeight: '700',
+  },
+  feedbackButton: {
+    marginTop: 8,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_COLOR,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackButtonText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  feedbackOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  feedbackCard: {
+    width: '100%',
+    borderRadius: 18,
+    backgroundColor: BACKGROUND_WHITE,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  feedbackCloseButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    textAlign: 'center',
+  },
+  feedbackSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    textAlign: 'center',
+  },
+  starsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  starButton: {
+    paddingHorizontal: 4,
+  },
+  feedbackInputBox: {
+    marginTop: 10,
+  },
+  feedbackInputLabel: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  feedbackInput: {
+    minHeight: 80,
+    maxHeight: 140,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    textAlignVertical: 'top',
+  },
+  feedbackActions: {
+    flexDirection: 'row',
+    columnGap: 10,
+    marginTop: 16,
+  },
+  feedbackActionBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackCancelBtn: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  feedbackSubmitBtn: {
+    backgroundColor: PRIMARY_COLOR,
+  },
+  feedbackCancelText: {
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
+  },
+  feedbackSubmitText: {
+    fontSize: 14,
+    color: BACKGROUND_WHITE,
+    fontWeight: '700',
+  },
+  feedbackSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 10,
+  },
+  feedbackItem: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  feedbackItemName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  feedbackStarsSmallRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 4,
+    columnGap: 2,
+  },
+  feedbackItemComment: {
+    marginTop: 6,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    lineHeight: 18,
   },
 });
 
