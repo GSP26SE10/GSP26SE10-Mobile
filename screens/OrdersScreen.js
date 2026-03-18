@@ -20,32 +20,26 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_L
 
 const { width } = Dimensions.get('window');
 
-// Status: 1 = Sắp tới, 5 = Đang diễn ra, 6 = Hoàn thành, 3 = Bị từ chối, 7 = Khách hủy
+// Status: 1 = Sắp tới, 5 = Đang diễn ra, 6 = Thanh toán, 7 = Hoàn thành, 8 = Bị từ chối, 9 = Khách hủy
 const ORDER_STATUS = {
   UPCOMING: 1,
-  ONGOING: 5,
-  COMPLETED: 6,
+  APPROVED: 2,
   REJECTED: 3,
-  CUSTOMER_CANCELLED: 7,
+  PREPARING: 4,
+  ONGOING: 5,
+  BILLING: 6,
+  COMPLETED: 7,
+  CANCELLED: 8,
 };
-
-
-// Hiện tại API đã trả về status dạng số (vd: 5 cho Đang diễn ra) và filter theo số.
-// Vì vậy phải gửi đúng số (1,5,6,3,7) để backend trả về dữ liệu.
-const STATUS_QUERY_STRING = false;
-const getStatusQuery = (num) =>
-  STATUS_QUERY_STRING
-    ? { 1: 'PENDING', 5: 'ONGOING', 6: 'COMPLETED', 3: 'REJECTED', 7: 'CANCELLED' }[num] ?? num
-    : num;
 
 let ordersCacheByTab = {};
 
 const TABS = [
   { id: 'cart', label: 'Giỏ hàng' },
-  { id: 'upcoming', label: 'Sắp tới', status: ORDER_STATUS.UPCOMING },
+  { id: 'upcoming', label: 'Sắp tới', status: ORDER_STATUS.UPCOMING || ORDER_STATUS.APPROVED || ORDER_STATUS.PREPARING },
   { id: 'ongoing', label: 'Đang diễn ra', status: ORDER_STATUS.ONGOING },
   { id: 'completed', label: 'Hoàn thành', status: ORDER_STATUS.COMPLETED },
-  { id: 'cancelled', label: 'Bị hủy', statuses: [ORDER_STATUS.REJECTED, ORDER_STATUS.CUSTOMER_CANCELLED] },
+  { id: 'cancelled', label: 'Bị hủy', statuses: [ORDER_STATUS.REJECTED, ORDER_STATUS.CANCELLED] },
 ];
 
 const getTabKey = (index) => TABS[index]?.id ?? 'cart';
@@ -155,7 +149,7 @@ export default function OrdersScreen({ navigation, route }) {
         if (tab.statuses) {
           const [res1, res2] = await Promise.all(
             tab.statuses.map((status) =>
-              fetch(`${API_URL}/api/order?CustomerId=${customerId}&Status=${getStatusQuery(status)}&page=${page}&pageSize=10`),
+              fetch(`${API_URL}/api/order?CustomerId=${customerId}&Status=${status}&page=${page}&pageSize=10`),
             ),
           );
           const json1 = await res1.json();
@@ -166,7 +160,7 @@ export default function OrdersScreen({ navigation, route }) {
           totalPages = Math.max(json1?.totalPages ?? 1, json2?.totalPages ?? 1);
         } else {
           const res = await fetch(
-            `${API_URL}/api/order?CustomerId=${customerId}&Status=${getStatusQuery(tab.status)}&page=${page}&pageSize=10`,
+            `${API_URL}/api/order?CustomerId=${customerId}&Status=${tab.status}&page=${page}&pageSize=10`,
           );
           const json = await res.json();
           const list = Array.isArray(json?.items) ? json.items : [];
