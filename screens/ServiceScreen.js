@@ -253,6 +253,11 @@ export default function ServiceScreen({ navigation }) {
         )}
         <View style={styles.serviceInfo}>
           <Text style={styles.serviceName}>{dish.dishName}</Text>
+          {dish.dishCategoryName ? (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryBadgeText}>{dish.dishCategoryName}</Text>
+            </View>
+          ) : null}
           <Text style={styles.servicePrice}>{formatPrice(dish.price)}</Text>
         </View>
         <TouchableOpacity
@@ -438,6 +443,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: TEXT_PRIMARY,
     marginBottom: 6,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFE6B3',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  categoryBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FF8C00',
   },
   servicePrice: {
     fontSize: 16,

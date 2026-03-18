@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,13 +27,6 @@ const formatPrice = (price) => {
   }
 };
 
-const getDishDetailMeta = () => ({
-  rating: 4.8,
-  reviewCount: '1.2k',
-  aiSummary:
-    'Món ăn được đánh giá cao về hương vị và chất lượng nguyên liệu. Phù hợp cho nhiều dịp tiệc và dễ kết hợp với các món khác trong thực đơn.',
-});
-
 const normalizeDish = (dishFromRoute) => {
   const d = dishFromRoute || {};
   return {
@@ -59,8 +52,6 @@ export default function DishDetailScreen({ navigation, route }) {
   const [toastMessage, setToastMessage] = useState('');
   const [otherDishes, setOtherDishes] = useState([]);
   const [loadingOther, setLoadingOther] = useState(false);
-
-  const meta = useMemo(() => getDishDetailMeta(), []);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -174,22 +165,6 @@ export default function DishDetailScreen({ navigation, route }) {
           ) : null}
           <Text style={styles.dishDescription}>{dish.description}</Text>
           {dish.note ? <Text style={styles.dishNote}>{dish.note}</Text> : null}
-        </View>
-
-        {/* Rating + AI summary */}
-        <View style={styles.ratingSection}>
-          <View style={styles.ratingRow}>
-            <View style={styles.ratingLeft}>
-              <Ionicons name="star" size={20} color="#FFD700" />
-              <Text style={styles.ratingText}>{meta.rating}</Text>
-              <Text style={styles.reviewCount}>{meta.reviewCount} đánh giá</Text>
-            </View>
-            <TouchableOpacity activeOpacity={0.7}>
-              <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
-          <Text style={styles.aiSummaryText}>{meta.aiSummary}</Text>
         </View>
 
         {/* Other dishes */}
@@ -355,44 +330,6 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     fontStyle: 'italic',
     marginTop: 8,
-  },
-  ratingSection: {
-    marginTop: 14,
-    borderRadius: 16,
-    backgroundColor: '#FAFAFA',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  ratingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  ratingText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: TEXT_PRIMARY,
-  },
-  reviewCount: {
-    fontSize: 13,
-    color: TEXT_SECONDARY,
-  },
-  aiSummaryTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: TEXT_PRIMARY,
-    marginBottom: 6,
-  },
-  aiSummaryText: {
-    fontSize: 13,
-    color: TEXT_SECONDARY,
-    lineHeight: 18,
   },
   otherSection: {
     marginTop: 14,
