@@ -82,7 +82,8 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const items = p.items || [];
       const menuItems = items.filter((i) => i.type === 'menu');
       const serviceItems = items.filter((i) => i.type === 'service');
-      const menuCount = menuItems.reduce((sum, i) => sum + Number(i.count ?? 0), 0) || 1;
+      // 1 party có thể có nhiều menu -> số lượng khách lấy theo MAX, không phải SUM
+      const menuCount = Math.max(...menuItems.map((i) => Number(i.count ?? 0)), 1);
       const menuBaseSum = menuItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
       const serviceSum = serviceItems.reduce(
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
@@ -282,8 +283,8 @@ export default function OrderSummaryScreen({ navigation, route }) {
         const menu = partyItems.find((i) => i.type === 'menu');
         const menuId = menu?.menuId ?? 0;
         if (!menuId) continue; // bỏ qua tiệc chưa chọn menu
-        const numberOfGuests =
-          partyItems.filter((i) => i.type === 'menu').reduce((sum, i) => sum + Number(i.count ?? 0), 0) || 1;
+        const menuCounts = partyItems.filter((i) => i.type === 'menu').map((i) => Number(i.count ?? 0));
+        const numberOfGuests = Math.max(...menuCounts, 1);
         const services = partyItems
           .filter((i) => i.type === 'service')
           .map((s) => ({

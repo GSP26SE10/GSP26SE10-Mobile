@@ -98,6 +98,18 @@ export default function App() {
       setScreenHistory((prev) => [...prev, { name: screenName, params: nextParams }]);
       setCurrentScreen(screenName);
     },
+    replace: (screenName, params) => {
+      const nextParams = params || {};
+      setScreenParams(nextParams);
+      setScreenHistory((prev) => {
+        if (!prev || prev.length === 0) return [{ name: screenName, params: nextParams }];
+        const next = [...prev];
+        next.pop(); // replace current
+        next.push({ name: screenName, params: nextParams });
+        return next;
+      });
+      setCurrentScreen(screenName);
+    },
     goBack: () => {
       if (screenHistory.length > 1) {
         const newHistory = [...screenHistory];

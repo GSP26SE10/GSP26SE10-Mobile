@@ -21,7 +21,17 @@ export async function getAccessToken() {
  */
 export async function requireAuth(navigation, options = {}) {
   const token = await getAccessToken();
-  if (token) return true;
+  // Đã đăng nhập chỉ khi có token + có userId (tránh trạng thái lệch sau logout)
+  let hasUserId = false;
+  try {
+    const raw = await AsyncStorage.getItem('userData');
+    const user = raw ? JSON.parse(raw) : null;
+    hasUserId = !!user?.userId;
+  } catch (e) {
+    hasUserId = false;
+  }
+
+  if (token && hasUserId) return true;
   navigation.navigate('Login', {
     returnScreen: options.returnScreen || null,
     returnParams: options.returnParams || null,

@@ -141,13 +141,20 @@ export default function LoginScreen({ navigation, route }) {
         const returnScreen = route?.params?.returnScreen;
         const returnParams = route?.params?.returnParams;
         if (roleName === 'USER') {
-          navigation.navigate(returnScreen || 'Home', returnParams || undefined);
+          // Nếu vào từ auth-required thì replace để back không quay về Login
+          const target = returnScreen || 'Home';
+          if (route?.params?.fromAuthRequired) navigation.replace(target, returnParams || undefined);
+          else navigation.navigate(target, returnParams || undefined);
         } else if (roleName === 'STAFF') {
-          navigation.navigate('StaffHome');
+          if (route?.params?.fromAuthRequired) navigation.replace('StaffHome');
+          else navigation.navigate('StaffHome');
         } else if (roleName === 'GROUP_LEADER') {
-          navigation.navigate('LeaderHome');
+          if (route?.params?.fromAuthRequired) navigation.replace('LeaderHome');
+          else navigation.navigate('LeaderHome');
         } else {
-          navigation.navigate(returnScreen || 'Home', returnParams || undefined);
+          const target = returnScreen || 'Home';
+          if (route?.params?.fromAuthRequired) navigation.replace(target, returnParams || undefined);
+          else navigation.navigate(target, returnParams || undefined);
         }
       } else if (result.type === 'dismissed') {
         setLoading(false);
@@ -214,11 +221,15 @@ export default function LoginScreen({ navigation, route }) {
         const returnParams = route?.params?.returnParams;
         setTimeout(() => {
           if (userData.roleName === 'USER') {
-            navigation.navigate(returnScreen || 'Home', returnParams || undefined);
+            const target = returnScreen || 'Home';
+            if (route?.params?.fromAuthRequired) navigation.replace(target, returnParams || undefined);
+            else navigation.navigate(target, returnParams || undefined);
           } else if (userData.roleName === 'STAFF') {
-            navigation.navigate('StaffHome');
+            if (route?.params?.fromAuthRequired) navigation.replace('StaffHome');
+            else navigation.navigate('StaffHome');
           } else if (userData.roleName === 'GROUP_LEADER') {
-            navigation.navigate('LeaderHome');
+            if (route?.params?.fromAuthRequired) navigation.replace('LeaderHome');
+            else navigation.navigate('LeaderHome');
           } else {
             showToast('Role không được hỗ trợ');
           }

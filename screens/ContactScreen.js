@@ -66,8 +66,8 @@ export default function ContactScreen({ navigation }) {
   const satellites = useMemo(
     () => [
       { id: 's1', src: require('../assets/sub1.jpg'), angle: 0 },
-      { id: 's2', src: require('../assets/sub2.webp'), angle: 120 },
-      { id: 's3', src: require('../assets/sub3.webp'), angle: 240 },
+      { id: 's2', src: require('../assets/sub2.jpg'), angle: 120 },
+      { id: 's3', src: require('../assets/sub3.jpg'), angle: 240 },
     ],
     [],
   );

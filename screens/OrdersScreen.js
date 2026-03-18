@@ -244,9 +244,32 @@ export default function OrdersScreen({ navigation, route }) {
     }
   }, [activeTabIndex]);
 
-  const handleQuantityChange = async (partyIndex, itemId, delta) => {
+  const handleQuantityChange = async (partyIndex, item, delta) => {
+    if (!item) return;
+    // Rule buffet: trong cùng 1 tiệc, tất cả MENU phải cùng số lượng (theo max).
+    // Vì vậy khi +/- ở 1 menu, áp dụng cho tất cả menu trong party đó.
+    const party = (orderParties || [])[partyIndex];
+    const partyItems = Array.isArray(party?.items) ? party.items : [];
+    const menuItems = partyItems.filter((i) => i.type === 'menu');
+    const isMenu = item.type === 'menu';
+
+    if (isMenu && menuItems.length > 1) {
+      const currentMax = Math.max(...menuItems.map((m) => Number(m.count ?? 0)), 1);
+      const target = Math.max(currentMax + delta, 1);
+      const realDelta = target - currentMax;
+      if (realDelta === 0) return;
+
+      await setActivePartyByIndex(partyIndex);
+      for (const m of menuItems) {
+        await updateCartItemQuantity(m.id, realDelta);
+      }
+      const parties = await getOrderParties();
+      setOrderParties(parties);
+      return;
+    }
+
     await setActivePartyByIndex(partyIndex);
-    await updateCartItemQuantity(itemId, delta);
+    await updateCartItemQuantity(item.id, delta);
     const parties = await getOrderParties();
     setOrderParties(parties);
   };
@@ -279,69 +302,6 @@ export default function OrdersScreen({ navigation, route }) {
       });
     }
   };
-
-  const renderCartItem = ({ item }) => (
-    <View style={styles.orderCard}>
-      {item.image ? (
-        <ExpoImage
-          source={{ uri: item.image }}
-          style={styles.orderImage}
-          contentFit="cover"
-          cachePolicy="disk"
-        />
-      ) : (
-        <View style={[styles.orderImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
-          <Ionicons name="image-outline" size={28} color={TEXT_SECONDARY} />
-        </View>
-      )}
-      <View style={styles.orderInfo}>
-        <Text style={styles.orderName}>{item.name}</Text>
-        {item.quantity && (
-          <Text style={styles.orderQuantity}>{item.quantity}</Text>
-        )}
-        <Text style={styles.orderPrice}>{item.priceFormatted}</Text>
-      </View>
-      <View style={styles.quantityContainer}>
-        {item.count > 1 ? (
-          <>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => handleQuantityChange(item.id, -1)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quantityButtonText}>-</Text>
-            </TouchableOpacity>
-            <Text style={styles.quantityText}>{item.count}</Text>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => handleQuantityChange(item.id, 1)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quantityButtonText}>+</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={() => handleRemoveItem(item.id)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="trash-outline" size={20} color={TEXT_SECONDARY} />
-            </TouchableOpacity>
-            <Text style={styles.quantityText}>{item.count}</Text>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => handleQuantityChange(item.id, 1)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quantityButtonText}>+</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-    </View>
-  );
 
   const renderCartContent = () => {
     const partiesWithItems = (orderParties || []).filter((p) => (p.items || []).length > 0);
@@ -402,7 +362,7 @@ export default function OrdersScreen({ navigation, route }) {
                       <>
                         <TouchableOpacity
                           style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item.id, -1)}
+                          onPress={() => handleQuantityChange(partyIndex, item, -1)}
                           activeOpacity={0.7}
                         >
                           <Text style={styles.quantityButtonText}>-</Text>
@@ -410,7 +370,7 @@ export default function OrdersScreen({ navigation, route }) {
                         <Text style={styles.quantityText}>{item.count}</Text>
                         <TouchableOpacity
                           style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item.id, 1)}
+                          onPress={() => handleQuantityChange(partyIndex, item, 1)}
                           activeOpacity={0.7}
                         >
                           <Text style={styles.quantityButtonText}>+</Text>
@@ -428,7 +388,7 @@ export default function OrdersScreen({ navigation, route }) {
                         <Text style={styles.quantityText}>{item.count}</Text>
                         <TouchableOpacity
                           style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item.id, 1)}
+                          onPress={() => handleQuantityChange(partyIndex, item, 1)}
                           activeOpacity={0.7}
                         >
                           <Text style={styles.quantityButtonText}>+</Text>

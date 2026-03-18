@@ -104,8 +104,12 @@ export default function HomeScreen({ navigation, route }) {
     if (route?.params?.fromLogout) {
       setToastMessage('Đăng xuất thành công');
       setToastVisible(true);
+      // Clear flag so it won't show again when navigating back
+      if (typeof navigation?.replace === 'function') {
+        setTimeout(() => navigation.replace('Home', {}), 0);
+      }
     }
-  }, [route?.params?.fromLogout]);
+  }, [route?.params?.fromLogout, navigation]);
 
   const formatPrice = (price) => {
     if (price == null) return '';

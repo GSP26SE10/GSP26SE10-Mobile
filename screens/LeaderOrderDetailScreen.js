@@ -167,7 +167,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   });
   const [newNote, setNewNote] = useState('');
   const [members, setMembers] = useState([]);
-  const [assigneeModalVisible, setAssigneeModalVisible] = useState(false);
+  const [leaderFullName, setLeaderFullName] = useState('');
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const [refreshingTasks, setRefreshingTasks] = useState(false);
   const [tasksReady, setTasksReady] = useState(false);
@@ -187,6 +188,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
+        // Load current leader name to exclude from assignee list
+        try {
+          const rawUser = await AsyncStorage.getItem('userData');
+          const user = rawUser ? JSON.parse(rawUser) : null;
+          if (user?.roleName === 'GROUP_LEADER' && user?.fullName) {
+            setLeaderFullName(String(user.fullName));
+          }
+        } catch (e) {}
+
         const raw = await AsyncStorage.getItem(LEADER_GROUP_MEMBERS_KEY);
         const list = raw ? JSON.parse(raw) : [];
         setMembers(Array.isArray(list) ? list : []);
@@ -374,6 +384,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     setNewTitle('');
     setSelectedMember(null);
+    setAssigneeDropdownOpen(false);
     setNewDateTime(start);
     setNewEndDateTime(end);
     setNewNote('');
@@ -891,60 +902,57 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   <Text style={styles.fieldLabel}>Nhân viên</Text>
                   <TouchableOpacity
                     style={styles.assigneeSelectOnly}
-                    onPress={() => setAssigneeModalVisible(true)}
+                    onPress={() => setAssigneeDropdownOpen((v) => !v)}
                     activeOpacity={0.7}
                   >
                     <Text style={selectedMember ? styles.assigneeSelectText : styles.assigneeSelectPlaceholder}>
                       {selectedMember ? selectedMember.staffName : 'Chọn nhân viên'}
                     </Text>
-                    <Ionicons name="chevron-down" size={20} color={TEXT_SECONDARY} />
+                    <Ionicons name={assigneeDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color={TEXT_SECONDARY} />
                   </TouchableOpacity>
-                  <Modal
-                    visible={assigneeModalVisible}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setAssigneeModalVisible(false)}
-                  >
-                    <TouchableOpacity
-                      style={styles.memberModalOverlay}
-                      activeOpacity={1}
-                      onPress={() => setAssigneeModalVisible(false)}
-                    >
-                      <TouchableOpacity
-                        style={styles.memberModalContent}
-                        activeOpacity={1}
-                        onPress={() => {}}
-                      >
-                        <Text style={styles.memberModalTitle}>Chọn nhân viên</Text>
-                        {members.length === 0 ? (
-                          <Text style={styles.memberModalEmpty}>Chưa có danh sách nhân viên</Text>
-                        ) : (
-                          <FlatList
-                            data={members}
-                            keyExtractor={(item) => String(item.staffId)}
-                            renderItem={({ item }) => (
-                              <TouchableOpacity
-                                style={styles.memberModalItem}
-                                onPress={() => {
-                                  setSelectedMember({ staffId: item.staffId, staffName: item.staffName || `#${item.staffId}` });
-                                  setAssigneeModalVisible(false);
-                                }}
-                                activeOpacity={0.7}
-                              >
-                                <Text style={styles.memberModalItemText}>{item.staffName || `#${item.staffId}`}</Text>
-                              </TouchableOpacity>
-                            )}
-                          />
-                        )}
-                        <TouchableOpacity
-                          style={styles.memberModalClose}
-                          onPress={() => setAssigneeModalVisible(false)}
-                        >
-                          <Text style={styles.memberModalCloseText}>Đóng</Text>
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  </Modal>
+                  {assigneeDropdownOpen && (
+                    <View style={styles.assigneeDropdown}>
+                      {(() => {
+                        const filtered = (members || []).filter((m) => {
+                          const name = (m?.staffName || '').trim();
+                          return !leaderFullName || name !== String(leaderFullName).trim();
+                        });
+                        if (filtered.length === 0) {
+                          return <Text style={styles.assigneeDropdownEmpty}>Chưa có danh sách nhân viên</Text>;
+                        }
+                        return (
+                          <ScrollView
+                            style={styles.assigneeDropdownList}
+                            nestedScrollEnabled
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                          >
+                            {filtered.map((item, idx) => {
+                              const isSelected = Number(selectedMember?.staffId) === Number(item.staffId);
+                              return (
+                                <View key={String(item.staffId)}>
+                                  {idx > 0 && <View style={styles.assigneeDropdownSeparator} />}
+                                  <TouchableOpacity
+                                    style={[styles.assigneeDropdownItem, isSelected && styles.assigneeDropdownItemSelected]}
+                                    onPress={() => {
+                                      setSelectedMember({ staffId: item.staffId, staffName: item.staffName || `#${item.staffId}` });
+                                      setAssigneeDropdownOpen(false);
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Text style={[styles.assigneeDropdownItemText, isSelected && styles.assigneeDropdownItemTextSelected]}>
+                                      {item.staffName || `#${item.staffId}`}
+                                    </Text>
+                                    {isSelected && <Ionicons name="checkmark" size={18} color={PRIMARY_COLOR} />}
+                                  </TouchableOpacity>
+                                </View>
+                              );
+                            })}
+                          </ScrollView>
+                        );
+                      })()}
+                    </View>
+                  )}
 
                   <View style={styles.row}>
                     <View style={[styles.rowItem, { marginRight: 6 }]}>
@@ -1049,9 +1057,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     <Text style={styles.modalButtonSecondaryText}>Hủy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonPrimary, creatingTask && styles.modalButtonDisabled]}
+                    style={[
+                      styles.modalButton,
+                      styles.modalButtonPrimary,
+                      (creatingTask || !newTitle.trim() || !selectedMember?.staffId) && styles.modalButtonDisabled,
+                    ]}
                     onPress={handleAddTask}
-                    disabled={creatingTask}
+                    disabled={creatingTask || !newTitle.trim() || !selectedMember?.staffId}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.modalButtonPrimaryText}>{creatingTask ? 'Đang tạo...' : 'Thêm'}</Text>
@@ -1322,54 +1334,52 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     flex: 1,
   },
+  assigneeDropdown: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    backgroundColor: BACKGROUND_WHITE,
+    overflow: 'hidden',
+  },
+  assigneeDropdownList: {
+    maxHeight: 220,
+  },
+  assigneeDropdownSeparator: {
+    height: 1,
+    backgroundColor: BORDER_LIGHT,
+  },
+  assigneeDropdownEmpty: {
+    padding: 12,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  assigneeDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  assigneeDropdownItemSelected: {
+    backgroundColor: 'rgba(232, 113, 46, 0.08)',
+  },
+  assigneeDropdownItemText: {
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 10,
+  },
+  assigneeDropdownItemTextSelected: {
+    color: PRIMARY_COLOR,
+    fontWeight: '800',
+  },
   modalButtonDisabled: {
     opacity: 0.6,
   },
-  memberModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  memberModalContent: {
-    width: '100%',
-    maxHeight: 360,
-    backgroundColor: BACKGROUND_WHITE,
-    borderRadius: 16,
-    padding: 16,
-  },
-  memberModalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: TEXT_PRIMARY,
-    marginBottom: 12,
-  },
-  memberModalEmpty: {
-    fontSize: 14,
-    color: TEXT_SECONDARY,
-    paddingVertical: 20,
-  },
-  memberModalItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER_LIGHT,
-  },
-  memberModalItemText: {
-    fontSize: 15,
-    color: TEXT_PRIMARY,
-  },
-  memberModalClose: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  memberModalCloseText: {
-    fontSize: 15,
-    color: PRIMARY_COLOR,
-    fontWeight: '600',
-  },
+
   statusSteps: {
     flexDirection: 'row',
     alignItems: 'center',
