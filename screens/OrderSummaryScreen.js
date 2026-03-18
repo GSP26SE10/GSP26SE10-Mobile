@@ -82,6 +82,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const items = p.items || [];
       const menuItems = items.filter((i) => i.type === 'menu');
       const serviceItems = items.filter((i) => i.type === 'service');
+      const dishItems = items.filter((i) => i.type === 'dish');
       // 1 party có thể có nhiều menu -> số lượng khách lấy theo MAX, không phải SUM
       const menuCount = Math.max(...menuItems.map((i) => Number(i.count ?? 0)), 1);
       const menuBaseSum = menuItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
@@ -89,9 +90,13 @@ export default function OrderSummaryScreen({ navigation, route }) {
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
         0
       );
-      const subTotal = menuBaseSum * menuCount + serviceSum;
+      const dishSum = dishItems.reduce(
+        (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
+        0
+      );
+      const subTotal = menuBaseSum * menuCount + serviceSum + dishSum;
       const hasMenu = !!menuItems.find((m) => m.menuId);
-      return { index, partyId: p.partyId, items, menuItems, serviceItems, hasMenu, menuCount, menuBaseSum, serviceSum, subTotal };
+      return { index, partyId: p.partyId, items, menuItems, serviceItems, dishItems, hasMenu, menuCount, menuBaseSum, serviceSum, dishSum, subTotal };
     });
   }, [orderParties]);
 
@@ -429,6 +434,15 @@ export default function OrderSummaryScreen({ navigation, route }) {
                       <Text style={styles.summaryPrefix}>＋</Text>
                       <Text style={styles.summaryText} numberOfLines={2}>
                         <Text style={styles.summaryBold}>Dịch vụ:</Text> {s.name} x{s.count}
+                      </Text>
+                    </View>
+                  ))}
+
+                  {p.dishItems.map((d) => (
+                    <View key={d.id} style={styles.summaryRow}>
+                      <Text style={styles.summaryPrefix}>＋</Text>
+                      <Text style={styles.summaryText} numberOfLines={2}>
+                        <Text style={styles.summaryBold}>Món lẻ:</Text> {d.name} x{d.count}
                       </Text>
                     </View>
                   ))}

@@ -19,7 +19,7 @@ const TAB_WIDTH = NAV_BAR_WIDTH / 5;
 
 const tabs = [
   { key: 'Home', label: 'Trang chủ', icon: 'home-outline', iconActive: 'home' },
-  { key: 'Search', label: 'Tìm dịch vụ', icon: 'search-outline', iconActive: 'search' },
+  { key: 'Search', label: 'Khám phá', icon: 'search-outline', iconActive: 'search' },
   { key: 'Orders', label: 'Đơn hàng', icon: 'bag-outline', iconActive: 'bag' },
   { key: 'Contact', label: 'Liên lạc', icon: 'chatbubble-outline', iconActive: 'chatbubble' },
   { key: 'Account', label: 'Tài khoản', icon: 'person-outline', iconActive: 'person' },

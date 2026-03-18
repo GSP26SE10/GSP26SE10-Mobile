@@ -5,14 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { requireAuth } from '../utils/auth';
-import { addServiceToCart } from '../utils/cartStorage';
+import { addDishToCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import API_URL from '../constants/api';
 import { TEXT_PRIMARY, TEXT_SECONDARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
 
-let otherServicesCache = { fetched: false, items: null };
+let otherDishesCache = { fetched: false, items: null };
 
 const formatPrice = (price) => {
   if (price == null) return '0₫';
@@ -27,89 +27,94 @@ const formatPrice = (price) => {
   }
 };
 
-const getServiceDetailMeta = () => ({
+const getDishDetailMeta = () => ({
   rating: 4.8,
   reviewCount: '1.2k',
   aiSummary:
-    'Dịch vụ được đánh giá cao về chất lượng và sự chuyên nghiệp. Thời gian thi công nhanh, phù hợp nhiều loại sự kiện và dễ phối hợp với thực đơn.',
+    'Món ăn được đánh giá cao về hương vị và chất lượng nguyên liệu. Phù hợp cho nhiều dịp tiệc và dễ kết hợp với các món khác trong thực đơn.',
 });
 
-/** Chuẩn hóa service từ route: API shape (serviceId, serviceName, basePrice, description, image/img) */
-const normalizeService = (serviceFromRoute) => {
-  const s = serviceFromRoute || {};
+const normalizeDish = (dishFromRoute) => {
+  const d = dishFromRoute || {};
   return {
-    serviceId: s.serviceId ?? s.id,
-    serviceName: s.serviceName ?? s.name ?? 'Dịch vụ',
-    basePrice: s.basePrice ?? (typeof s.price === 'number' ? s.price : null),
-    priceFormatted: s.priceFormatted ?? (typeof s.price === 'string' ? s.price : formatPrice(s.basePrice ?? s.price)),
-    description: s.description ?? 'Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
-    image: s.image ?? (s.img ? `${API_URL}${s.img}` : null),
+    dishId: d.dishId ?? d.id,
+    dishName: d.dishName ?? d.name ?? 'Món ăn',
+    price: d.price ?? null,
+    priceFormatted: d.priceFormatted ?? formatPrice(d.price),
+    description: d.description ?? 'Nội dung chi tiết sẽ được cập nhật.',
+    note: d.note ?? '',
+    image: d.image ?? d.img ?? null,
+    dishCategoryId: d.dishCategoryId ?? null,
+    dishCategoryName: d.dishCategoryName ?? '',
   };
 };
 
-export default function ServiceDetailScreen({ navigation, route }) {
-  const raw = route?.params?.service;
-  const service = normalizeService(raw);
-  const priceText = service.priceFormatted || formatPrice(service.basePrice);
-  const imageUri = service.image;
+export default function DishDetailScreen({ navigation, route }) {
+  const raw = route?.params?.dish;
+  const dish = normalizeDish(raw);
+  const priceText = dish.priceFormatted || formatPrice(dish.price);
+  const imageUri = dish.image;
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [otherServices, setOtherServices] = useState([]);
+  const [otherDishes, setOtherDishes] = useState([]);
   const [loadingOther, setLoadingOther] = useState(false);
 
-  const meta = useMemo(() => getServiceDetailMeta(), []);
+  const meta = useMemo(() => getDishDetailMeta(), []);
 
   const showToast = (message) => {
     setToastMessage(message);
     setToastVisible(true);
   };
 
-  const handleChooseService = async () => {
-    if (!service?.serviceId || service?.basePrice == null) {
-      showToast('Vui lòng đợi tải dịch vụ xong');
+  const handleChooseDish = async () => {
+    if (!dish?.dishId || dish?.price == null) {
+      showToast('Vui lòng đợi tải món ăn xong');
       return;
     }
     const ok = await requireAuth(navigation, {
-      returnScreen: 'ServiceDetail',
-      returnParams: { service: raw },
+      returnScreen: 'DishDetail',
+      returnParams: { dish: raw },
     });
     if (!ok) return;
-    await addServiceToCart(service);
+    await addDishToCart(dish);
     showToast('Đã thêm vào giỏ hàng');
   };
 
   useEffect(() => {
     const load = async (force = false) => {
       try {
-        if (!force && otherServicesCache.fetched && Array.isArray(otherServicesCache.items)) {
-          setOtherServices(
-            otherServicesCache.items.filter((s) => s?.serviceId !== service.serviceId),
+        if (!force && otherDishesCache.fetched && Array.isArray(otherDishesCache.items)) {
+          setOtherDishes(
+            otherDishesCache.items.filter((d) => d?.dishId !== dish.dishId),
           );
           return;
         }
         setLoadingOther(true);
-        const res = await fetch(`${API_URL}/api/Service?page=1&pageSize=50`);
+        const res = await fetch(`${API_URL}/api/dish?page=1&pageSize=50`);
         const json = await res.json();
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items.map((item) => ({
-          serviceId: item.serviceId,
-          serviceName: item.serviceName,
+          dishId: item.dishId,
+          dishName: item.dishName,
           description: item.description,
-          basePrice: item.basePrice,
+          price: item.price,
           status: item.status,
-          image: item.img ? `${API_URL}${item.img}` : null,
+          note: item.note,
+          image: item.img || null,
+          dishCategoryId: item.dishCategoryId,
+          dishCategoryName: item.dishCategoryName,
         }));
-        otherServicesCache = { fetched: true, items: mapped };
-        setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));
+        otherDishesCache = { fetched: true, items: mapped };
+        setOtherDishes(mapped.filter((d) => d?.dishId !== dish.dishId));
       } catch (e) {
-        setOtherServices([]);
+        setOtherDishes([]);
       } finally {
         setLoadingOther(false);
       }
     };
     load(false);
-  }, [service.serviceId]);
+  }, [dish.dishId]);
 
   return (
     <SafeAreaView
@@ -130,7 +135,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
         >
           <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chi tiết dịch vụ</Text>
+        <Text style={styles.headerTitle}>Chi tiết món ăn</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -156,9 +161,15 @@ export default function ServiceDetailScreen({ navigation, route }) {
         </View>
 
         <View style={styles.infoSection}>
-          <Text style={styles.serviceTitle}>{service.serviceName}</Text>
-          <Text style={styles.servicePrice}>{priceText}</Text>
-          <Text style={styles.serviceDescription}>{service.description}</Text>
+          <Text style={styles.dishTitle}>{dish.dishName}</Text>
+          <Text style={styles.dishPrice}>{priceText}</Text>
+          {dish.dishCategoryName ? (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryText}>{dish.dishCategoryName}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.dishDescription}>{dish.description}</Text>
+          {dish.note ? <Text style={styles.dishNote}>{dish.note}</Text> : null}
         </View>
 
         {/* Rating + AI summary */}
@@ -169,10 +180,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
               <Text style={styles.ratingText}>{meta.rating}</Text>
               <Text style={styles.reviewCount}>{meta.reviewCount} đánh giá</Text>
             </View>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('Feedback', { serviceId: service?.serviceId })}
-            >
+            <TouchableOpacity activeOpacity={0.7}>
               <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
             </TouchableOpacity>
           </View>
@@ -180,9 +188,9 @@ export default function ServiceDetailScreen({ navigation, route }) {
           <Text style={styles.aiSummaryText}>{meta.aiSummary}</Text>
         </View>
 
-        {/* Other services */}
+        {/* Other dishes */}
         <View style={styles.otherSection}>
-          <Text style={styles.otherTitle}>Các dịch vụ khác</Text>
+          <Text style={styles.otherTitle}>Các món khác</Text>
           {loadingOther ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {[1, 2, 3].map((i) => (
@@ -195,12 +203,12 @@ export default function ServiceDetailScreen({ navigation, route }) {
                 </View>
               ))}
             </ScrollView>
-          ) : otherServices.length === 0 ? (
-            <Text style={styles.otherEmpty}>Chưa có dịch vụ khác</Text>
+          ) : otherDishes.length === 0 ? (
+            <Text style={styles.otherEmpty}>Chưa có món khác</Text>
           ) : (
             <FlatList
-              data={otherServices}
-              keyExtractor={(item) => String(item.serviceId)}
+              data={otherDishes}
+              keyExtractor={(item) => String(item.dishId)}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.otherList}
@@ -209,9 +217,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
                   style={styles.otherCard}
                   activeOpacity={0.85}
                   onPress={() =>
-                    navigation.navigate('ServiceDetail', {
-                      service: item,
-                    })
+                    navigation.navigate('DishDetail', { dish: item })
                   }
                 >
                   {item.image ? (
@@ -228,10 +234,10 @@ export default function ServiceDetailScreen({ navigation, route }) {
                     </View>
                   )}
                   <Text style={styles.otherName} numberOfLines={2}>
-                    {item.serviceName || 'Dịch vụ'}
+                    {item.dishName || 'Món ăn'}
                   </Text>
                   <Text style={styles.otherPrice} numberOfLines={1}>
-                    {item.basePrice != null ? formatPrice(item.basePrice) : ''}
+                    {item.price != null ? formatPrice(item.price) : ''}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -245,10 +251,10 @@ export default function ServiceDetailScreen({ navigation, route }) {
           <Text style={styles.bottomPrice}>{priceText}</Text>
           <TouchableOpacity
             style={styles.chooseButton}
-            onPress={handleChooseService}
+            onPress={handleChooseDish}
             activeOpacity={0.8}
           >
-            <Text style={styles.chooseButtonText}>Chọn dịch vụ</Text>
+            <Text style={styles.chooseButtonText}>Thêm vào giỏ</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -310,22 +316,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
-  serviceTitle: {
+  dishTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: TEXT_PRIMARY,
     marginBottom: 8,
   },
-  servicePrice: {
+  dishPrice: {
     fontSize: 16,
     fontWeight: '600',
     color: PRIMARY_COLOR,
     marginBottom: 12,
   },
-  serviceDescription: {
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0F0F0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  categoryText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: TEXT_SECONDARY,
+  },
+  dishDescription: {
     fontSize: 14,
     color: TEXT_SECONDARY,
     lineHeight: 20,
+  },
+  dishNote: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontStyle: 'italic',
+    marginTop: 8,
   },
   ratingSection: {
     marginTop: 14,
@@ -439,4 +464,3 @@ const styles = StyleSheet.create({
     color: BACKGROUND_WHITE,
   },
 });
-

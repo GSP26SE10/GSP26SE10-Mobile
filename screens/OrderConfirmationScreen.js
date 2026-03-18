@@ -371,10 +371,10 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 </View>
                 <View style={styles.cartInfo}>
                   <Text style={styles.cartName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.cartMeta}>{item.type === 'menu' ? 'Menu' : 'Dịch vụ'}</Text>
+                  <Text style={styles.cartMeta}>{item.type === 'menu' ? 'Menu' : item.type === 'dish' ? 'Món lẻ' : 'Dịch vụ'}</Text>
                   <Text style={styles.cartPrice}>{formatMoney(item.priceFormatted, item.basePrice, item.count)}</Text>
                 </View>
-                {item.type === 'service' && (
+                {(item.type === 'service' || item.type === 'dish') && (
                   <View style={styles.serviceQtyWrap}>
                     <Text style={styles.serviceQtyText}>x{item.count}</Text>
                   </View>

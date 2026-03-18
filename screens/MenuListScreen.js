@@ -264,7 +264,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: TEXT_PRIMARY,
-    textDecorationLine: 'underline',
   },
   addButton: {
     width: 44,

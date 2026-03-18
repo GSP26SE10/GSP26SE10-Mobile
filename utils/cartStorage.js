@@ -232,6 +232,36 @@ export async function addServiceToCart(service) {
 }
 
 /**
+ * Thêm món lẻ vào giỏ (hoặc tăng số lượng nếu đã có).
+ * @param {object} dish - { dishId, dishName, price, image, description, note, dishCategoryName }
+ * @returns {Promise<Array>} Giỏ hàng sau khi thêm
+ */
+export async function addDishToCart(dish) {
+  const items = await getCart();
+  const id = `dish-${dish.dishId}`;
+  const existing = items.find((i) => i.id === id);
+  const priceFormatted = formatPrice(dish.price);
+  const image = dish.image || dish.img || '';
+
+  if (existing) {
+    existing.count += 1;
+  } else {
+    items.push({
+      id,
+      type: 'dish',
+      dishId: dish.dishId,
+      name: dish.dishName || dish.name || 'Món ăn',
+      basePrice: dish.price ?? 0,
+      priceFormatted,
+      image,
+      count: 1,
+    });
+  }
+  await setCart(items);
+  return items;
+}
+
+/**
  * Cập nhật số lượng một item. Xóa nếu count <= 0.
  * @param {string} itemId - id trong giỏ (menu-1, service-2)
  * @param {number} delta - +1 hoặc -1
