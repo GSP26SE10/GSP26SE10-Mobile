@@ -258,6 +258,8 @@ export default function MenuDetailScreen({ navigation, route }) {
         >
           <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Chi tiết menu</Text>
+        <View style={styles.headerRight} />
       </View>
 
       <ScrollView
@@ -364,7 +366,10 @@ export default function MenuDetailScreen({ navigation, route }) {
               <Text style={styles.ratingText}>{menuDetail.rating}</Text>
               <Text style={styles.reviewCount}>{menuDetail.reviewCount} đánh giá</Text>
             </View>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Feedback', { menuId })}
+            >
               <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
             </TouchableOpacity>
           </View>
@@ -806,5 +811,15 @@ const styles = StyleSheet.create({
   fullscreenIndicatorActive: {
     backgroundColor: BACKGROUND_WHITE,
     width: 24,
+  },
+  headerRight: {
+    width: 44,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: TEXT_PRIMARY,
+    flex: 1,
+    textAlign: 'center',
   },
 });

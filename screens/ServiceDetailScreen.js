@@ -169,7 +169,10 @@ export default function ServiceDetailScreen({ navigation, route }) {
               <Text style={styles.ratingText}>{meta.rating}</Text>
               <Text style={styles.reviewCount}>{meta.reviewCount} đánh giá</Text>
             </View>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Feedback', { serviceId: service?.serviceId })}
+            >
               <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
             </TouchableOpacity>
           </View>

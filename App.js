@@ -36,6 +36,7 @@ import OrderDetail from "./screens/OrderDetail";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import StaffNotificationScreen from "./screens/StaffNotificationScreen";
 import LeaderNotificationScreen from "./screens/LeaderNotificationScreen";
+import FeedbackScreen from "./screens/FeedbackScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY } from "./constants/colors";
 
@@ -173,6 +174,8 @@ export default function App() {
         return <LeaderOrderDetailHistoryScreen navigation={navigation} route={{ params: screenParams }} />;
       case "OrderDetail":
         return <OrderDetail navigation={navigation} route={{ params: screenParams }} />;
+      case "Feedback":
+        return <FeedbackScreen navigation={navigation} route={{ params: screenParams }} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }

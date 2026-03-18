@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useFonts } from 'expo-font';
 import { MadimiOne_400Regular } from '@expo-google-fonts/madimi-one';
@@ -18,6 +20,7 @@ import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
+const ORBIT_RADIUS = 102;
 
 export default function ContactScreen({ navigation }) {
   const [fontsLoaded] = useFonts({
@@ -25,6 +28,49 @@ export default function ContactScreen({ navigation }) {
   });
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const spinAnim = useRef(new Animated.Value(0)).current;
+
+  const spin = useMemo(
+    () =>
+      spinAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+      }),
+    [spinAnim],
+  );
+  const spinReverse = useMemo(
+    () =>
+      spinAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['360deg', '0deg'],
+      }),
+    [spinAnim],
+  );
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 12000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      spinAnim.setValue(0);
+    };
+  }, [spinAnim]);
+
+  const satellites = useMemo(
+    () => [
+      { id: 's1', src: require('../assets/sub1.jpg'), angle: 0 },
+      { id: 's2', src: require('../assets/sub2.webp'), angle: 120 },
+      { id: 's3', src: require('../assets/sub3.webp'), angle: 240 },
+    ],
+    [],
+  );
 
   const handleChatPress = () => {
     navigation.navigate('Chat');
@@ -68,37 +114,31 @@ export default function ContactScreen({ navigation }) {
         {/* Central Graphic */}
         <View style={styles.graphicContainer}>
           <View style={styles.graphicCircle}>
-            {/* Main bowl image placeholder */}
+            {/* Orbiting satellites */}
+            <Animated.View style={[styles.orbitLayer, { transform: [{ rotate: spin }] }]}>
+              {satellites.map((s) => (
+                <Animated.View
+                  key={s.id}
+                  style={[
+                    styles.smallDish,
+                    {
+                      transform: [
+                        { rotate: `${s.angle}deg` },
+                        { translateX: ORBIT_RADIUS },
+                        { rotate: spinReverse },
+                      ],
+                    },
+                  ]}
+                >
+                  <Image source={s.src} style={styles.smallDishImage} resizeMode="cover" />
+                </Animated.View>
+              ))}
+            </Animated.View>
+
+            {/* Main image */}
             <View style={styles.mainBowl}>
-              <Image
-                source={{ uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8' }}
-                style={styles.bowlImage}
-                resizeMode="cover"
-              />
+              <Image source={require('../assets/main.png')} style={styles.bowlImage} resizeMode="contain" />
             </View>
-            
-            {/* Small dish images around the circle */}
-            {[1, 2, 3, 4].map((index) => (
-              <View
-                key={index}
-                style={[
-                  styles.smallDish,
-                  {
-                    transform: [
-                      { rotate: `${(index - 1) * 90}deg` },
-                      { translateX: 120 },
-                      { rotate: `${-(index - 1) * 90}deg` },
-                    ],
-                  },
-                ]}
-              >
-                <Image
-                  source={{ uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8' }}
-                  style={styles.smallDishImage}
-                  resizeMode="cover"
-                />
-              </View>
-            ))}
           </View>
         </View>
 
@@ -182,11 +222,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
+  orbitLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   mainBowl: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 130,
+    height: 130,
+    borderRadius: 75,
     overflow: 'hidden',
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 2,
+    borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
   },
   bowlImage: {
     width: '100%',
@@ -194,10 +251,18 @@ const styles = StyleSheet.create({
   },
   smallDish: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     overflow: 'hidden',
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 7,
   },
   smallDishImage: {
     width: '100%',
