@@ -120,11 +120,15 @@ export default function MenuDetailScreen({ navigation, route }) {
     });
     if (!ok) return;
     const menu = menuInfo;
-    await addMenuToCart({
+    const result = await addMenuToCart({
       ...menu,
       menuCategoryId: menuCategoryId ?? null,
       buffetType: buffetType ?? null,
     });
+    if (!result.success && result.reason === 'DUPLICATE_MENU') {
+      showToast('Mỗi tiệc chỉ được chọn 1 menu');
+      return;
+    }
     showToast('Đã thêm vào giỏ hàng');
   };
 

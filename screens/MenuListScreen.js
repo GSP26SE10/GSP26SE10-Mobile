@@ -102,11 +102,15 @@ export default function MenuListScreen({ navigation, route }) {
       returnParams: { buffetType, menuCategoryId },
     });
     if (!ok) return;
-    await addMenuToCart({
+    const result = await addMenuToCart({
       ...item,
       menuCategoryId: menuCategoryId ?? null,
       buffetType: buffetType ?? null,
     });
+    if (!result.success && result.reason === 'DUPLICATE_MENU') {
+      showToast('Mỗi tiệc chỉ được chọn 1 menu');
+      return;
+    }
     showToast('Đã thêm vào giỏ hàng');
   };
 

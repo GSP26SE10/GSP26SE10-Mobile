@@ -77,7 +77,11 @@ export default function DishDetailScreen({ navigation, route }) {
       returnParams: { dish: raw },
     });
     if (!ok) return;
-    await addDishToCart(dish);
+    const result = await addDishToCart(dish);
+    if (!result.success && result.reason === 'NO_MENU') {
+      showToast('Vui lòng chọn menu trước!');
+      return;
+    }
     showToast('Đã thêm vào giỏ hàng');
   };
 

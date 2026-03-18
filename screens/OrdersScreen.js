@@ -15,6 +15,7 @@ import BottomNavigation from '../components/BottomNavigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
 import { getOrderParties, addParty, setActivePartyByIndex, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
+import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -65,6 +66,8 @@ export default function OrdersScreen({ navigation, route }) {
   const [loadingByTab, setLoadingByTab] = useState({ upcoming: false, ongoing: false, completed: false, cancelled: false });
   const [refreshingByTab, setRefreshingByTab] = useState({ upcoming: false, ongoing: false, completed: false, cancelled: false });
   const [customerId, setCustomerId] = useState(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
   const flatListRef = useRef(null);
   const tabScrollRef = useRef(null);
   const tabLayouts = useRef({});
@@ -244,16 +247,26 @@ export default function OrdersScreen({ navigation, route }) {
     }
   }, [activeTabIndex]);
 
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
   const handleQuantityChange = async (partyIndex, item, delta) => {
     if (!item) return;
-    // Rule buffet: trong cùng 1 tiệc, tất cả MENU phải cùng số lượng (theo max).
-    // Vì vậy khi +/- ở 1 menu, áp dụng cho tất cả menu trong party đó.
     const party = (orderParties || [])[partyIndex];
     const partyItems = Array.isArray(party?.items) ? party.items : [];
     const menuItems = partyItems.filter((i) => i.type === 'menu');
+    const dishItems = partyItems.filter((i) => i.type === 'dish');
     const isMenu = item.type === 'menu';
+    const isDish = item.type === 'dish';
 
-    if (isMenu && menuItems.length > 1) {
+    if (isDish) {
+      showToast('Số lượng món lẻ tự động theo menu');
+      return;
+    }
+
+    if (isMenu) {
       const currentMax = Math.max(...menuItems.map((m) => Number(m.count ?? 0)), 1);
       const target = Math.max(currentMax + delta, 1);
       const realDelta = target - currentMax;
@@ -262,6 +275,13 @@ export default function OrdersScreen({ navigation, route }) {
       await setActivePartyByIndex(partyIndex);
       for (const m of menuItems) {
         await updateCartItemQuantity(m.id, realDelta);
+      }
+      const newMenuCount = target;
+      for (const d of dishItems) {
+        const dishDelta = newMenuCount - Number(d.count ?? 0);
+        if (dishDelta !== 0) {
+          await updateCartItemQuantity(d.id, dishDelta);
+        }
       }
       const parties = await getOrderParties();
       setOrderParties(parties);
@@ -288,6 +308,17 @@ export default function OrdersScreen({ navigation, route }) {
         menuId: item.menuId,
         menuCategoryId: item.menuCategoryId || undefined,
         buffetType: item.buffetType || item.name || 'Menu',
+      });
+      return;
+    }
+    if (item.type === 'dish') {
+      navigation.navigate('DishDetail', {
+        dish: {
+          dishId: item.dishId,
+          dishName: item.name,
+          price: item.basePrice,
+          image: item.image,
+        },
       });
       return;
     }
@@ -418,9 +449,19 @@ export default function OrdersScreen({ navigation, route }) {
             <Text style={styles.addPartyText}>Thêm tiệc</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.continueButton}
+            style={[
+              styles.continueButton,
+              !partiesWithItems.some((p) => (p.items || []).some((i) => i.type === 'menu')) && styles.continueButtonDisabled,
+            ]}
             activeOpacity={0.7}
-            onPress={() => navigation.navigate('OrderConfirmation')}
+            onPress={() => {
+              const hasMenu = partiesWithItems.some((p) => (p.items || []).some((i) => i.type === 'menu'));
+              if (!hasMenu) {
+                showToast('Vui lòng chọn ít nhất 1 menu để tiếp tục');
+                return;
+              }
+              navigation.navigate('OrderConfirmation');
+            }}
           >
             <Text style={styles.continueText}>Tiếp tục</Text>
           </TouchableOpacity>
@@ -547,6 +588,11 @@ export default function OrdersScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <ScrollView
@@ -786,6 +832,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  continueButtonDisabled: {
+    opacity: 0.5,
   },
   continueText: {
     fontSize: 16,

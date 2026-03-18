@@ -168,13 +168,20 @@ export async function setCart(items) {
 
 /**
  * Thêm menu vào giỏ (hoặc tăng số lượng nếu đã có).
+ * Mỗi tiệc chỉ được 1 menu — nếu đã có menu khác sẽ trả { success: false }.
  * @param {object} menu - { menuId, menuName, basePrice, imgUrl, menuCategoryId?, buffetType? }
- * @returns {Promise<Array>} Giỏ hàng sau khi thêm
+ * @returns {Promise<{ success: boolean, reason?: string, items: Array }>}
  */
 export async function addMenuToCart(menu) {
   const items = await getCart();
   const id = `menu-${menu.menuId}`;
   const existing = items.find((i) => i.id === id);
+  const otherMenu = items.find((i) => i.type === 'menu' && i.id !== id);
+
+  if (otherMenu) {
+    return { success: false, reason: 'DUPLICATE_MENU', items };
+  }
+
   const priceFormatted = formatPrice(menu.basePrice);
   const imageArray = Array.isArray(menu.imgUrl) ? menu.imgUrl : null;
   const image = imageArray ? imageArray[0] : (menu.imgUrl || menu.image || '');
@@ -198,7 +205,7 @@ export async function addMenuToCart(menu) {
     });
   }
   await setCart(items);
-  return items;
+  return { success: true, items };
 }
 
 /**
@@ -232,19 +239,27 @@ export async function addServiceToCart(service) {
 }
 
 /**
- * Thêm món lẻ vào giỏ (hoặc tăng số lượng nếu đã có).
+ * Thêm món lẻ vào giỏ. Yêu cầu tiệc đã có menu.
+ * Số lượng món lẻ tự đồng bộ theo số lượng menu.
  * @param {object} dish - { dishId, dishName, price, image, description, note, dishCategoryName }
- * @returns {Promise<Array>} Giỏ hàng sau khi thêm
+ * @returns {Promise<{ success: boolean, reason?: string, items: Array }>}
  */
 export async function addDishToCart(dish) {
   const items = await getCart();
+  const menuItem = items.find((i) => i.type === 'menu');
+
+  if (!menuItem) {
+    return { success: false, reason: 'NO_MENU', items };
+  }
+
+  const menuCount = Number(menuItem.count ?? 1);
   const id = `dish-${dish.dishId}`;
   const existing = items.find((i) => i.id === id);
   const priceFormatted = formatPrice(dish.price);
   const image = dish.image || dish.img || '';
 
   if (existing) {
-    existing.count += 1;
+    existing.count = menuCount;
   } else {
     items.push({
       id,
@@ -254,11 +269,11 @@ export async function addDishToCart(dish) {
       basePrice: dish.price ?? 0,
       priceFormatted,
       image,
-      count: 1,
+      count: menuCount,
     });
   }
   await setCart(items);
-  return items;
+  return { success: true, items };
 }
 
 /**
