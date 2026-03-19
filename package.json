@@ -4,7 +4,11 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "start:clear": "expo start -c",
+    "start:tunnel": "expo start --tunnel",
+    "start:tunnel:clear": "expo start --tunnel -c",
     "android": "expo start --android",
+    "android:tunnel": "expo start --tunnel --android",
     "ios": "expo start --ios",
     "web": "expo start --web"
   },
