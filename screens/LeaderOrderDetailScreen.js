@@ -20,6 +20,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import { Image as ExpoImage } from 'expo-image';
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from '@react-native-community/datetimepicker';
@@ -107,6 +109,23 @@ const mapApiTaskToDisplay = (t) => {
   };
 };
 
+const guessMimeTypeFromUri = (uri) => {
+  const lower = String(uri ?? '').toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  return 'image/jpeg';
+};
+
+const getFileNameFromUri = (uri, fallback = '') => {
+  const raw = String(uri ?? '');
+  const cleaned = raw.split('?')[0];
+  const last = cleaned.split('/').filter(Boolean).pop();
+  if (last) return last;
+  return fallback || `extra-charge-${Date.now()}.jpg`;
+};
+
 export default function LeaderOrderDetailScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
   const initialTasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
@@ -178,12 +197,110 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [pickerMode, setPickerMode] = useState('date');
   const [pickerTarget, setPickerTarget] = useState('start');
   const [compModalVisible, setCompModalVisible] = useState(false);
-  const [compName, setCompName] = useState('');
-  const [compAmount, setCompAmount] = useState('');
+  const [compCatalogItems, setCompCatalogItems] = useState([]);
+  const [loadingCompCatalog, setLoadingCompCatalog] = useState(false);
+  const [selectedCatalogId, setSelectedCatalogId] = useState(null);
+  const [compQuantity, setCompQuantity] = useState('1');
   const [compNote, setCompNote] = useState('');
+  const [compImages, setCompImages] = useState([]); // [{ uri, type, name }]
+  const [submittingComp, setSubmittingComp] = useState(false);
   const [totalCompAmount, setTotalCompAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('zalopay');
+  const [qrVisible, setQrVisible] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [paymentSuccessVisible, setPaymentSuccessVisible] = useState(false);
+  const [isBilling, setIsBilling] = useState(() => Number(orderFromParams?.orderStatus) === 6);
+  const paymentPollRef = useRef(null);
+  const successHandledRef = useRef(false);
   const queryClient = useQueryClient();
+
+  const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id ?? null;
+  const orderId = orderFromParams?.orderId ?? orderFromParams?.id ?? route?.params?.orderId ?? null;
+  const endTimeIso = orderFromParams?.endTime ?? null;
+
+  useEffect(() => {
+    // Auto move to BILLING when reaching endTime.
+    if (!endTimeIso) return;
+    let timer = null;
+    const tick = () => {
+      try {
+        if (isBilling) return;
+        const end = new Date(endTimeIso);
+        if (Number.isNaN(end.getTime())) return;
+        if (Date.now() >= end.getTime()) {
+          setIsBilling(true);
+          setPartyStatus('Kết thúc tiệc');
+        }
+      } catch (_) {}
+    };
+    tick();
+    timer = setInterval(tick, 15_000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [endTimeIso, isBilling]);
+
+  useEffect(() => {
+    // Respect backend status if already BILLING.
+    if (Number(orderFromParams?.orderStatus) === 6) {
+      setIsBilling(true);
+      setPartyStatus('Kết thúc tiệc');
+    }
+  }, [orderFromParams?.orderStatus]);
+
+  const stopPaymentPolling = () => {
+    if (paymentPollRef.current) {
+      clearInterval(paymentPollRef.current);
+      paymentPollRef.current = null;
+    }
+  };
+
+  const startPaymentPolling = async () => {
+    if (!orderId) return;
+    stopPaymentPolling();
+    const token = await getAccessToken();
+    const headers = {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=10`,
+          { headers },
+        );
+        const json = await res.json().catch(() => null);
+        const payment = json?.items?.[0];
+        const isPaid =
+          payment &&
+          (payment.paymentStatus === 2 ||
+            payment.paymentStatus === '2' ||
+            payment.paymentStatus === 'PAID');
+        if (isPaid && !successHandledRef.current) {
+          successHandledRef.current = true;
+          stopPaymentPolling();
+          setQrVisible(false);
+          setPaymentSuccessVisible(true);
+        }
+      } catch (_) {}
+    };
+
+    poll();
+    paymentPollRef.current = setInterval(poll, 2000);
+  };
+
+  useEffect(() => {
+    if (!isBilling || !orderId) {
+      stopPaymentPolling();
+      return;
+    }
+    successHandledRef.current = false;
+    startPaymentPolling();
+    return () => {
+      stopPaymentPolling();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBilling, orderId]);
 
   useEffect(() => {
     (async () => {
@@ -523,32 +640,194 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const formatMoney = (value) =>
     `${value.toLocaleString('vi-VN')}₫`;
 
-  const handleAddCompensation = () => {
-    const amountNumber = parseMoney(compAmount);
-    if (!amountNumber) {
-      Alert.alert('Lỗi', 'Vui lòng nhập số tiền đền bù hợp lệ.');
+  const openCompModal = () => {
+    setCompModalVisible(true);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!compModalVisible) return;
+      try {
+        setLoadingCompCatalog(true);
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}/api/order-detail-extra-charge/catalog/active`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
+        if (!cancelled) setCompCatalogItems(list);
+      } catch (_) {
+        if (!cancelled) setCompCatalogItems([]);
+      } finally {
+        if (!cancelled) setLoadingCompCatalog(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [compModalVisible]);
+
+  const pickCompImages = async () => {
+    if (submittingComp) return;
+    if (compImages.length >= 4) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission?.granted) {
+        Alert.alert('Quyền truy cập ảnh', 'Vui lòng cho phép truy cập thư viện ảnh để tải ảnh đền bù.');
+        return;
+      }
+      const remaining = Math.max(0, 4 - compImages.length);
+      if (!remaining) return;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 0.8,
+      });
+      if (result?.canceled) return;
+      const assets = Array.isArray(result?.assets) ? result.assets : [];
+      if (!assets.length) return;
+      const next = assets.map((a, idx) => {
+        const uri = a?.uri;
+        return {
+          uri,
+          type: a?.mimeType || guessMimeTypeFromUri(uri),
+          name: a?.fileName || getFileNameFromUri(uri, `extra-charge-${Date.now()}-${idx}.jpg`),
+        };
+      });
+      setCompImages((prev) => [...prev, ...next].slice(0, 4));
+    } catch (_) {}
+  };
+
+  const handleSubmitCompensation = async () => {
+    if (submittingComp) return;
+    if (!orderDetailId) {
+      Alert.alert('Lỗi', 'Thiếu OrderDetailId.');
       return;
     }
-    setTotalCompAmount((prev) => prev + amountNumber);
-    setCompModalVisible(false);
-    setCompName('');
-    setCompAmount('');
-    setCompNote('');
+    const qty = Number(String(compQuantity).replace(/[^\d]/g, '') || 0);
+    if (!selectedCatalogId) {
+      Alert.alert('Lỗi', 'Vui lòng chọn hạng mục đền bù.');
+      return;
+    }
+    if (!qty || qty <= 0) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số lượng hợp lệ.');
+      return;
+    }
+
+    const selected = compCatalogItems.find((c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId));
+    const unitPrice = Number(selected?.unitPrice ?? 0);
+
+    setSubmittingComp(true);
+    try {
+      const token = await getAccessToken();
+      const formData = new FormData();
+      formData.append('OrderDetailId', String(orderDetailId));
+      formData.append('ExtraChargeCatalogId', String(selectedCatalogId));
+      formData.append('Quantity', String(qty));
+      formData.append('IncurredAt', new Date().toISOString());
+      formData.append('Note', compNote?.trim() || '');
+
+      compImages.forEach((img) => {
+        if (!img?.uri) return;
+        formData.append('ImageFiles', {
+          uri: img.uri,
+          type: img.type || guessMimeTypeFromUri(img.uri),
+          name: img.name || getFileNameFromUri(img.uri, `extra-charge-${Date.now()}.jpg`),
+        });
+      });
+
+      const res = await fetch(`${API_URL}/api/order-detail-extra-charge`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || 'Tạo chi phí đền bù thất bại.');
+      }
+
+      // Update UI total (server will compute totalAmount = unitPrice * quantity)
+      if (unitPrice > 0) {
+        setTotalCompAmount((prev) => prev + unitPrice * qty);
+      }
+
+      setCompModalVisible(false);
+      setSelectedCatalogId(null);
+      setCompQuantity('1');
+      setCompNote('');
+      setCompImages([]);
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể thêm chi phí đền bù.');
+    } finally {
+      setSubmittingComp(false);
+    }
   };
 
   const handleFinishParty = () => {
-    Alert.alert(
-      'Hoàn thành tiệc',
-      'Bạn có chắc muốn kết thúc tiệc không?',
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Hoàn thành',
-          style: 'destructive',
-          onPress: () => setPartyStatus('Kết thúc tiệc'),
+    Alert.alert('Kết thúc tiệc', 'Chuyển sang thanh toán?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xác nhận',
+        style: 'destructive',
+        onPress: () => {
+          setIsBilling(true);
+          setPartyStatus('Kết thúc tiệc');
         },
-      ]
-    );
+      },
+    ]);
+  };
+
+  const createFullQr = async () => {
+    if (!orderId) {
+      Alert.alert('Lỗi', 'Thiếu OrderId.');
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      const url = `${API_URL}/api/payment/create-full-qr/${orderId}`;
+      const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+      const res = await fetch(url, { method: 'POST', headers });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (_) {
+        json = { raw: text };
+      }
+      if (!res.ok) throw new Error(json?.message || 'Không thể tạo QR thanh toán.');
+      const data = json?.data ?? json;
+      setQrData(data);
+      setQrVisible(true);
+      await startPaymentPolling();
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể tạo QR thanh toán.');
+    }
+  };
+
+  const createFullCash = async () => {
+    if (!orderId) {
+      Alert.alert('Lỗi', 'Thiếu OrderId.');
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/payment/create-full-cash/${orderId}`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(t || 'Không thể xác nhận thanh toán tiền mặt.');
+      }
+      successHandledRef.current = true;
+      stopPaymentPolling();
+      setQrVisible(false);
+      setPaymentSuccessVisible(true);
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể xác nhận thanh toán tiền mặt.');
+    }
   };
 
   const renderOverviewTab = () => {
@@ -628,7 +907,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               <TouchableOpacity
                 style={styles.compAddButton}
                 activeOpacity={0.8}
-                onPress={() => setCompModalVisible(true)}
+                onPress={openCompModal}
               >
                 <Text style={styles.compAddButtonText}>Thêm</Text>
               </TouchableOpacity>
@@ -665,13 +944,22 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {partyStatus === 'Đang diễn ra' && (
+        {partyStatus === 'Đang diễn ra' && !isBilling && (
+          <TouchableOpacity
+            style={styles.finishButton}
+            activeOpacity={0.85}
+            onPress={handleFinishParty}
+          >
+            <Text style={styles.finishButtonText}>Kết thúc tiệc</Text>
+          </TouchableOpacity>
+        )}
+
+        {isBilling && (
           <>
             <View style={styles.paymentSection}>
-              <Text style={styles.paymentTitle}>Phương thức thanh toán:</Text>
+              <Text style={styles.paymentTitle}>Thanh toán</Text>
               {[
-                { key: 'zalopay', label: 'Thanh toán qua Zalopay' },
-                { key: 'bank', label: 'Chuyển khoản ngân hàng' },
+                { key: 'bank', label: 'Ngân hàng (QR)' },
                 { key: 'cash', label: 'Tiền mặt' },
               ].map((method) => (
                 <TouchableOpacity
@@ -697,9 +985,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <TouchableOpacity
               style={styles.finishButton}
               activeOpacity={0.85}
-              onPress={handleFinishParty}
+              onPress={() => {
+                if (paymentMethod === 'cash') createFullCash();
+                else createFullQr();
+              }}
             >
-              <Text style={styles.finishButtonText}>Hoàn thành tiệc</Text>
+              <Text style={styles.finishButtonText}>
+                {paymentMethod === 'cash' ? 'Xác nhận tiền mặt' : 'Tạo QR thanh toán'}
+              </Text>
             </TouchableOpacity>
           </>
         )}
@@ -1096,23 +1389,48 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <Text style={styles.fieldLabel}>Chọn món đền bù</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Nhập tên hạng mục đền bù"
-                    placeholderTextColor={TEXT_SECONDARY}
-                    value={compName}
-                    onChangeText={setCompName}
-                  />
+                  <Text style={styles.fieldLabel}>Chọn hạng mục</Text>
+                  {loadingCompCatalog ? (
+                    <Text style={styles.compHintText}>Đang tải danh sách...</Text>
+                  ) : compCatalogItems.length === 0 ? (
+                    <Text style={styles.compHintText}>Không có hạng mục đền bù khả dụng.</Text>
+                  ) : (
+                    <View style={styles.compCatalogList}>
+                      {compCatalogItems.map((c) => {
+                        const id = c?.extraChargeCatalogId;
+                        const isSelected = Number(id) === Number(selectedCatalogId);
+                        return (
+                          <TouchableOpacity
+                            key={String(id)}
+                            style={[styles.compCatalogItem, isSelected && styles.compCatalogItemSelected]}
+                            activeOpacity={0.85}
+                            onPress={() => setSelectedCatalogId(id)}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.compCatalogTitle} numberOfLines={2}>{c?.title || '—'}</Text>
+                              <Text style={styles.compCatalogSub} numberOfLines={2}>
+                                {formatMoney(Number(c?.unitPrice ?? 0))} / {c?.unit || 'đơn vị'}
+                              </Text>
+                            </View>
+                            <Ionicons
+                              name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                              size={18}
+                              color={PRIMARY_COLOR}
+                            />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
 
-                  <Text style={styles.fieldLabel}>Số tiền</Text>
+                  <Text style={styles.fieldLabel}>Số lượng</Text>
                   <TextInput
                     style={styles.textInput}
-                    placeholder="0đ"
+                    placeholder="1"
                     placeholderTextColor={TEXT_SECONDARY}
                     keyboardType="numeric"
-                    value={compAmount}
-                    onChangeText={setCompAmount}
+                    value={compQuantity}
+                    onChangeText={setCompQuantity}
                   />
 
                   <Text style={styles.fieldLabel}>Ghi chú</Text>
@@ -1125,6 +1443,36 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     multiline
                     scrollEnabled={false}
                   />
+
+                  <Text style={styles.fieldLabel}>Ảnh minh chứng</Text>
+                  <TouchableOpacity
+                    style={styles.compPickBtn}
+                    activeOpacity={0.85}
+                    disabled={submittingComp}
+                    onPress={pickCompImages}
+                  >
+                    <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
+                    <Text style={styles.compPickBtnText}>Chọn ảnh</Text>
+                    <Text style={styles.compPickBtnSubText}>({compImages.length}/4)</Text>
+                  </TouchableOpacity>
+                  {!!compImages.length && (
+                    <View style={styles.compThumbRow}>
+                      {compImages.map((img, idx) => (
+                        <TouchableOpacity
+                          key={`${img?.name ?? 'img'}-${idx}`}
+                          style={styles.compThumbWrap}
+                          activeOpacity={0.85}
+                          disabled={submittingComp}
+                          onPress={() => setCompImages((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          <ExpoImage source={{ uri: img.uri }} style={styles.compThumb} />
+                          <View style={styles.compThumbRemoveBadge}>
+                            <Ionicons name="close" size={12} color={BACKGROUND_WHITE} />
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </ScrollView>
 
                 <View style={styles.modalButtonsRow}>
@@ -1132,25 +1480,80 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     style={[styles.modalButton, styles.modalButtonSecondary]}
                     onPress={() => {
                       setCompModalVisible(false);
-                      setCompName('');
-                      setCompAmount('');
+                      setSelectedCatalogId(null);
+                      setCompQuantity('1');
                       setCompNote('');
+                      setCompImages([]);
                     }}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.modalButtonSecondaryText}>Hủy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonPrimary]}
-                    onPress={handleAddCompensation}
+                    style={[
+                      styles.modalButton,
+                      styles.modalButtonPrimary,
+                      (submittingComp || !selectedCatalogId) && styles.modalButtonDisabled,
+                    ]}
+                    onPress={handleSubmitCompensation}
+                    disabled={submittingComp || !selectedCatalogId}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.modalButtonPrimaryText}>Thêm</Text>
+                    <Text style={styles.modalButtonPrimaryText}>{submittingComp ? 'Đang gửi...' : 'Thêm'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             </TouchableWithoutFeedback>
           </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* QR modal */}
+      <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.qrOverlay}>
+          <View style={styles.qrCard}>
+            <Text style={styles.qrTitle}>Quét mã để thanh toán</Text>
+            {qrData?.qrUrl ? (
+              <ExpoImage source={{ uri: qrData.qrUrl }} style={styles.qrImage} contentFit="contain" />
+            ) : (
+              <View style={[styles.qrImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="qr-code-outline" size={44} color={TEXT_SECONDARY} />
+              </View>
+            )}
+            <View style={styles.qrMeta}>
+              <View style={styles.qrMetaRow}>
+                <Text style={styles.qrMetaLabel}>Mã thanh toán</Text>
+                <Text style={styles.qrMetaValue}>{qrData?.paymentCode || ''}</Text>
+              </View>
+              <View style={styles.qrMetaRow}>
+                <Text style={styles.qrMetaLabel}>Số tiền</Text>
+                <Text style={styles.qrMetaValue}>
+                  {qrData?.amount != null ? `${Number(qrData.amount).toLocaleString('vi-VN')}₫` : '—'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.qrHint}>Đang chờ xác nhận thanh toán...</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Payment success modal */}
+      <Modal visible={paymentSuccessVisible} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <Ionicons name="checkmark-circle" size={64} color={PRIMARY_COLOR} />
+            <Text style={styles.successTitle}>Thanh toán thành công</Text>
+            <TouchableOpacity
+              style={styles.successBtn}
+              activeOpacity={0.85}
+              onPress={() => {
+                setPaymentSuccessVisible(false);
+                navigation.navigate('LeaderHome');
+              }}
+            >
+              <Text style={styles.successBtnText}>Về trang chủ</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -1378,6 +1781,96 @@ const styles = StyleSheet.create({
   },
   modalButtonDisabled: {
     opacity: 0.6,
+  },
+
+  compHintText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  compCatalogList: {
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  compCatalogItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    marginBottom: 10,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  compCatalogItemSelected: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: 'rgba(232, 113, 46, 0.06)',
+  },
+  compCatalogTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginRight: 10,
+  },
+  compCatalogSub: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_SECONDARY,
+    marginRight: 10,
+  },
+  compPickBtn: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  compPickBtnText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  compPickBtnSubText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_SECONDARY,
+  },
+  compThumbRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  compThumbWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: 10,
+    marginBottom: 10,
+    backgroundColor: '#EAEAEA',
+    position: 'relative',
+  },
+  compThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  compThumbRemoveBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
 
   statusSteps: {
@@ -1729,6 +2222,79 @@ const styles = StyleSheet.create({
   finishButtonText: {
     fontSize: 15,
     fontWeight: '700',
+    color: BACKGROUND_WHITE,
+  },
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  qrCard: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 16,
+    padding: 16,
+  },
+  qrTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: TEXT_PRIMARY,
+    textAlign: 'center',
+  },
+  qrImage: {
+    width: '100%',
+    height: 260,
+    marginTop: 12,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 12,
+  },
+  qrMeta: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    paddingTop: 12,
+  },
+  qrMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  qrMetaLabel: { fontSize: 13, color: TEXT_SECONDARY, fontWeight: '700' },
+  qrMetaValue: { fontSize: 13, color: TEXT_PRIMARY, fontWeight: '900' },
+  qrHint: { marginTop: 10, fontSize: 12, color: TEXT_SECONDARY, textAlign: 'center' },
+  successOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  successCard: {
+    width: '100%',
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+  },
+  successTitle: {
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: '900',
+    color: TEXT_PRIMARY,
+  },
+  successBtn: {
+    marginTop: 16,
+    width: '100%',
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: PRIMARY_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
     color: BACKGROUND_WHITE,
   },
   selectInput: {

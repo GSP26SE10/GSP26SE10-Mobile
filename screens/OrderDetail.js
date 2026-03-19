@@ -9,10 +9,12 @@ import {
   TextInput,
   Keyboard,
   TouchableWithoutFeedback,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
 import { TEXT_PRIMARY, TEXT_SECONDARY, PRIMARY_COLOR, BACKGROUND_WHITE, BORDER_LIGHT } from '../constants/colors';
@@ -61,6 +63,23 @@ const formatDateTime = (iso) => {
   });
 };
 
+const guessMimeTypeFromUri = (uri) => {
+  const lower = String(uri ?? '').toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  return 'image/jpeg';
+};
+
+const getFileNameFromUri = (uri, fallback = '') => {
+  const raw = String(uri ?? '');
+  const cleaned = raw.split('?')[0];
+  const last = cleaned.split('/').filter(Boolean).pop();
+  if (last) return last;
+  return fallback || `feedback-${Date.now()}.jpg`;
+};
+
 const PAYMENT_METHOD = {
   1: 'Tiền mặt',
   2: 'Chuyển khoản ngân hàng',
@@ -101,6 +120,7 @@ export default function OrderDetail({ navigation, route }) {
   const [currentFeedbackIndex, setCurrentFeedbackIndex] = useState(0);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackImages, setFeedbackImages] = useState([]); // [{ uri, type, name }]
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
@@ -266,6 +286,44 @@ export default function OrderDetail({ navigation, route }) {
     };
   }, [orderId, isCompleted]);
 
+  const pickFeedbackImages = async () => {
+    if (submittingFeedback) return;
+    if (feedbackImages.length >= 4) return;
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission?.granted) {
+        Alert.alert('Quyền truy cập ảnh', 'Vui lòng cho phép truy cập thư viện ảnh để gửi đánh giá.');
+        return;
+      }
+
+      const remaining = Math.max(0, 4 - feedbackImages.length);
+      if (!remaining) return;
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 0.8,
+      });
+
+      if (result?.canceled) return;
+      const assets = Array.isArray(result?.assets) ? result.assets : [];
+      if (!assets.length) return;
+
+      const next = assets.map((a, idx) => {
+        const uri = a?.uri;
+        return {
+          uri,
+          type: a?.mimeType || guessMimeTypeFromUri(uri),
+          name: a?.fileName || getFileNameFromUri(uri, `feedback-${Date.now()}-${idx}.jpg`),
+        };
+      });
+
+      setFeedbackImages((prev) => [...prev, ...next].slice(0, 4));
+    } catch (_) { }
+  };
+
   const openFeedbackFlow = () => {
     const targets = buildFeedbackTargets();
     if (!targets.length) return;
@@ -273,6 +331,7 @@ export default function OrderDetail({ navigation, route }) {
     setCurrentFeedbackIndex(0);
     setFeedbackRating(5);
     setFeedbackComment('');
+    setFeedbackImages([]);
     setFeedbackVisible(true);
   };
 
@@ -299,21 +358,37 @@ export default function OrderDetail({ navigation, route }) {
       };
 
       let url = '';
-      let body = {};
       if (target.type === 'menu') {
         url = `${API_URL}/api/feedback-menu`;
-        body = { ...payloadBase, menuId: target.id };
       } else {
         url = `${API_URL}/api/feedback-service`;
-        body = { ...payloadBase, serviceId: target.id };
       }
+
+      const formData = new FormData();
+      formData.append('OrderId', String(payloadBase.orderId));
+      formData.append('CustomerId', String(payloadBase.customerId));
+      formData.append('Rating', String(payloadBase.rating));
+      formData.append('Comment', payloadBase.comment);
+
+      if (target.type === 'menu') {
+        formData.append('MenuId', String(target.id));
+      } else {
+        formData.append('ServiceId', String(target.id));
+      }
+
+      // Backend expects array of uploaded files for `ImgFiles`.
+      feedbackImages.forEach((img) => {
+        if (!img?.uri) return;
+        formData.append('ImgFiles', {
+          uri: img.uri,
+          type: img.type || guessMimeTypeFromUri(img.uri),
+          name: img.name || getFileNameFromUri(img.uri, `feedback-${Date.now()}.jpg`),
+        });
+      });
 
       await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
+        body: formData,
       }).catch(() => { });
 
       const nextIndex = currentFeedbackIndex + 1;
@@ -321,8 +396,32 @@ export default function OrderDetail({ navigation, route }) {
         setCurrentFeedbackIndex(nextIndex);
         setFeedbackRating(5);
         setFeedbackComment('');
+        setFeedbackImages([]);
       } else {
+        setFeedbackImages([]);
         setFeedbackVisible(false);
+
+        // Refresh feedback list so "Đánh giá" button disappears after submit.
+        if (orderId && isCompleted) {
+          setLoadingFeedbacks(true);
+          try {
+            const [menuRes, serviceRes] = await Promise.all([
+              fetch(`${API_URL}/api/feedback-menu?OrderId=${orderId}&page=1&pageSize=10`),
+              fetch(`${API_URL}/api/feedback-service?OrderId=${orderId}&page=1&pageSize=10`),
+            ]);
+            const menuJson = await menuRes.json().catch(() => null);
+            const serviceJson = await serviceRes.json().catch(() => null);
+            const menuItems = Array.isArray(menuJson?.items) ? menuJson.items : [];
+            const serviceItems = Array.isArray(serviceJson?.items) ? serviceJson.items : [];
+            setExistingMenuFeedbacks(menuItems);
+            setExistingServiceFeedbacks(serviceItems);
+          } catch (_) {
+            setExistingMenuFeedbacks([]);
+            setExistingServiceFeedbacks([]);
+          } finally {
+            setLoadingFeedbacks(false);
+          }
+        }
       }
     } catch (e) {
       // bỏ qua lỗi, có thể bổ sung toast sau
@@ -736,6 +835,43 @@ export default function OrderDetail({ navigation, route }) {
                     </Text>
                   </>
                 )}
+
+                <View style={styles.feedbackImagesSection}>
+                  <TouchableOpacity
+                    style={styles.feedbackImagesPickBtn}
+                    activeOpacity={0.8}
+                    disabled={submittingFeedback}
+                    onPress={pickFeedbackImages}
+                  >
+                    <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
+                    <Text style={styles.feedbackImagesPickText}>Chọn ảnh</Text>
+                    <Text style={styles.feedbackImagesPickSubText}>
+                      ({feedbackImages.length}/4)
+                    </Text>
+                  </TouchableOpacity>
+
+                  {!!feedbackImages.length && (
+                    <View style={styles.feedbackImagesRow}>
+                      {feedbackImages.map((img, idx) => (
+                        <TouchableOpacity
+                          key={`${img?.name ?? 'img'}-${idx}`}
+                          style={styles.feedbackImageThumbWrap}
+                          activeOpacity={0.85}
+                          disabled={submittingFeedback}
+                          onPress={() =>
+                            setFeedbackImages((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                        >
+                          <ExpoImage source={{ uri: img.uri }} style={styles.feedbackImageThumb} />
+                          <View style={styles.feedbackImageRemoveBadge}>
+                            <Ionicons name="close" size={12} color={BACKGROUND_WHITE} />
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
                 <View style={styles.starsRow}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <TouchableOpacity
@@ -1340,6 +1476,60 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: TEXT_SECONDARY,
     lineHeight: 18,
+  },
+  feedbackImagesSection: {
+    marginTop: 10,
+  },
+  feedbackImagesPickBtn: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedbackImagesPickText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  feedbackImagesPickSubText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_SECONDARY,
+  },
+  feedbackImagesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  feedbackImageThumbWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: 10,
+    marginBottom: 10,
+    backgroundColor: '#EAEAEA',
+    position: 'relative',
+  },
+  feedbackImageThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  feedbackImageRemoveBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
 });
 

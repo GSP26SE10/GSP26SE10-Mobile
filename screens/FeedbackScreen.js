@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import API_URL from '../constants/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { BACKGROUND_WHITE, BORDER_LIGHT, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY } from '../constants/colors';
@@ -85,6 +86,11 @@ export default function FeedbackScreen({ navigation, route }) {
     const customerName = item?.customerName || `#${item?.customerId ?? ''}`;
     const comment = item?.comment || '';
     const createdAt = item?.createdAt;
+    const imgs = Array.isArray(item?.img)
+      ? item.img
+      : Array.isArray(item?.imgUrl)
+        ? item.imgUrl
+        : [];
     return (
       <View style={styles.card}>
         <View style={styles.cardTopRow}>
@@ -98,6 +104,17 @@ export default function FeedbackScreen({ navigation, route }) {
           {!!createdAt ? ` · ${formatDateTime(createdAt)}` : ''}
         </Text>
         {!!comment && <Text style={styles.cardComment}>{String(comment)}</Text>}
+        {!!imgs.length && (
+          <View style={styles.imgRow}>
+            {imgs.slice(0, 3).map((u, idx) => (
+              <ExpoImage
+                key={`${u}-${idx}`}
+                source={{ uri: String(u) }}
+                style={styles.imgThumb}
+              />
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -178,6 +195,15 @@ const styles = StyleSheet.create({
   starsRow: { flexDirection: 'row', alignItems: 'center' },
   cardMeta: { marginTop: 6, fontSize: 12, color: TEXT_SECONDARY, fontWeight: '600' },
   cardComment: { marginTop: 10, fontSize: 13, color: TEXT_PRIMARY, lineHeight: 18 },
+  imgRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  imgThumb: {
+    width: 70,
+    height: 70,
+    borderRadius: 14,
+    marginRight: 10,
+    backgroundColor: '#EAEAEA',
+    overflow: 'hidden',
+  },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText: { fontSize: 14, color: TEXT_SECONDARY, fontWeight: '700' },
 });

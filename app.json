@@ -14,7 +14,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Cho phép truy cập thư viện ảnh để gửi đánh giá.",
+        "NSPhotoLibraryAddUsageDescription": "Cho phép truy cập ảnh để gửi đánh giá."
+      }
     },
     "android": {
       "adaptiveIcon": {

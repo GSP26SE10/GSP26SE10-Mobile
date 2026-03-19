@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,8 @@ import {
   TEXT_SECONDARY,
   BORDER_LIGHT,
 } from '../constants/colors';
+import API_URL from '../constants/api';
+import { getAccessToken } from '../utils/auth';
 
 const formatTimeRangeFromOrder = (order) => {
   if (!order?.startTime) return '—';
@@ -108,6 +110,61 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
 
   const [activeTab, setActiveTab] = useState('overview');
   const swipeBack = useSwipeBack(() => navigation.goBack());
+
+  const orderId =
+    orderFromParams?.orderId ??
+    orderFromParams?.id ??
+    route?.params?.orderId ??
+    null;
+
+  const [extraCharges, setExtraCharges] = useState([]);
+  const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!orderId) return;
+      try {
+        setLoadingExtraCharges(true);
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}/api/order-detail-extra-charge/order/${orderId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
+        if (!cancelled) setExtraCharges(list);
+      } catch (_) {
+        if (!cancelled) setExtraCharges([]);
+      } finally {
+        if (!cancelled) setLoadingExtraCharges(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  const extraChargeTotal = useMemo(() => {
+    return (Array.isArray(extraCharges) ? extraCharges : []).reduce(
+      (sum, it) => sum + Number(it?.totalAmount ?? 0),
+      0,
+    );
+  }, [extraCharges]);
+
+  const formatDateTime = (iso) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (_) {
+      return '';
+    }
+  };
 
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
@@ -269,6 +326,12 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.summaryLabel}>Đã cọc</Text>
           <Text style={styles.summaryValue}>{partyDetail.deposit}</Text>
         </View>
+        {extraChargeTotal > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Chi phí phát sinh</Text>
+            <Text style={styles.summaryValue}>{formatVnd(extraChargeTotal)}</Text>
+          </View>
+        )}
         <View style={styles.summaryRow}>
           <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
             Còn lại
@@ -277,6 +340,54 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
             {partyDetail.remaining}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.extraChargeSection}>
+        <Text style={styles.extraChargeTitle}>Chi phí phát sinh / đền bù</Text>
+        {loadingExtraCharges ? (
+          <Text style={styles.extraChargeHint}>Đang tải...</Text>
+        ) : extraCharges.length === 0 ? (
+          <Text style={styles.extraChargeHint}>Không có chi phí phát sinh.</Text>
+        ) : (
+          extraCharges.map((ec, idx) => {
+            const images = Array.isArray(ec?.image) ? ec.image : [];
+            return (
+              <View
+                key={String(ec?.orderDetailExtraChargeId ?? `${ec?.extraChargeCatalogId ?? 'ec'}-${idx}`)}
+                style={styles.extraChargeCard}
+              >
+                <View style={styles.extraChargeTopRow}>
+                  <Text style={styles.extraChargeCardTitle} numberOfLines={2}>
+                    {ec?.title || '—'}
+                  </Text>
+                  <Text style={styles.extraChargeAmount}>
+                    {formatVnd(ec?.totalAmount ?? 0)}
+                  </Text>
+                </View>
+                <Text style={styles.extraChargeMeta}>
+                  {`${formatVnd(ec?.unitPrice ?? 0)} × ${ec?.quantity ?? 0} ${ec?.unit || ''}`.trim()}
+                </Text>
+                <Text style={styles.extraChargeMeta}>
+                  {ec?.creatorName ? `Người tạo: ${ec.creatorName}` : '—'}
+                  {!!ec?.createdAt ? ` · ${formatDateTime(ec.createdAt)}` : ''}
+                </Text>
+                {!!ec?.note && <Text style={styles.extraChargeNote}>{String(ec.note)}</Text>}
+                {!!images.length && (
+                  <View style={styles.extraChargeImgRow}>
+                    {images.slice(0, 4).map((u, i) => (
+                      <Image
+                        key={`${u}-${i}`}
+                        source={{ uri: String(u) }}
+                        style={styles.extraChargeImg}
+                        resizeMode="cover"
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          })
+        )}
       </View>
     </ScrollView>
   );
@@ -575,6 +686,74 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  extraChargeSection: {
+    marginTop: 14,
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#FAFAFA',
+  },
+  extraChargeTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 10,
+  },
+  extraChargeHint: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  extraChargeCard: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: BACKGROUND_WHITE,
+    marginBottom: 10,
+  },
+  extraChargeTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    columnGap: 10,
+  },
+  extraChargeCardTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  extraChargeAmount: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: PRIMARY_COLOR,
+  },
+  extraChargeMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  extraChargeNote: {
+    marginTop: 8,
+    fontSize: 13,
+    color: TEXT_PRIMARY,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  extraChargeImgRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  extraChargeImg: {
+    width: 72,
+    height: 72,
+    borderRadius: 14,
+    marginRight: 10,
+    marginBottom: 10,
+    backgroundColor: '#EAEAEA',
   },
   tasksList: {
     paddingHorizontal: 20,

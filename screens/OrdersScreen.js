@@ -36,9 +36,9 @@ let ordersCacheByTab = {};
 
 const TABS = [
   { id: 'cart', label: 'Giỏ hàng' },
-  { id: 'upcoming', label: 'Sắp tới', status: ORDER_STATUS.UPCOMING || ORDER_STATUS.APPROVED || ORDER_STATUS.PREPARING },
-  { id: 'ongoing', label: 'Đang diễn ra', status: ORDER_STATUS.ONGOING },
-  { id: 'completed', label: 'Hoàn thành', status: ORDER_STATUS.COMPLETED },
+  { id: 'upcoming', label: 'Sắp tới', statuses: [ORDER_STATUS.UPCOMING, ORDER_STATUS.APPROVED, ORDER_STATUS.PREPARING] },
+  { id: 'ongoing', label: 'Đang diễn ra', statuses: [ORDER_STATUS.ONGOING, ORDER_STATUS.BILLING] },
+  { id: 'completed', label: 'Hoàn thành', statuses: [ORDER_STATUS.COMPLETED] },
   { id: 'cancelled', label: 'Bị hủy', statuses: [ORDER_STATUS.REJECTED, ORDER_STATUS.CANCELLED] },
 ];
 
@@ -147,17 +147,25 @@ export default function OrdersScreen({ navigation, route }) {
         let totalPages = 1;
 
         if (tab.statuses) {
-          const [res1, res2] = await Promise.all(
+          const responses = await Promise.all(
             tab.statuses.map((status) =>
               fetch(`${API_URL}/api/order?CustomerId=${customerId}&Status=${status}&page=${page}&pageSize=10`),
             ),
           );
-          const json1 = await res1.json();
-          const json2 = await res2.json();
-          const list1 = Array.isArray(json1?.items) ? json1.items : [];
-          const list2 = Array.isArray(json2?.items) ? json2.items : [];
-          items = append ? [...ordersByTab[tabKey], ...list1, ...list2] : [...list1, ...list2];
-          totalPages = Math.max(json1?.totalPages ?? 1, json2?.totalPages ?? 1);
+          const jsonList = await Promise.all(responses.map((r) => r.json().catch(() => null)));
+          const lists = jsonList.map((j) => (Array.isArray(j?.items) ? j.items : []));
+          const merged = lists.flat();
+
+          // De-duplicate orders across statuses (same orderId may appear)
+          const uniq = new Map();
+          merged.forEach((o) => {
+            const key = o?.orderId ?? o?.id ?? `${o?.createdAt ?? ''}-${Math.random()}`;
+            if (!uniq.has(key)) uniq.set(key, o);
+          });
+
+          const mergedUniq = Array.from(uniq.values());
+          items = append ? [...ordersByTab[tabKey], ...mergedUniq] : mergedUniq;
+          totalPages = Math.max(1, ...jsonList.map((j) => Number(j?.totalPages ?? 1)));
         } else {
           const res = await fetch(
             `${API_URL}/api/order?CustomerId=${customerId}&Status=${tab.status}&page=${page}&pageSize=10`,
