@@ -37,17 +37,17 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
-/** orderDetail.status === 6 (Hoàn thành) mới hiện ở lịch sử */
-const ORDER_STATUS_COMPLETED = 6;
+/** orderDetail.status === 7 (Completed/Hoàn thành) mới hiện ở lịch sử */
+const ORDER_STATUS_COMPLETED = 7;
 
 const ORDER_STATUS_LABEL = {
-  1: 'Chờ duyệt',
+  1: 'Sắp tới',
   2: 'Sắp tới',
-  3: 'Bị từ chối',
+  3: 'Bị hủy',
   4: 'Đang chuẩn bị',
   5: 'Đang diễn ra',
-  6: 'Hoàn thành',
-  7: 'Bị hủy',
+  6: 'Thanh toán',
+  7: 'Hoàn thành',
 };
 
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */

@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+import { deactivateCurrentDeviceAsync } from '../utils/notification';
 
 export default function LeaderAccountScreen({ navigation }) {
   const [user, setUser] = useState(null);
@@ -32,6 +33,7 @@ export default function LeaderAccountScreen({ navigation }) {
 
   const handleLogout = async () => {
     try {
+      await deactivateCurrentDeviceAsync();
       await AsyncStorage.multiRemove(['accessToken', 'userData']);
     } catch (error) {
       console.error('Failed to clear auth data', error);

@@ -113,8 +113,10 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
 
   const orderId =
     orderFromParams?.orderId ??
+    orderFromParams?.orderDetailId ??
     orderFromParams?.id ??
     route?.params?.orderId ??
+    route?.params?.orderDetailId ??
     null;
 
   const [extraCharges, setExtraCharges] = useState([]);
@@ -223,7 +225,10 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const currentIndex = 2;
+    const orderStatus = Number(orderFromParams?.orderStatus ?? route?.params?.orderStatus ?? 0);
+    // orderStatus: 4 = preparing, 5 = ongoing, 6 = billing, 7 = completed
+    const currentIndex =
+      orderStatus === 4 ? 0 : orderStatus === 5 ? 1 : 2; // (6,7, others -> show completed step)
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {

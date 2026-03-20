@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigation from '../components/BottomNavigation';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+import { deactivateCurrentDeviceAsync } from '../utils/notification';
 
 export default function AccountScreen({ navigation }) {
   const [user, setUser] = useState(null);
@@ -33,6 +34,7 @@ export default function AccountScreen({ navigation }) {
 
   const handleLogout = async () => {
     try {
+      await deactivateCurrentDeviceAsync();
       await AsyncStorage.multiRemove(['accessToken', 'userData']);
     } catch (error) {
       console.error('Failed to clear auth data', error);

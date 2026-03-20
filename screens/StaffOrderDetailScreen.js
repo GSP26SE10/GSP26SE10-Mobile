@@ -86,12 +86,21 @@ function buildPartyDetailFromOrderDetail(od) {
 
   const mapOrderStatusToPartyStatus = (orderStatus) => {
     switch (orderStatus) {
+      // Sắp tới (1,2,4) → bước "Đang chuẩn bị"
+      case 1:
+      case 2:
       case 4:
         return 'Đang chuẩn bị';
+      // Đang diễn ra (5,6)
       case 5:
         return 'Đang diễn ra';
       case 6:
+      case 7:
         return 'Kết thúc tiệc';
+      // Bị hủy
+      case 3:
+      case 8:
+        return '—';
       default:
         return '—';
     }
@@ -261,6 +270,8 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const partyDetailFromParams = buildPartyDetailFromOrderDetail(orderDetail);
   const partyDetail = partyDetailFromParams || mockPartyDetail;
   const initialTasksFromApi = (paramsTasks || []).map(mapApiTaskToDisplay);
+  const orderStatusNum = Number(orderDetail?.status ?? orderDetail?.orderStatus ?? 0);
+  const allowTaskConfirmByOrder = !fromApi ? true : [4, 5].includes(orderStatusNum);
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
   const [tasks, setTasks] = useState(fromApi ? initialTasksFromApi : mockTasks);
@@ -618,9 +629,10 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           ))
         ) : (
         list.map((task) => {
-          const canChangeStatus = fromApi
+          const canChangeStatusBase = fromApi
             ? task.taskStatus !== 3 && getNextTaskStatus(task.taskStatus) != null
             : !task.done;
+          const canChangeStatus = canChangeStatusBase && allowTaskConfirmByOrder;
           return (
           <TouchableOpacity
             key={task.id}

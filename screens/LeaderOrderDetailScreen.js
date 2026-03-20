@@ -159,7 +159,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         return 'Đang chuẩn bị';
       case 5:
         return 'Đang diễn ra';
-      case 6:
+      case 7:
         return 'Kết thúc tiệc';
       default:
         return null;
@@ -200,11 +200,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [compCatalogItems, setCompCatalogItems] = useState([]);
   const [loadingCompCatalog, setLoadingCompCatalog] = useState(false);
   const [selectedCatalogId, setSelectedCatalogId] = useState(null);
+  const [compCatalogDropdownOpen, setCompCatalogDropdownOpen] = useState(false);
   const [compQuantity, setCompQuantity] = useState('1');
   const [compNote, setCompNote] = useState('');
   const [compImages, setCompImages] = useState([]); // [{ uri, type, name }]
   const [submittingComp, setSubmittingComp] = useState(false);
-  const [totalCompAmount, setTotalCompAmount] = useState(0);
+  const [totalCompAmount, setTotalCompAmount] = useState(() => Number(orderFromParams?.extraChargeCost ?? 0) || 0);
   const [paymentMethod, setPaymentMethod] = useState('zalopay');
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
@@ -212,10 +213,18 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [isBilling, setIsBilling] = useState(() => Number(orderFromParams?.orderStatus) === 6);
   const paymentPollRef = useRef(null);
   const successHandledRef = useRef(false);
+  const paymentAwaitingConfirmationRef = useRef(false);
   const queryClient = useQueryClient();
 
   const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id ?? null;
-  const orderId = orderFromParams?.orderId ?? orderFromParams?.id ?? route?.params?.orderId ?? null;
+  // Backend payment endpoints expect `orderId` (in this app it's typically `orderDetailId`)
+  const orderId =
+    orderFromParams?.orderId ??
+    orderFromParams?.orderDetailId ??
+    orderFromParams?.id ??
+    route?.params?.orderId ??
+    route?.params?.orderDetailId ??
+    null;
   const endTimeIso = orderFromParams?.endTime ?? null;
 
   useEffect(() => {
@@ -276,11 +285,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           (payment.paymentStatus === 2 ||
             payment.paymentStatus === '2' ||
             payment.paymentStatus === 'PAID');
-        if (isPaid && !successHandledRef.current) {
+        if (isPaid && paymentAwaitingConfirmationRef.current && !successHandledRef.current) {
           successHandledRef.current = true;
           stopPaymentPolling();
           setQrVisible(false);
           setPaymentSuccessVisible(true);
+          paymentAwaitingConfirmationRef.current = false;
         }
       } catch (_) {}
     };
@@ -290,16 +300,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   useEffect(() => {
-    if (!isBilling || !orderId) {
+    // Không tự poll ngay khi vào màn BILLING:
+    // chỉ poll khi người dùng đã bấm tạo QR (createFullQr).
+    if (!isBilling) {
+      paymentAwaitingConfirmationRef.current = false;
+      successHandledRef.current = false;
       stopPaymentPolling();
-      return;
     }
-    successHandledRef.current = false;
-    startPaymentPolling();
-    return () => {
-      stopPaymentPolling();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {};
   }, [isBilling, orderId]);
 
   useEffect(() => {
@@ -642,6 +650,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
   const openCompModal = () => {
     setCompModalVisible(true);
+    setCompCatalogDropdownOpen(false);
   };
 
   useEffect(() => {
@@ -766,17 +775,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const handleFinishParty = () => {
-    Alert.alert('Kết thúc tiệc', 'Chuyển sang thanh toán?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xác nhận',
-        style: 'destructive',
-        onPress: () => {
-          setIsBilling(true);
-          setPartyStatus('Kết thúc tiệc');
-        },
-      },
-    ]);
+    // Trên màn hình "đang diễn ra" người dùng chọn phương thức thanh toán và bấm kết thúc tiệc,
+    // logic gọi API sẽ nằm ở nút "Xác nhận" bên dưới.
   };
 
   const createFullQr = async () => {
@@ -785,6 +785,9 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      paymentAwaitingConfirmationRef.current = true;
+      successHandledRef.current = false;
+      setPaymentSuccessVisible(false);
       const token = await getAccessToken();
       const url = `${API_URL}/api/payment/create-full-qr/${orderId}`;
       const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -802,6 +805,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       setQrVisible(true);
       await startPaymentPolling();
     } catch (e) {
+      paymentAwaitingConfirmationRef.current = false;
       Alert.alert('Lỗi', e?.message || 'Không thể tạo QR thanh toán.');
     }
   };
@@ -812,6 +816,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      paymentAwaitingConfirmationRef.current = false;
       const token = await getAccessToken();
       const res = await fetch(`${API_URL}/api/payment/create-full-cash/${orderId}`, {
         method: 'POST',
@@ -824,7 +829,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       successHandledRef.current = true;
       stopPaymentPolling();
       setQrVisible(false);
-      setPaymentSuccessVisible(true);
+      setPaymentSuccessVisible(false);
+
+      Alert.alert('Thành công', 'Đã hoàn thành thanh toán (tiền mặt).', [
+        {
+          text: 'Về trang chủ',
+          onPress: () => navigation.navigate('LeaderHome'),
+        },
+      ]);
     } catch (e) {
       Alert.alert('Lỗi', e?.message || 'Không thể xác nhận thanh toán tiền mặt.');
     }
@@ -930,7 +942,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </View>
           {totalCompAmount > 0 && (
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Chi phí đền bù</Text>
+              <Text style={styles.summaryLabel}>Chi phí phát sinh</Text>
               <Text style={styles.summaryValue}>{formatMoney(totalCompAmount)}</Text>
             </View>
           )}
@@ -944,20 +956,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {partyStatus === 'Đang diễn ra' && !isBilling && (
-          <TouchableOpacity
-            style={styles.finishButton}
-            activeOpacity={0.85}
-            onPress={handleFinishParty}
-          >
-            <Text style={styles.finishButtonText}>Kết thúc tiệc</Text>
-          </TouchableOpacity>
-        )}
-
-        {isBilling && (
+        {(partyStatus === 'Đang diễn ra' || isBilling) && (
           <>
             <View style={styles.paymentSection}>
-              <Text style={styles.paymentTitle}>Thanh toán</Text>
+              <Text style={styles.paymentTitle}>
+                {isBilling ? 'Thanh toán' : 'Chọn phương thức thanh toán'}
+              </Text>
               {[
                 { key: 'bank', label: 'Ngân hàng (QR)' },
                 { key: 'cash', label: 'Tiền mặt' },
@@ -991,7 +995,11 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               }}
             >
               <Text style={styles.finishButtonText}>
-                {paymentMethod === 'cash' ? 'Xác nhận tiền mặt' : 'Tạo QR thanh toán'}
+                {partyStatus === 'Đang diễn ra' && !isBilling
+                  ? 'Kết thúc tiệc'
+                  : paymentMethod === 'cash'
+                    ? 'Xác nhận tiền mặt'
+                    : 'Tạo QR thanh toán'}
               </Text>
             </TouchableOpacity>
           </>
@@ -1395,31 +1403,81 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   ) : compCatalogItems.length === 0 ? (
                     <Text style={styles.compHintText}>Không có hạng mục đền bù khả dụng.</Text>
                   ) : (
-                    <View style={styles.compCatalogList}>
-                      {compCatalogItems.map((c) => {
-                        const id = c?.extraChargeCatalogId;
-                        const isSelected = Number(id) === Number(selectedCatalogId);
-                        return (
-                          <TouchableOpacity
-                            key={String(id)}
-                            style={[styles.compCatalogItem, isSelected && styles.compCatalogItemSelected]}
-                            activeOpacity={0.85}
-                            onPress={() => setSelectedCatalogId(id)}
+                    <View>
+                      <TouchableOpacity
+                        style={styles.compCatalogDropdownHeader}
+                        activeOpacity={0.9}
+                        onPress={() => setCompCatalogDropdownOpen((v) => !v)}
+                      >
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={styles.compCatalogDropdownTitle} numberOfLines={2}>
+                            {(() => {
+                              const selected = compCatalogItems.find(
+                                (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId),
+                              );
+                              return selected?.title || 'Chọn hạng mục đền bù';
+                            })()}
+                          </Text>
+                          <Text style={styles.compCatalogDropdownSub} numberOfLines={1}>
+                            {(() => {
+                              const selected = compCatalogItems.find(
+                                (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId),
+                              );
+                              const unitPrice = Number(selected?.unitPrice ?? 0);
+                              return `${formatMoney(unitPrice)} / ${selected?.unit || 'đơn vị'}`;
+                            })()}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={compCatalogDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color={PRIMARY_COLOR}
+                        />
+                      </TouchableOpacity>
+
+                      {compCatalogDropdownOpen && (
+                        <View style={styles.compCatalogDropdownListWrap}>
+                          <ScrollView
+                            style={{ maxHeight: 220 }}
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator={false}
                           >
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.compCatalogTitle} numberOfLines={2}>{c?.title || '—'}</Text>
-                              <Text style={styles.compCatalogSub} numberOfLines={2}>
-                                {formatMoney(Number(c?.unitPrice ?? 0))} / {c?.unit || 'đơn vị'}
-                              </Text>
-                            </View>
-                            <Ionicons
-                              name={isSelected ? 'radio-button-on' : 'radio-button-off'}
-                              size={18}
-                              color={PRIMARY_COLOR}
-                            />
-                          </TouchableOpacity>
-                        );
-                      })}
+                            {compCatalogItems.map((c) => {
+                              const id = c?.extraChargeCatalogId;
+                              const isSelected = Number(id) === Number(selectedCatalogId);
+                              return (
+                                <TouchableOpacity
+                                  key={String(id)}
+                                  style={[
+                                    styles.compCatalogItem,
+                                    isSelected && styles.compCatalogItemSelected,
+                                    { marginBottom: 0 },
+                                  ]}
+                                  activeOpacity={0.85}
+                                  onPress={() => {
+                                    setSelectedCatalogId(id);
+                                    setCompCatalogDropdownOpen(false);
+                                  }}
+                                >
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.compCatalogTitle} numberOfLines={2}>
+                                      {c?.title || '—'}
+                                    </Text>
+                                    <Text style={styles.compCatalogSub} numberOfLines={2}>
+                                      {formatMoney(Number(c?.unitPrice ?? 0))} / {c?.unit || 'đơn vị'}
+                                    </Text>
+                                  </View>
+                                  <Ionicons
+                                    name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                                    size={18}
+                                    color={PRIMARY_COLOR}
+                                  />
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      )}
                     </View>
                   )}
 
@@ -1480,6 +1538,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     style={[styles.modalButton, styles.modalButtonSecondary]}
                     onPress={() => {
                       setCompModalVisible(false);
+                      setCompCatalogDropdownOpen(false);
                       setSelectedCatalogId(null);
                       setCompQuantity('1');
                       setCompNote('');
@@ -1792,6 +1851,35 @@ const styles = StyleSheet.create({
   compCatalogList: {
     marginTop: 6,
     marginBottom: 4,
+  },
+  compCatalogDropdownHeader: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    backgroundColor: INPUT_BACKGROUND,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  compCatalogDropdownTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  compCatalogDropdownSub: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_SECONDARY,
+  },
+  compCatalogDropdownListWrap: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    backgroundColor: BACKGROUND_WHITE,
+    padding: 8,
   },
   compCatalogItem: {
     flexDirection: 'row',

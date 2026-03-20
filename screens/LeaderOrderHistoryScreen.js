@@ -23,13 +23,14 @@ const formatTimeRange = (startIso, endIso) => {
 };
 
 const ORDER_STATUS_LABEL = {
-  1: 'Chờ duyệt',
+  1: 'Sắp tới',
   2: 'Sắp tới',
-  3: 'Bị từ chối',
+  3: 'Bị hủy',
   4: 'Đang chuẩn bị',
   5: 'Đang diễn ra',
-  6: 'Hoàn thành',
-  7: 'Bị hủy',
+  6: 'Thanh toán',
+  7: 'Hoàn thành',
+  8: 'Bị hủy',
 };
 
 export default function LeaderOrderHistoryScreen({ navigation }) {
@@ -130,7 +131,8 @@ export default function LeaderOrderHistoryScreen({ navigation }) {
   }, []);
 
   const allOrders = overview?.orders ?? [];
-  const orders = allOrders.filter((o) => o.orderStatus === 6);
+  // History: hiển thị các đơn đã hoàn thành (status 7)
+  const orders = allOrders.filter((o) => [7].includes(Number(o?.orderStatus)));
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>

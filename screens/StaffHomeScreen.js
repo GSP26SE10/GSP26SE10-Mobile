@@ -37,17 +37,23 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
-/** Trạng thái đơn: 1 Chờ duyệt, 2 Sắp tới, 3 Bị từ chối, 4 Đang chuẩn bị, 5 Đang diễn ra, 6 Hoàn thành, 7 Bị hủy */
-const ORDER_STATUS_HIDE_ON_HOME = [1, 3, 6, 7]; // Chỉ hiện đơn 2, 4, 5 trên trang chủ
+/** Trạng thái đơn:
+ *  1,2,4: Sắp tới
+ *  5,6: Đang diễn ra / Thanh toán
+ *  7: Hoàn thành
+ *  3,8: Bị hủy
+ */
+const ORDER_STATUS_HIDE_ON_HOME = [3, 7, 8]; // ẩn Bị hủy và Hoàn thành (hiển thị ở lịch sử)
 
 const ORDER_STATUS_LABEL = {
-  1: 'Chờ duyệt',
+  1: 'Sắp tới',
   2: 'Sắp tới',
-  3: 'Bị từ chối',
+  3: 'Bị hủy',
   4: 'Đang chuẩn bị',
   5: 'Đang diễn ra',
-  6: 'Hoàn thành',
-  7: 'Bị hủy',
+  6: 'Đang diễn ra',
+  7: 'Hoàn thành',
+  8: 'Bị hủy',
 };
 
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */

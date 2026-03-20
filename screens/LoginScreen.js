@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import API_URL from '../constants/api';
 import Toast from '../components/Toast';
+import { registerForPushNotificationsAsync } from '../utils/notification';
 import {
   PRIMARY_COLOR,
   BACKGROUND_WHITE,
@@ -137,6 +138,7 @@ export default function LoginScreen({ navigation, route }) {
         }
         console.log('[Google Login] userData saved:', JSON.stringify(userData, null, 2));
         await AsyncStorage.setItem('userData', JSON.stringify(userData));
+        await registerForPushNotificationsAsync();
         showToast('Đăng nhập thành công');
         const returnScreen = route?.params?.returnScreen;
         const returnParams = route?.params?.returnParams;
@@ -208,6 +210,7 @@ export default function LoginScreen({ navigation, route }) {
             status: userData.status,
             roleName: userData.roleName,
           }));
+          await registerForPushNotificationsAsync();
         } catch (storageError) {
           console.error('Storage error:', storageError);
           showToast('Lỗi khi lưu thông tin đăng nhập');

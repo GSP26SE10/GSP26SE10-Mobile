@@ -121,6 +121,7 @@ export default function OrderDetail({ navigation, route }) {
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackImages, setFeedbackImages] = useState([]); // [{ uri, type, name }]
+  const [previewFeedbackImage, setPreviewFeedbackImage] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
@@ -764,6 +765,28 @@ export default function OrderDetail({ navigation, route }) {
                         {!!fb.comment && (
                           <Text style={styles.feedbackItemComment}>{String(fb.comment)}</Text>
                         )}
+                        <Text style={styles.feedbackItemMeta}>
+                          {fb?.customerName || `#${fb?.customerId ?? ''}`}
+                          {!!fb?.createdAt ? ` · ${formatDateTime(fb.createdAt)}` : ''}
+                        </Text>
+                        {Array.isArray(fb?.img) && fb.img.length > 0 && (
+                          <View style={styles.feedbackItemImageRow}>
+                            {fb.img.slice(0, 4).map((imgUrl, i) => (
+                              <TouchableOpacity
+                                key={`${imgUrl}-${i}`}
+                                activeOpacity={0.85}
+                                onPress={() => setPreviewFeedbackImage(String(imgUrl))}
+                              >
+                                <ExpoImage
+                                  source={{ uri: String(imgUrl) }}
+                                  style={styles.feedbackItemImageThumb}
+                                  contentFit="cover"
+                                  cachePolicy="disk"
+                                />
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     ))}
                   </View>
@@ -789,6 +812,28 @@ export default function OrderDetail({ navigation, route }) {
                         </View>
                         {!!fb.comment && (
                           <Text style={styles.feedbackItemComment}>{String(fb.comment)}</Text>
+                        )}
+                        <Text style={styles.feedbackItemMeta}>
+                          {fb?.customerName || `#${fb?.customerId ?? ''}`}
+                          {!!fb?.createdAt ? ` · ${formatDateTime(fb.createdAt)}` : ''}
+                        </Text>
+                        {Array.isArray(fb?.img) && fb.img.length > 0 && (
+                          <View style={styles.feedbackItemImageRow}>
+                            {fb.img.slice(0, 4).map((imgUrl, i) => (
+                              <TouchableOpacity
+                                key={`${imgUrl}-${i}`}
+                                activeOpacity={0.85}
+                                onPress={() => setPreviewFeedbackImage(String(imgUrl))}
+                              >
+                                <ExpoImage
+                                  source={{ uri: String(imgUrl) }}
+                                  style={styles.feedbackItemImageThumb}
+                                  contentFit="cover"
+                                  cachePolicy="disk"
+                                />
+                              </TouchableOpacity>
+                            ))}
+                          </View>
                         )}
                       </View>
                     ))}
@@ -925,6 +970,29 @@ export default function OrderDetail({ navigation, route }) {
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        visible={!!previewFeedbackImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewFeedbackImage('')}
+      >
+        <View style={styles.previewOverlay}>
+          <TouchableOpacity
+            style={styles.previewCloseBtn}
+            onPress={() => setPreviewFeedbackImage('')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={24} color={BACKGROUND_WHITE} />
+          </TouchableOpacity>
+          <ExpoImage
+            source={{ uri: previewFeedbackImage }}
+            style={styles.previewImage}
+            contentFit="contain"
+            cachePolicy="disk"
+          />
+        </View>
       </Modal>
 
       {/* Bottom: cancel button if pending and not from "Đang diễn ra" tab */}
@@ -1477,6 +1545,25 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     lineHeight: 18,
   },
+  feedbackItemMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  feedbackItemImageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  feedbackItemImageThumb: {
+    width: 68,
+    height: 68,
+    borderRadius: 12,
+    backgroundColor: '#EAEAEA',
+    marginRight: 8,
+    marginBottom: 8,
+  },
   feedbackImagesSection: {
     marginTop: 10,
   },
@@ -1530,6 +1617,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  previewCloseBtn: {
+    position: 'absolute',
+    top: 52,
+    right: 18,
+    zIndex: 5,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '72%',
   },
 });
 
