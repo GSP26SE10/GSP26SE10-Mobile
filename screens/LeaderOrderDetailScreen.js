@@ -963,7 +963,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                 {isBilling ? 'Thanh toán' : 'Chọn phương thức thanh toán'}
               </Text>
               {[
-                { key: 'bank', label: 'Ngân hàng (QR)' },
+                { key: 'bank', label: 'Chuyển khoản ngân hàng' },
                 { key: 'cash', label: 'Tiền mặt' },
               ].map((method) => (
                 <TouchableOpacity

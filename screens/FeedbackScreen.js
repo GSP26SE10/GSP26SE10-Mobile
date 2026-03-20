@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -44,6 +44,7 @@ export default function FeedbackScreen({ navigation, route }) {
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [previewImage, setPreviewImage] = useState('');
 
   const swipeBack = useSwipeBack(() => navigation.goBack());
 
@@ -107,11 +108,13 @@ export default function FeedbackScreen({ navigation, route }) {
         {!!imgs.length && (
           <View style={styles.imgRow}>
             {imgs.slice(0, 3).map((u, idx) => (
-              <ExpoImage
+              <TouchableOpacity
                 key={`${u}-${idx}`}
-                source={{ uri: String(u) }}
-                style={styles.imgThumb}
-              />
+                activeOpacity={0.85}
+                onPress={() => setPreviewImage(String(u))}
+              >
+                <ExpoImage source={{ uri: String(u) }} style={styles.imgThumb} />
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -161,6 +164,29 @@ export default function FeedbackScreen({ navigation, route }) {
           )
         }
       />
+
+      <Modal
+        visible={!!previewImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage('')}
+      >
+        <SafeAreaView style={styles.previewOverlay} edges={['top', 'left', 'right']}>
+          <TouchableOpacity
+            style={styles.previewCloseBtn}
+            onPress={() => setPreviewImage('')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={24} color={BACKGROUND_WHITE} />
+          </TouchableOpacity>
+          <ExpoImage
+            source={{ uri: previewImage }}
+            style={styles.previewImage}
+            contentFit="contain"
+            cachePolicy="disk"
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -206,5 +232,27 @@ const styles = StyleSheet.create({
   },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText: { fontSize: 14, color: TEXT_SECONDARY, fontWeight: '700' },
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewCloseBtn: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
 });
 

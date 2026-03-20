@@ -4,12 +4,14 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  KeyboardAvoidingView,
   TouchableOpacity,
   Modal,
   TextInput,
   Keyboard,
   TouchableWithoutFeedback,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -114,6 +116,9 @@ export default function OrderDetail({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState(null);
   const [payment, setPayment] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [extraCharges, setExtraCharges] = useState([]);
+  const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
   const [expandedDishesSet, setExpandedDishesSet] = useState(() => new Set());
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackTargets, setFeedbackTargets] = useState([]);
@@ -122,6 +127,7 @@ export default function OrderDetail({ navigation, route }) {
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackImages, setFeedbackImages] = useState([]); // [{ uri, type, name }]
   const [previewFeedbackImage, setPreviewFeedbackImage] = useState('');
+  const [previewExtraChargeImage, setPreviewExtraChargeImage] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
@@ -141,6 +147,8 @@ export default function OrderDetail({ navigation, route }) {
     const fetchDetail = async () => {
       try {
         setLoading(true);
+        setPayment(null);
+        setPayments([]);
         let customerId = null;
         try {
           const raw = await AsyncStorage.getItem('userData');
@@ -182,8 +190,17 @@ export default function OrderDetail({ navigation, route }) {
               `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=10`,
             );
             const payJson = await payRes.json();
-            const payments = Array.isArray(payJson?.items) ? payJson.items : [];
-            setPayment(payments[0] ?? null);
+            const list = Array.isArray(payJson?.items) ? payJson.items : [];
+
+            // Backend: type 1 = deposit, type 2 = full. If there are 2 records, full is already paid.
+            const fullRecord =
+              list.find((p) => Number(p?.paymentType) === 2 && Number(p?.paymentStatus) === 2) ??
+              list.find((p) => Number(p?.paymentType) === 2) ??
+              null;
+            const depositRecord = list.find((p) => Number(p?.paymentType) === 1) ?? null;
+
+            setPayments(list);
+            setPayment(fullRecord ?? depositRecord ?? list[0] ?? null);
           } catch (e) {
             console.error('Failed to load payment info', e);
           }
@@ -198,21 +215,84 @@ export default function OrderDetail({ navigation, route }) {
     fetchDetail();
   }, [orderId]);
 
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingExtraCharges(true);
+        setExtraCharges([]);
+        const res = await fetch(`${API_URL}/api/order-detail-extra-charge/order/${orderId}`);
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.items)
+            ? json.items
+            : [];
+        if (cancelled) return;
+        setExtraCharges(list);
+      } catch (e) {
+        if (cancelled) return;
+        console.error('Failed to load extra charges', e);
+        setExtraCharges([]);
+      } finally {
+        if (!cancelled) setLoadingExtraCharges(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
   const orderDetails = order?.orderDetails ?? [];
   const canCancel = order?.status === 1;
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
-  const isCompleted = order?.status === 6;
+  const isCompleted = Number(order?.status) === 7;
   const hasExistingFeedback =
     (existingMenuFeedbacks?.length ?? 0) > 0 || (existingServiceFeedbacks?.length ?? 0) > 0;
 
+  const paidAmount = (payments ?? []).reduce((sum, p) => {
+    return Number(p?.paymentStatus) === 2 ? sum + Number(p?.amount ?? 0) : sum;
+  }, 0);
+  const depositPayments = (payments ?? []).filter((p) => Number(p?.paymentType) === 1);
+  const fullPayments = (payments ?? []).filter((p) => Number(p?.paymentType) === 2);
+
+  const depositPlannedAmount = depositPayments.reduce((sum, p) => sum + Number(p?.amount ?? 0), 0);
+
+  const totalPriceNum = Number(order?.totalPrice ?? 0);
+  const depositAmount =
+    depositPlannedAmount > 0 ? depositPlannedAmount : Math.round(totalPriceNum / 2);
+
+  const depositPayment =
+    depositPayments.find((p) => Number(p?.paymentStatus) === 2) ?? depositPayments[0] ?? null;
+  const fullPayment =
+    fullPayments.find((p) => Number(p?.paymentStatus) === 2) ?? fullPayments[0] ?? null;
+
+  const extraChargeTotal = (extraCharges ?? []).reduce((sum, c) => {
+    return sum + Number(c?.totalAmount ?? 0);
+  }, 0);
+
+  // "Thanh toán nốt" = (totalPrice - depositAmount) + tiền đền bù
+  const dueFullPlusExtra = Math.max(0, totalPriceNum - depositAmount) + extraChargeTotal;
+
+  // "Còn lại" được tính theo tổng phải trả = totalPrice + extraCharges
+  const paymentRemainingAfterExtra = Math.max(0, Number(order?.totalPrice ?? 0) + extraChargeTotal - paidAmount);
+  const isPaidFullAfterExtra = paymentRemainingAfterExtra <= 0;
+
   const mapOrderStatusToPartyStatus = (orderStatus) => {
     switch (orderStatus) {
+      case 1:
+      case 2:
       case 4:
-        return 'Đang chuẩn bị';
+        return 'Sắp tới';
       case 5:
-        return 'Đang diễn ra';
       case 6:
+        return 'Đang diễn ra';
+      case 7:
         return 'Kết thúc tiệc';
+      case 3:
+      case 8:
+        return 'Bị hủy';
       default:
         return null;
     }
@@ -227,25 +307,50 @@ export default function OrderDetail({ navigation, route }) {
 
   const buildFeedbackTargets = () => {
     if (!orderDetails || orderDetails.length === 0) return [];
+    const ratedMenuIds = new Set(
+      (existingMenuFeedbacks || [])
+        .map((fb) => Number(fb?.menuId ?? 0))
+        .filter((id) => !!id),
+    );
+    const ratedServiceIds = new Set(
+      (existingServiceFeedbacks || [])
+        .map((fb) => Number(fb?.serviceId ?? 0))
+        .filter((id) => !!id),
+    );
+
     const targets = [];
+    const seenTargetKeys = new Set();
     orderDetails.forEach((od) => {
       if (od.menuId) {
-        targets.push({
-          type: 'menu',
-          id: od.menuId,
-          name: od.menuName || od.menuSnapshot?.menuName || 'Menu',
-        });
+        const mid = Number(od.menuId);
+        if (!ratedMenuIds.has(mid)) {
+          const key = `menu:${mid}`;
+          if (!seenTargetKeys.has(key)) {
+            seenTargetKeys.add(key);
+            targets.push({
+              type: 'menu',
+              id: mid,
+              name: od.menuName || od.menuSnapshot?.menuName || 'Menu',
+            });
+          }
+        }
       }
       const services = Array.isArray(od.serviceSnapshot?.services)
         ? od.serviceSnapshot.services
         : [];
       services.forEach((s) => {
         if (s.serviceId) {
-          targets.push({
-            type: 'service',
-            id: s.serviceId,
-            name: s.serviceName || 'Dịch vụ',
-          });
+          const sid = Number(s.serviceId);
+          if (ratedServiceIds.has(sid)) return;
+          const key = `service:${sid}`;
+          if (!seenTargetKeys.has(key)) {
+            seenTargetKeys.add(key);
+            targets.push({
+              type: 'service',
+              id: sid,
+              name: s.serviceName || 'Dịch vụ',
+            });
+          }
         }
       });
     });
@@ -321,7 +426,7 @@ export default function OrderDetail({ navigation, route }) {
         };
       });
 
-      setFeedbackImages((prev) => [...prev, ...next].slice(0, 4));
+      setFeedbackImages((prev) => [...prev, ...next].slice(0, 2));
     } catch (_) { }
   };
 
@@ -610,8 +715,8 @@ export default function OrderDetail({ navigation, route }) {
 
         {!loading && partyStatusLabel && (
           <View style={styles.statusSteps}>
-            {['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
-              const currentIndex = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
+            {['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
+              const currentIndex = ['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
                 partyStatusLabel,
               );
               const isActive =
@@ -672,9 +777,9 @@ export default function OrderDetail({ navigation, route }) {
                 </View>
                 <Text style={styles.payValue}>{formatVnd(order?.totalPrice)}</Text>
               </View>
-              {payment && (
+              {(payments ?? []).length > 0 && (
                 <>
-                  <View style={styles.payRow}>
+                  <View style={[styles.payRow, { marginTop: 4 }]}>
                     <View style={styles.payLabelWithIcon}>
                       <Ionicons
                         name="wallet-outline"
@@ -682,45 +787,146 @@ export default function OrderDetail({ navigation, route }) {
                         color={TEXT_SECONDARY}
                         style={{ marginRight: 6 }}
                       />
-                      <Text style={styles.payLabel}>
-                        {formatPaymentType(payment.paymentType) || 'Đã cọc (50%)'}
-                      </Text>
+                      <Text style={styles.payLabel}>Cọc 50%</Text>
                     </View>
-                    <Text style={styles.payValue}>
-                      {formatVnd(payment.amount)}
-                    </Text>
+                    <Text style={styles.payValue}>{formatVnd(depositAmount)}</Text>
                   </View>
                   <View style={[styles.payRow, { marginTop: 8 }]}>
-                    <Text style={styles.payLabel}>Thời gian thanh toán</Text>
+                    <Text style={styles.payLabel}>Thời gian</Text>
                     <Text style={styles.payValueSmall}>
-                      {formatDateTime(payment.paidAt)}
+                      {formatDateTime(depositPayment?.paidAt)}
                     </Text>
                   </View>
                   <View style={styles.payRow}>
                     <Text style={styles.payLabel}>Phương thức</Text>
                     <Text style={styles.payValueSmall}>
-                      {formatPaymentMethod(payment.paymentMethod)}
+                      {formatPaymentMethod(depositPayment?.paymentMethod)}
                     </Text>
                   </View>
                   <View style={styles.payRow}>
                     <Text style={styles.payLabel}>Trạng thái</Text>
                     <Text style={styles.payValueSmall}>
-                      {formatPaymentStatus(payment.paymentStatus)}
+                      {formatPaymentStatus(depositPayment?.paymentStatus)}
+                    </Text>
+                  </View>
+
+                  {!loadingExtraCharges && (extraCharges?.length ?? 0) > 0 && (
+                    <View style={styles.extraChargeSection}>
+                      <View style={styles.extraChargeHeaderRow}>
+                        <Text style={styles.extraChargeTitle}>Chi phí phát sinh</Text>
+                        <Text style={styles.extraChargeTotal}>{formatVnd(extraChargeTotal)}</Text>
+                      </View>
+
+                      {extraCharges.map((c, idx) => {
+                        const imgUrl = Array.isArray(c?.image) && c.image.length > 0 ? c.image[0] : null;
+                        const amount = Number(c?.unitPrice ?? 0) * Number(c?.quantity ?? 1);
+                        const displayTotal = Number(c?.totalAmount ?? amount ?? 0);
+                        const timeIso = c?.incurredAt ?? c?.createdAt;
+                        return (
+                          <View key={c?.orderDetailExtraChargeId ?? idx} style={styles.extraChargeCard}>
+                            <View style={styles.extraChargeTopRow}>
+                              {imgUrl ? (
+                                <TouchableOpacity
+                                  activeOpacity={0.85}
+                                  onPress={() => setPreviewExtraChargeImage(String(imgUrl))}
+                                >
+                                  <View style={styles.extraChargeImgWrap}>
+                                    <ExpoImage
+                                      source={{ uri: String(imgUrl) }}
+                                      style={styles.extraChargeImg}
+                                      contentFit="cover"
+                                      cachePolicy="disk"
+                                    />
+                                  </View>
+                                </TouchableOpacity>
+                              ) : (
+                                <View style={[styles.extraChargeImgWrap, styles.imagePlaceholder]} />
+                              )}
+                              <View style={styles.extraChargeInfo}>
+                                <Text style={styles.extraChargeCardTitle}>{c?.title || 'Phụ phí'}</Text>
+                                {!!c?.description && (
+                                  <Text style={styles.extraChargeDesc} numberOfLines={2}>
+                                    {String(c.description)}
+                                  </Text>
+                                )}
+                                <View style={styles.extraChargeMeta}>
+                                  <Text style={styles.extraChargeMetaText}>
+                                    Đơn giá: {formatVnd(c?.unitPrice)} / {c?.unit || 'item'}
+                                  </Text>
+                                  <Text style={styles.extraChargeMetaText}>
+                                    SL: {c?.quantity ?? 1}
+                                  </Text>
+                                  <Text style={styles.extraChargeMetaTextStrong}>
+                                    Tổng: {formatVnd(displayTotal)}
+                                  </Text>
+                                  <Text style={styles.extraChargeMetaText}>
+                                    Thời gian: {formatDateTime(timeIso)}
+                                  </Text>
+                                </View>
+                                {!!c?.note && (
+                                  <Text style={styles.extraChargeNote} numberOfLines={2}>
+                                    Ghi chú: {String(c.note)}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  <View style={[styles.payRow, { marginTop: 14 }]}>
+                    <View style={styles.payLabelWithIcon}>
+                      <Ionicons
+                        name="wallet-outline"
+                        size={16}
+                        color={TEXT_SECONDARY}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.payLabel}>Thanh toán nốt</Text>
+                    </View>
+                    <Text style={styles.payValue}>
+                      {formatVnd(dueFullPlusExtra)}
                     </Text>
                   </View>
                   <View style={[styles.payRow, { marginTop: 8 }]}>
-                    <Text style={styles.payLabelStrong}>Còn lại</Text>
-                    <Text style={styles.payValueStrong}>
-                      {formatVnd((order?.totalPrice ?? 0) - (payment.amount ?? 0))}
+                    <Text style={styles.payLabel}>Thời gian</Text>
+                    <Text style={styles.payValueSmall}>
+                      {formatDateTime(fullPayment?.paidAt)}
                     </Text>
                   </View>
+                  <View style={styles.payRow}>
+                    <Text style={styles.payLabel}>Phương thức</Text>
+                    <Text style={styles.payValueSmall}>
+                      {formatPaymentMethod(fullPayment?.paymentMethod)}
+                    </Text>
+                  </View>
+                  <View style={styles.payRow}>
+                    <Text style={styles.payLabel}>Trạng thái</Text>
+                    <Text style={styles.payValueSmall}>
+                      {formatPaymentStatus(fullPayment?.paymentStatus)}
+                    </Text>
+                  </View>
+
+                  {!isPaidFullAfterExtra && (
+                    <View style={[styles.payRow, { marginTop: 10 }]}>
+                      <Text style={styles.payLabelStrong}>Còn lại</Text>
+                      <Text style={styles.payValueStrong}>
+                        {formatVnd(paymentRemainingAfterExtra)}
+                      </Text>
+                    </View>
+                  )}
                 </>
               )}
             </>
           )}
         </View>
 
-        {!loading && isCompleted && !hasExistingFeedback && !loadingFeedbacks && (
+        {(() => {
+          const pendingTargets = buildFeedbackTargets();
+          const canShowFeedbackButton = !loading && isCompleted && !loadingFeedbacks && pendingTargets.length > 0;
+          return canShowFeedbackButton ? (
           <View style={styles.section}>
             <TouchableOpacity
               style={styles.feedbackButton}
@@ -736,7 +942,8 @@ export default function OrderDetail({ navigation, route }) {
               <Text style={styles.feedbackButtonText}>Đánh giá đơn hàng</Text>
             </TouchableOpacity>
           </View>
-        )}
+          ) : null;
+        })()}
 
         {!loading && isCompleted && (hasExistingFeedback || loadingFeedbacks) && (
           <View style={styles.section}>
@@ -771,7 +978,7 @@ export default function OrderDetail({ navigation, route }) {
                         </Text>
                         {Array.isArray(fb?.img) && fb.img.length > 0 && (
                           <View style={styles.feedbackItemImageRow}>
-                            {fb.img.slice(0, 4).map((imgUrl, i) => (
+                            {fb.img.slice(0, 2).map((imgUrl, i) => (
                               <TouchableOpacity
                                 key={`${imgUrl}-${i}`}
                                 activeOpacity={0.85}
@@ -819,7 +1026,7 @@ export default function OrderDetail({ navigation, route }) {
                         </Text>
                         {Array.isArray(fb?.img) && fb.img.length > 0 && (
                           <View style={styles.feedbackItemImageRow}>
-                            {fb.img.slice(0, 4).map((imgUrl, i) => (
+                            {fb.img.slice(0, 2).map((imgUrl, i) => (
                               <TouchableOpacity
                                 key={`${imgUrl}-${i}`}
                                 activeOpacity={0.85}
@@ -858,116 +1065,133 @@ export default function OrderDetail({ navigation, route }) {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.feedbackOverlay}>
-            <TouchableWithoutFeedback onPress={() => { }}>
-              <View style={styles.feedbackCard}>
-                <TouchableOpacity
-                  style={styles.feedbackCloseButton}
-                  onPress={() => !submittingFeedback && setFeedbackVisible(false)}
-                  activeOpacity={0.7}
-                >
-
-                </TouchableOpacity>
-                {feedbackTargets[currentFeedbackIndex] && (
-                  <>
-                    <Text style={styles.feedbackTitle}>
-                      Đánh giá{' '}
-                      {feedbackTargets[currentFeedbackIndex].type === 'menu'
-                        ? 'menu'
-                        : 'dịch vụ'}
-                    </Text>
-                    <Text style={styles.feedbackSubtitle} numberOfLines={2}>
-                      {feedbackTargets[currentFeedbackIndex].name}
-                    </Text>
-                  </>
-                )}
-
-                <View style={styles.feedbackImagesSection}>
-                  <TouchableOpacity
-                    style={styles.feedbackImagesPickBtn}
-                    activeOpacity={0.8}
-                    disabled={submittingFeedback}
-                    onPress={pickFeedbackImages}
+            <KeyboardAvoidingView
+              style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={0}
+            >
+              <TouchableWithoutFeedback onPress={() => { }}>
+                <View style={styles.feedbackCard}>
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 10 }}
                   >
-                    <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
-                    <Text style={styles.feedbackImagesPickText}>Chọn ảnh</Text>
-                    <Text style={styles.feedbackImagesPickSubText}>
-                      ({feedbackImages.length}/4)
-                    </Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.feedbackCloseButton}
+                      onPress={() => !submittingFeedback && setFeedbackVisible(false)}
+                      activeOpacity={0.7}
+                    >
+                    </TouchableOpacity>
 
-                  {!!feedbackImages.length && (
-                    <View style={styles.feedbackImagesRow}>
-                      {feedbackImages.map((img, idx) => (
+                    {feedbackTargets[currentFeedbackIndex] && (
+                      <>
+                        <Text style={styles.feedbackTitle}>
+                          Đánh giá{' '}
+                          {feedbackTargets[currentFeedbackIndex].type === 'menu'
+                            ? 'menu'
+                            : 'dịch vụ'}
+                        </Text>
+                        <Text style={styles.feedbackSubtitle} numberOfLines={2}>
+                          {feedbackTargets[currentFeedbackIndex].name}
+                        </Text>
+                      </>
+                    )}
+
+                    <View style={styles.feedbackImagesSection}>
+                      <TouchableOpacity
+                        style={styles.feedbackImagesPickBtn}
+                        activeOpacity={0.8}
+                        disabled={submittingFeedback}
+                        onPress={pickFeedbackImages}
+                      >
+                        <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
+                        <Text style={styles.feedbackImagesPickText}>Chọn ảnh</Text>
+                        <Text style={styles.feedbackImagesPickSubText}>
+                          ({feedbackImages.length}/4)
+                        </Text>
+                      </TouchableOpacity>
+
+                      {!!feedbackImages.length && (
+                        <View style={styles.feedbackImagesRow}>
+                          {feedbackImages.map((img, idx) => (
+                            <TouchableOpacity
+                              key={`${img?.name ?? 'img'}-${idx}`}
+                              style={styles.feedbackImageThumbWrap}
+                              activeOpacity={0.85}
+                              disabled={submittingFeedback}
+                              onPress={() =>
+                                setFeedbackImages((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                            >
+                              <ExpoImage
+                                source={{ uri: img.uri }}
+                                style={styles.feedbackImageThumb}
+                              />
+                              <View style={styles.feedbackImageRemoveBadge}>
+                                <Ionicons name="close" size={12} color={BACKGROUND_WHITE} />
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.starsRow}>
+                      {[1, 2, 3, 4, 5].map((star) => (
                         <TouchableOpacity
-                          key={`${img?.name ?? 'img'}-${idx}`}
-                          style={styles.feedbackImageThumbWrap}
-                          activeOpacity={0.85}
+                          key={star}
+                          style={styles.starButton}
+                          activeOpacity={0.7}
+                          onPress={() => setFeedbackRating(star)}
                           disabled={submittingFeedback}
-                          onPress={() =>
-                            setFeedbackImages((prev) => prev.filter((_, i) => i !== idx))
-                          }
                         >
-                          <ExpoImage source={{ uri: img.uri }} style={styles.feedbackImageThumb} />
-                          <View style={styles.feedbackImageRemoveBadge}>
-                            <Ionicons name="close" size={12} color={BACKGROUND_WHITE} />
-                          </View>
+                          <Ionicons
+                            name={star <= feedbackRating ? 'star' : 'star-outline'}
+                            size={28}
+                            color={PRIMARY_COLOR}
+                          />
                         </TouchableOpacity>
                       ))}
                     </View>
-                  )}
-                </View>
 
-                <View style={styles.starsRow}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                      key={star}
-                      style={styles.starButton}
-                      activeOpacity={0.7}
-                      onPress={() => setFeedbackRating(star)}
-                      disabled={submittingFeedback}
-                    >
-                      <Ionicons
-                        name={star <= feedbackRating ? 'star' : 'star-outline'}
-                        size={28}
-                        color={PRIMARY_COLOR}
+                    <View style={styles.feedbackInputBox}>
+                      <Text style={styles.feedbackInputLabel}>Nhận xét</Text>
+                      <TextInput
+                        style={styles.feedbackInput}
+                        multiline
+                        placeholder="Hãy chia sẻ trải nghiệm của bạn..."
+                        placeholderTextColor={TEXT_SECONDARY}
+                        value={feedbackComment}
+                        onChangeText={setFeedbackComment}
+                        editable={!submittingFeedback}
                       />
-                    </TouchableOpacity>
-                  ))}
+                    </View>
+
+                    <View style={styles.feedbackActions}>
+                      <TouchableOpacity
+                        style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
+                        activeOpacity={0.8}
+                        disabled={submittingFeedback}
+                        onPress={() => setFeedbackVisible(false)}
+                      >
+                        <Text style={styles.feedbackCancelText}>Đóng</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
+                        activeOpacity={0.8}
+                        disabled={submittingFeedback}
+                        onPress={handleSubmitFeedback}
+                      >
+                        <Text style={styles.feedbackSubmitText}>
+                          {submittingFeedback ? 'Đang gửi...' : 'Gửi đánh giá'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </ScrollView>
                 </View>
-                <View style={styles.feedbackInputBox}>
-                  <Text style={styles.feedbackInputLabel}>Nhận xét</Text>
-                  <TextInput
-                    style={styles.feedbackInput}
-                    multiline
-                    placeholder="Hãy chia sẻ trải nghiệm của bạn..."
-                    placeholderTextColor={TEXT_SECONDARY}
-                    value={feedbackComment}
-                    onChangeText={setFeedbackComment}
-                    editable={!submittingFeedback}
-                  />
-                </View>
-                <View style={styles.feedbackActions}>
-                  <TouchableOpacity
-                    style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
-                    activeOpacity={0.8}
-                    disabled={submittingFeedback}
-                    onPress={() => setFeedbackVisible(false)}
-                  >
-                    <Text style={styles.feedbackCancelText}>Đóng</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
-                    activeOpacity={0.8}
-                    disabled={submittingFeedback}
-                    onPress={handleSubmitFeedback}
-                  >
-                    <Text style={styles.feedbackSubmitText}>
-                      {submittingFeedback ? 'Đang gửi...' : 'Gửi đánh giá'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -988,6 +1212,30 @@ export default function OrderDetail({ navigation, route }) {
           </TouchableOpacity>
           <ExpoImage
             source={{ uri: previewFeedbackImage }}
+            style={styles.previewImage}
+            contentFit="contain"
+            cachePolicy="disk"
+          />
+        </View>
+      </Modal>
+
+      {/* Extra charge preview modal */}
+      <Modal
+        visible={!!previewExtraChargeImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewExtraChargeImage('')}
+      >
+        <View style={styles.previewOverlay}>
+          <TouchableOpacity
+            style={styles.previewCloseBtn}
+            onPress={() => setPreviewExtraChargeImage('')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={24} color={BACKGROUND_WHITE} />
+          </TouchableOpacity>
+          <ExpoImage
+            source={{ uri: previewExtraChargeImage }}
             style={styles.previewImage}
             contentFit="contain"
             cachePolicy="disk"
@@ -1374,6 +1622,86 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: PRIMARY_COLOR,
     fontWeight: '800',
+  },
+  extraChargeSection: {
+    marginTop: 10,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 14,
+    padding: 12,
+  },
+  extraChargeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  extraChargeTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  extraChargeTotal: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: PRIMARY_COLOR,
+  },
+  extraChargeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  extraChargeTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  extraChargeImgWrap: {
+    width: 62,
+    height: 62,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: 10,
+    backgroundColor: '#E0E0E0',
+  },
+  extraChargeImg: {
+    width: '100%',
+    height: '100%',
+  },
+  extraChargeInfo: {
+    flex: 1,
+  },
+  extraChargeCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  extraChargeDesc: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 8,
+  },
+  extraChargeMeta: {
+    gap: 2,
+  },
+  extraChargeMetaText: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+  },
+  extraChargeMetaTextStrong: {
+    fontSize: 12,
+    color: TEXT_PRIMARY,
+    fontWeight: '800',
+  },
+  extraChargeNote: {
+    marginTop: 6,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  extraChargeOrange: {
+    color: '#FF8A00',
+    fontWeight: '900',
   },
   bottomSafe: {
     position: 'absolute',
