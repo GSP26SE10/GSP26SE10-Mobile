@@ -1,11 +1,19 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Modal, TouchableOpacity,
-  ScrollView, PanResponder
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  ScrollView,
+  PanResponder,
+  useWindowDimensions,
 } from 'react-native';
+import { AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-big-calendar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
@@ -14,23 +22,46 @@ const initialDate = new Date();
 const BASE_YEAR = initialDate.getFullYear();
 const YEAR_RANGE = 10; // Cho phép xem từ 10 năm trước đến 10 năm sau
 
-const events = [
-  {
-    title: 'Chuẩn bị nguyên liệu',
-    start: new Date(2026, 0, 20, 9, 0),
-    end: new Date(2026, 0, 20, 9, 30),
-  },
-  {
-    title: 'Tiệc A',
-    start: new Date(2026, 0, 20, 10, 15),
-    end: new Date(2026, 0, 20, 13, 0),
-  },
-  {
-    title: 'Tiệc B',
-    start: new Date(2026, 0, 20, 14, 0),
-    end: new Date(2026, 0, 20, 16, 30),
-  },
-];
+const STAFF_TASKS_CACHE_KEY = 'staffTasksCache';
+const STAFF_TASKS_HISTORY_CACHE_KEY = 'staffTasksHistoryCache';
+
+/** Ước lượng khối header (chào + tháng) phía trên lịch */
+const CALENDAR_SCREEN_HEADER = 168;
+/**
+ * Thanh bottom nav absolute + paddingBottom + thêm ~16px để cuộn tới 21–23h không bị che.
+ */
+const BOTTOM_NAV_FLOATING_CLEARANCE = 104;
+const CALENDAR_MIN_HEIGHT = 300;
+
+const toDateSafe = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+function buildEventsFromStaffTaskItems(items) {
+  const byOrder = new Map();
+  (items || []).forEach((task) => {
+    const od = task?.orderDetail;
+    if (!od || od.orderDetailId == null) return;
+    if (!byOrder.has(od.orderDetailId)) byOrder.set(od.orderDetailId, od);
+  });
+  return Array.from(byOrder.values())
+    .map((od) => {
+      const start = toDateSafe(od.startTime);
+      const end = toDateSafe(od.endTime) || start;
+      if (!start) return null;
+      return {
+        title: od.menuName
+          ? `${od.menuName} (${od.numberOfGuests ?? 0} khách)`
+          : `Tiệc #${od.orderDetailId}`,
+        start,
+        end,
+        address: od.address || '—',
+      };
+    })
+    .filter(Boolean);
+}
 
 function getWednesdayOfWeek(date) {
   const d = new Date(date);
@@ -54,7 +85,21 @@ function addMonths(date, months) {
 }
 
 export default function StaffCalendarScreen({ navigation }) {
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const calendarHeight = Math.max(
+    CALENDAR_MIN_HEIGHT,
+    Math.round(
+      windowHeight -
+        insets.top -
+        CALENDAR_SCREEN_HEADER -
+        BOTTOM_NAV_FLOATING_CLEARANCE
+    )
+  );
+
   const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [events, setEvents] = useState([]);
+  const cacheDigestRef = useRef('');
 
   useEffect(() => {
     (async () => {
@@ -114,6 +159,45 @@ export default function StaffCalendarScreen({ navigation }) {
     return `${startStr} - ${endStr}`;
   };
 
+  const loadCalendarEventsFromCache = useCallback(async () => {
+    try {
+      const [homeRawRaw, historyRawRaw] = await Promise.all([
+        AsyncStorage.getItem(STAFF_TASKS_CACHE_KEY),
+        AsyncStorage.getItem(STAFF_TASKS_HISTORY_CACHE_KEY),
+      ]);
+      const homeRaw = homeRawRaw || '';
+      const historyRaw = historyRawRaw || '';
+      const digest = `${homeRaw.length}:${historyRaw.length}:${homeRaw.slice(0, 80)}:${historyRaw.slice(0, 80)}`;
+      if (digest === cacheDigestRef.current) return;
+      cacheDigestRef.current = digest;
+
+      const homeItems = JSON.parse(homeRaw || '{}')?.data?.items || [];
+      const historyItems = JSON.parse(historyRaw || '{}')?.data?.items || [];
+      setEvents(buildEventsFromStaffTaskItems([...homeItems, ...historyItems]));
+    } catch (_) {
+      setEvents([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCalendarEventsFromCache();
+  }, [loadCalendarEventsFromCache]);
+
+  useEffect(() => {
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        loadCalendarEventsFromCache();
+      }
+    });
+    const interval = setInterval(() => {
+      loadCalendarEventsFromCache();
+    }, 2500);
+    return () => {
+      appStateSub?.remove?.();
+      clearInterval(interval);
+    };
+  }, [loadCalendarEventsFromCache]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
@@ -148,7 +232,10 @@ export default function StaffCalendarScreen({ navigation }) {
           locale="vi"
           date={currentDate}
           events={events}
-          height={600}
+          height={calendarHeight}
+          hourRowHeight={28}
+          minHour={0}
+          maxHour={23}
           mode="week"
           weekStartsOn={1}
           swipeEnabled={true}
@@ -267,9 +354,21 @@ export default function StaffCalendarScreen({ navigation }) {
         onRequestClose={() => setEventModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.eventModalContent}>
-            <Text style={styles.modalTitle}>{selectedEvent?.title ?? ''}</Text>
-            <Text style={styles.eventTimeText}>{formatEventTimeRange(selectedEvent)}</Text>
+          <View style={styles.eventModalCard}>
+            <View style={styles.eventModalHeader}>
+              <Ionicons name="calendar-outline" size={18} color={PRIMARY_COLOR} />
+              <Text style={styles.eventModalTitle}>{selectedEvent?.title ?? 'Tiệc'}</Text>
+            </View>
+            <View style={styles.eventInfoRow}>
+              <Ionicons name="time-outline" size={16} color={TEXT_PRIMARY} />
+              <Text style={styles.eventInfoText}>{formatEventTimeRange(selectedEvent)}</Text>
+            </View>
+            <View style={styles.eventInfoRow}>
+              <Ionicons name="location-outline" size={16} color={TEXT_PRIMARY} />
+              <Text style={styles.eventInfoText} numberOfLines={3}>
+                {selectedEvent?.address || '—'}
+              </Text>
+            </View>
             <TouchableOpacity style={styles.closeButton} onPress={() => setEventModalVisible(false)}>
               <Text style={styles.closeButtonText}>Đóng</Text>
             </TouchableOpacity>
@@ -314,12 +413,34 @@ const styles = StyleSheet.create({
     width: '80%',
     maxHeight: '60%',
   },
-  eventModalContent: {
+  eventModalCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
+    borderRadius: 16,
+    padding: 16,
+    width: '84%',
+  },
+  eventModalHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 10,
+  },
+  eventModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginLeft: 8,
+    flex: 1,
+  },
+  eventInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  eventInfoText: {
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    marginLeft: 8,
+    flex: 1,
   },
   modalTitle: {
     fontSize: 16,
@@ -382,8 +503,8 @@ const styles = StyleSheet.create({
   },
   monthItemText: { fontSize: 15, color: TEXT_PRIMARY, textAlign: 'center' },
   closeButton: {
-    marginTop: 12,
-    backgroundColor: '#f0f0f0',
+    marginTop: 4,
+    backgroundColor: '#f5f5f5',
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center',

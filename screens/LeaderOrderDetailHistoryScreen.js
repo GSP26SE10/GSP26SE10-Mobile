@@ -21,6 +21,7 @@ import {
   BORDER_LIGHT,
 } from '../constants/colors';
 import API_URL from '../constants/api';
+import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
 import { getAccessToken } from '../utils/auth';
 
 const formatTimeRangeFromOrder = (order) => {
@@ -96,8 +97,8 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
         guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
         timeRange: formatTimeRangeFromOrder(orderFromParams),
         address: orderFromParams.address || '—',
-        contactName: '—',
-        phone: '',
+        contactName: orderFromParams.customerName || '—',
+        phone: orderFromParams.customerPhone || '',
         subtotal: formatVnd(orderFromParams.totalPrice),
         deposit: formatVnd(orderFromParams.depositAmount),
         remaining: formatVnd(orderFromParams.remainingAmount),
@@ -225,10 +226,10 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const orderStatus = Number(orderFromParams?.orderStatus ?? route?.params?.orderStatus ?? 0);
-    // orderStatus: 4 = preparing, 5 = ongoing, 6 = billing, 7 = completed
-    const currentIndex =
-      orderStatus === 4 ? 0 : orderStatus === 5 ? 1 : 2; // (6,7, others -> show completed step)
+    const orderStatus = orderFromParams?.orderStatus ?? route?.params?.orderStatus;
+    const mapped = getOrderStatusProgressStepIndex(orderStatus);
+    // 4→0, 5/6→1, 7→2; mã khác giữ như cũ (coi như đã xong)
+    const currentIndex = mapped != null ? mapped : 2;
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {

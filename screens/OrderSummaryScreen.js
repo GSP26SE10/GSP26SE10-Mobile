@@ -104,8 +104,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
     () => partiesPricing.filter((p) => p.hasMenu).reduce((sum, p) => sum + Number(p.subTotal ?? 0), 0),
     [partiesPricing]
   );
-  const vat = Math.round(subTotal * 0.1);
-  const total = subTotal + vat;
+  const total = subTotal;
   const deposit = Math.round(total * 0.5);
   const payLater = total - deposit;
 
@@ -307,10 +306,16 @@ export default function OrderSummaryScreen({ navigation, route }) {
           .join(', ');
         const startTime = draft?.startTime || params.startTime || null;
         const endTime = draft?.endTime || params.endTime || null;
+        const partyCategoryId =
+          draft?.partyCategoryId != null
+            ? Number(draft.partyCategoryId)
+            : params?.partyCategoryId != null
+              ? Number(params.partyCategoryId)
+              : 0;
 
         itemsPayload.push({
           menuId,
-          partyCategoryId: 0,
+          partyCategoryId: Number.isFinite(partyCategoryId) ? partyCategoryId : 0,
           numberOfGuests,
           address: address || '',
           startTime,
@@ -493,10 +498,10 @@ export default function OrderSummaryScreen({ navigation, route }) {
             <Text style={styles.lineLabel}>Tạm tính:</Text>
             <Text style={styles.lineValue}>{formatVnd(subTotal)}</Text>
           </View>
-          <View style={styles.lineRow}>
+          {/* <View style={styles.lineRow}>
             <Text style={styles.lineLabel}>Thuế VAT (10%):</Text>
             <Text style={styles.lineValue}>{formatVnd(vat)}</Text>
-          </View>
+          </View> */}
           <View style={styles.divider} />
           <View style={styles.lineRow}>
             <Text style={styles.totalLabel}>Tổng tiền đơn:</Text>

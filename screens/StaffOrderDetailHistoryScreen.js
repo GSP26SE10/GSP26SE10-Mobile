@@ -11,6 +11,8 @@ import {
   TEXT_SECONDARY,
   BORDER_LIGHT,
 } from '../constants/colors';
+import API_URL from '../constants/api';
+import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
 
 const formatTimeRange = (startIso, endIso) => {
   if (!startIso) return '—';
@@ -25,10 +27,17 @@ const formatTimeRange = (startIso, endIso) => {
 
 const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 'Hoàn thành' };
 
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return null;
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
+
 function buildPartyDetailFromOrderDetail(od) {
   if (!od) return null;
   return {
     id: od.orderDetailId,
+    image: resolveImageUri(od.menuImage),
     name: od.menuName || '—',
     dishes: od.partyCategory || '—',
     guests: `${od.numberOfGuests ?? 0} người`,
@@ -78,7 +87,10 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const currentIndex = 2;
+    const mapped = getOrderStatusProgressStepIndex(
+      orderDetail?.status ?? orderDetail?.orderStatus
+    );
+    const currentIndex = mapped != null ? mapped : 2;
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
@@ -127,9 +139,17 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           })
         }
       >
-        <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
-          <Ionicons name="image-outline" size={40} color={TEXT_SECONDARY} />
-        </View>
+        {partyDetail.image ? (
+          <Image
+            source={{ uri: partyDetail.image }}
+            style={styles.partyImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
+            <Ionicons name="image-outline" size={40} color={TEXT_SECONDARY} />
+          </View>
+        )}
         <View style={styles.partyInfo}>
           <Text style={styles.partyName}>{partyDetail.name}</Text>
           <Text style={styles.partyMeta}>

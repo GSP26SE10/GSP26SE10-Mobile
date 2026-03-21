@@ -189,6 +189,7 @@ export default function LeaderHomeScreen({ navigation }) {
               onPress={() =>
                 navigation.navigate('LeaderOrderDetail', {
                   orderDetailId: order.orderDetailId,
+                  orderId: order.orderId,
                   order,
                   status: null,
                 })

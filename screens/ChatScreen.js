@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,16 @@ export default function ChatScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const connectionRef = React.useRef(null);
+  const toHubConversationId = useCallback((raw) => {
+    if (raw == null) return null;
+    const str = String(raw).trim();
+    if (!str) return null;
+    return /^\d+$/.test(str) ? Number(str) : str;
+  }, []);
+  const hubConversationId = useMemo(
+    () => toHubConversationId(conversationId),
+    [conversationId, toHubConversationId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -115,7 +125,7 @@ export default function ChatScreen({ navigation }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!conversationId) return;
+      if (!conversationId || !hubConversationId) return;
       const token = await getAccessToken();
       if (!token) return;
 
@@ -131,12 +141,41 @@ export default function ChatScreen({ navigation }) {
         conn.onreconnecting(() => {
           if (!cancelled) setConnected(false);
         });
+        const refreshMessagesFromServer = async () => {
+          if (!conversationId || !customerId) return;
+          try {
+            const res = await fetch(
+              `${API_URL}/api/message?ConversationId=${conversationId}&page=1&pageSize=30`,
+            );
+            const json = await res.json().catch(() => null);
+            const items = Array.isArray(json?.items) ? json.items : [];
+            const mapped = items
+              .map((m) => {
+                const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
+                const hhmm = sentAt
+                  ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                  : '';
+                return {
+                  id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
+                  text: String(m?.content ?? ''),
+                  isUser: customerId != null ? Number(m?.senderId) === Number(customerId) : false,
+                  timestamp: hhmm,
+                };
+              })
+              .filter((m) => m.text);
+            setMessages(mapped);
+          } catch (_) {}
+        };
+
         conn.onreconnected(async () => {
           if (cancelled) return;
           setConnected(true);
           try {
-            await conn.invoke('JoinConversation', Number(conversationId));
-          } catch (e) {}
+            await conn.invoke('JoinConversation', hubConversationId);
+          } catch (e) {
+            console.warn('JoinConversation failed after reconnect', e);
+          }
+          refreshMessagesFromServer();
         });
         conn.onclose(() => {
           if (!cancelled) setConnected(false);
@@ -144,12 +183,13 @@ export default function ChatScreen({ navigation }) {
 
         conn.on('ReceiveMessage', (msg) => {
           try {
-            const senderId = msg?.senderId ?? msg?.fromUserId ?? msg?.userId ?? null;
-            const content = msg?.content ?? msg?.message ?? msg?.text ?? '';
+            const payload = msg?.data ?? msg;
+            const senderId = payload?.senderId ?? payload?.fromUserId ?? payload?.userId ?? null;
+            const content = payload?.content ?? payload?.message ?? payload?.text ?? '';
             if (!content) return;
-            const sentAt = msg?.sentAt ? new Date(msg.sentAt) : new Date();
+            const sentAt = payload?.sentAt ? new Date(payload.sentAt) : new Date();
             const hhmm = sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            const messageId = msg?.messageId ?? msg?.id ?? `rt-${Date.now()}`;
+            const messageId = payload?.messageId ?? payload?.id ?? `rt-${Date.now()}`;
             const isUser = customerId != null && senderId != null ? Number(senderId) === Number(customerId) : false;
 
             setMessages((prev) => {
@@ -165,7 +205,10 @@ export default function ChatScreen({ navigation }) {
                 },
               ];
             });
-          } catch (e) {}
+          } catch (e) {
+            // Fallback sync when event shape is unexpected.
+            refreshMessagesFromServer();
+          }
         });
 
         connectionRef.current = conn;
@@ -178,7 +221,7 @@ export default function ChatScreen({ navigation }) {
           await conn.start();
           if (cancelled) return;
           setConnected(true);
-          await conn.invoke('JoinConversation', Number(conversationId));
+          await conn.invoke('JoinConversation', hubConversationId);
         } catch (e) {
           if (cancelled) return;
           setConnected(false);
@@ -192,7 +235,7 @@ export default function ChatScreen({ navigation }) {
     return () => {
       cancelled = true;
     };
-  }, [conversationId, customerId]);
+  }, [conversationId, customerId, hubConversationId]);
 
   useEffect(() => {
     return () => {
@@ -296,7 +339,7 @@ export default function ChatScreen({ navigation }) {
 
     try {
       const payload = {
-        conversationId: Number(conversationId),
+        conversationId: hubConversationId,
         senderId: Number(customerId),
         content,
       };

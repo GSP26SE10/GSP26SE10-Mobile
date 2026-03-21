@@ -18,6 +18,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getOrderParties, setActivePartyByIndex } from '../utils/cartStorage';
+import API_URL from '../constants/api';
+import { getAccessToken } from '../utils/auth';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const CITIES = require('../constants/city.json');
@@ -106,6 +108,11 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const [selectModalVisible, setSelectModalVisible] = useState(false);
   const [selectMode, setSelectMode] = useState('city'); // 'city' | 'ward'
   const [searchQuery, setSearchQuery] = useState('');
+  const [partyCategories, setPartyCategories] = useState([]);
+  const [partyCategoryId, setPartyCategoryId] = useState(null);
+  const [partyCategoryModalVisible, setPartyCategoryModalVisible] = useState(false);
+  const [loadingPartyCategories, setLoadingPartyCategories] = useState(false);
+  const [partyCategoryImageErrorMap, setPartyCategoryImageErrorMap] = useState({});
   const currentParty = (orderParties || [])[partyIndex] || (orderParties || [])[0] || null;
   const cartItems = currentParty?.items || [];
 
@@ -149,6 +156,9 @@ export default function OrderConfirmationScreen({ navigation, route }) {
             }
           }
         }
+        setPartyCategoryId(
+          draft?.partyCategoryId != null ? Number(draft.partyCategoryId) : null
+        );
       } catch (e) {
         // ignore
       }
@@ -167,11 +177,12 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         wardCode: selectedWard?.code || null,
         cityName: selectedCity?.fullName || '',
         wardName: selectedWard?.name || '',
+        partyCategoryId: partyCategoryId != null ? Number(partyCategoryId) : null,
       };
       AsyncStorage.setItem(DRAFT_KEY(partyIndex), JSON.stringify(draft)).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [addressLine, eventDate, startTime, endTime, selectedCity, selectedWard]);
+  }, [addressLine, eventDate, startTime, endTime, selectedCity, selectedWard, partyCategoryId]);
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -297,6 +308,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         wardCode: selectedWard?.code || null,
         cityName: selectedCity?.fullName || '',
         wardName: selectedWard?.name || '',
+        partyCategoryId: partyCategoryId != null ? Number(partyCategoryId) : null,
       };
       await AsyncStorage.setItem(DRAFT_KEY(partyIndex), JSON.stringify(draft));
     } catch {
@@ -304,7 +316,45 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     }
   };
 
-  const canContinue = addressLine.trim().length > 0;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingPartyCategories(true);
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}/api/party-category?page=1&pageSize=10`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const activeOnly = items.filter((it) => Number(it?.status) === 1);
+        if (!cancelled) setPartyCategories(activeOnly);
+      } catch (_) {
+        if (!cancelled) setPartyCategories([]);
+      } finally {
+        if (!cancelled) setLoadingPartyCategories(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedPartyCategory = useMemo(
+    () =>
+      partyCategories.find(
+        (c) => Number(c?.partyCategoryId) === Number(partyCategoryId)
+      ) || null,
+    [partyCategories, partyCategoryId]
+  );
+
+  const resolveCategoryImageUri = (imageUrl) => {
+    if (!imageUrl || typeof imageUrl !== 'string') return null;
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+    return `${API_URL}${imageUrl}`;
+  };
+
+  const canContinue = addressLine.trim().length > 0 && partyCategoryId != null;
   const isMultiParty = orderParties.length > 1;
   const isLastParty = partyIndex >= orderParties.length - 1;
   const continueLabel = isMultiParty && !isLastParty ? 'Tiếp theo' : 'Tiếp tục';
@@ -385,6 +435,20 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
           {/* Event time */}
           <View style={styles.section}>
+            <View style={styles.formRowVertical}>
+              <Text style={styles.fieldLabel}>Loại tiệc</Text>
+              <TouchableOpacity
+                style={[styles.input, styles.selectInput]}
+                activeOpacity={0.7}
+                onPress={() => setPartyCategoryModalVisible(true)}
+              >
+                <Text style={styles.selectText}>
+                  {selectedPartyCategory?.partyCategoryName || 'Chọn loại tiệc'}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color={TEXT_SECONDARY} />
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.guestRow}>
               <Text style={styles.guestLabel}>Số lượng khách:</Text>
               <Text style={styles.guestValue}>{menuCount}</Text>
@@ -405,7 +469,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
             <View style={styles.row}>
               <View style={[styles.rowItem, { marginRight: 6 }]}>
-                <Text style={styles.fieldLabel}>Start time</Text>
+                <Text style={styles.fieldLabel}>Giờ bắt đầu</Text>
                 <TouchableOpacity
                   style={[styles.input, styles.selectInput]}
                   onPress={() => openPicker('start')}
@@ -415,7 +479,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
               <View style={[styles.rowItem, { marginLeft: 6 }]}>
-                <Text style={styles.fieldLabel}>End time</Text>
+                <Text style={styles.fieldLabel}>Giờ kết thúc</Text>
                 <TouchableOpacity
                   style={[styles.input, styles.selectInput]}
                   onPress={() => openPicker('end')}
@@ -442,18 +506,18 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
             <View style={styles.row}>
               <View style={[styles.rowItem, { marginRight: 6 }]}>
-                <Text style={styles.fieldLabel}>Thành phố</Text>
+                <Text style={styles.fieldLabel}>Tỉnh/Thành phố</Text>
                 <TouchableOpacity
                   style={[styles.input, styles.selectInput]}
                   onPress={openSelectCity}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.selectText}>{selectedCity?.fullName || 'Chọn thành phố'}</Text>
+                  <Text style={styles.selectText}>{selectedCity?.fullName || 'Chọn tỉnh/thành phố'}</Text>
                   <Ionicons name="chevron-down" size={18} color={TEXT_SECONDARY} />
                 </TouchableOpacity>
               </View>
               <View style={[styles.rowItem, { marginLeft: 6 }]}>
-                <Text style={styles.fieldLabel}>Quận/Phường</Text>
+                <Text style={styles.fieldLabel}>Phường/Xã</Text>
                 <TouchableOpacity
                   style={[styles.input, styles.selectInput]}
                   onPress={openSelectWard}
@@ -461,7 +525,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                   disabled={!selectedCity}
                 >
                   <Text style={styles.selectText}>
-                    {selectedWard?.name || 'Chọn quận/phường'}
+                    {selectedWard?.name || 'Chọn phường/xã'}
                   </Text>
                   <Ionicons name="chevron-down" size={18} color={TEXT_SECONDARY} />
                 </TouchableOpacity>
@@ -496,6 +560,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 city: selectedCity?.fullName || '',
                 ward: selectedWard?.name || '',
                 menuCount,
+                partyCategoryId: partyCategoryId != null ? Number(partyCategoryId) : null,
               });
             }}
           >
@@ -688,6 +753,84 @@ export default function OrderConfirmationScreen({ navigation, route }) {
             </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        visible={partyCategoryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPartyCategoryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Chọn loại tiệc</Text>
+              <TouchableOpacity
+                onPress={() => setPartyCategoryModalVisible(false)}
+                style={styles.modalClose}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingPartyCategories ? (
+              <Text style={styles.partyCategoryHint}>Đang tải loại tiệc...</Text>
+            ) : partyCategories.length === 0 ? (
+              <Text style={styles.partyCategoryHint}>Không có loại tiệc khả dụng.</Text>
+            ) : (
+              <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+                {partyCategories.map((item) => {
+                  const id = Number(item?.partyCategoryId);
+                  const isSelected = Number(partyCategoryId) === id;
+                  const imageUri = resolveCategoryImageUri(item?.imageUrl);
+                  const imageError = partyCategoryImageErrorMap[id] === true;
+                  return (
+                    <TouchableOpacity
+                      key={String(id)}
+                      style={[styles.partyCategoryRow, isSelected && styles.optionRowActive]}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        setPartyCategoryId(id);
+                        setPartyCategoryModalVisible(false);
+                      }}
+                    >
+                      <View style={styles.partyCategoryImageWrap}>
+                        {imageUri && !imageError ? (
+                          <Image
+                            source={{ uri: imageUri }}
+                            style={styles.partyCategoryImage}
+                            contentFit="cover"
+                            onError={() =>
+                              setPartyCategoryImageErrorMap((prev) => ({ ...prev, [id]: true }))
+                            }
+                          />
+                        ) : (
+                          <View style={[styles.partyCategoryImage, styles.imagePlaceholder]}>
+                            <Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.partyCategoryInfo}>
+                        <Text style={styles.partyCategoryName} numberOfLines={1}>
+                          {item?.partyCategoryName || '—'}
+                        </Text>
+                        <Text style={styles.partyCategoryDesc} numberOfLines={2}>
+                          {item?.description || '—'}
+                        </Text>
+                      </View>
+                      {isSelected ? (
+                        <Ionicons name="checkmark-circle" size={20} color={PRIMARY_COLOR} />
+                      ) : (
+                        <Ionicons name="ellipse-outline" size={20} color={TEXT_SECONDARY} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -987,6 +1130,48 @@ const styles = StyleSheet.create({
   },
   optionTextActive: {
     color: PRIMARY_COLOR,
+  },
+  partyCategoryHint: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    paddingVertical: 12,
+  },
+  partyCategoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    marginBottom: 8,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  partyCategoryImageWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginRight: 10,
+  },
+  partyCategoryImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#ECECEC',
+  },
+  partyCategoryInfo: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  partyCategoryName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  partyCategoryDesc: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
   },
   bottomSafe: {
     position: 'absolute',

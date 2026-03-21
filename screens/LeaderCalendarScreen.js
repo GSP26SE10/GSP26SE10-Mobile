@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   ScrollView,
   PanResponder,
+  useWindowDimensions,
 } from 'react-native';
+import { AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-big-calendar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
@@ -19,23 +22,35 @@ const initialDate = new Date();
 const BASE_YEAR = initialDate.getFullYear();
 const YEAR_RANGE = 10;
 
-const events = [
-  {
-    title: 'Họp nhóm Staff',
-    start: new Date(2026, 0, 20, 8, 30),
-    end: new Date(2026, 0, 20, 9, 30),
-  },
-  {
-    title: 'Tiệc A - Kiểm tra',
-    start: new Date(2026, 0, 20, 10, 0),
-    end: new Date(2026, 0, 20, 12, 0),
-  },
-  {
-    title: 'Tiệc B - Kiểm tra',
-    start: new Date(2026, 0, 20, 14, 0),
-    end: new Date(2026, 0, 20, 16, 0),
-  },
-];
+const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
+
+const CALENDAR_SCREEN_HEADER = 168;
+const BOTTOM_NAV_FLOATING_CLEARANCE = 204;
+const CALENDAR_MIN_HEIGHT = 300;
+
+const toDateSafe = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+function buildEventsFromLeaderOrders(orders) {
+  return (orders || [])
+    .map((order) => {
+      const start = toDateSafe(order?.startTime);
+      const end = toDateSafe(order?.endTime) || start;
+      if (!start) return null;
+      return {
+        title: order?.menuName
+          ? `${order.menuName} (${order?.numberOfGuests ?? 0} khách)`
+          : `Tiệc #${order?.orderDetailId ?? ''}`,
+        start,
+        end,
+        address: order?.address || '—',
+      };
+    })
+    .filter(Boolean);
+}
 
 function getWednesdayOfWeek(date) {
   const d = new Date(date);
@@ -59,7 +74,21 @@ function addMonths(date, months) {
 }
 
 export default function LeaderCalendarScreen({ navigation }) {
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const calendarHeight = Math.max(
+    CALENDAR_MIN_HEIGHT,
+    Math.round(
+      windowHeight -
+        insets.top -
+        CALENDAR_SCREEN_HEADER -
+        BOTTOM_NAV_FLOATING_CLEARANCE
+    )
+  );
+
   const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [events, setEvents] = useState([]);
+  const cacheDigestRef = useRef('');
 
   useEffect(() => {
     (async () => {
@@ -116,6 +145,39 @@ export default function LeaderCalendarScreen({ navigation }) {
     return `${startStr} - ${endStr}`;
   };
 
+  const loadCalendarEventsFromCache = useCallback(async () => {
+    try {
+      const rawValue = await AsyncStorage.getItem(LEADER_OVERVIEW_CACHE_KEY);
+      const raw = rawValue || '';
+      const digest = `${raw.length}:${raw.slice(0, 120)}`;
+      if (digest === cacheDigestRef.current) return;
+      cacheDigestRef.current = digest;
+      const orders = JSON.parse(raw || '{}')?.data?.orders || [];
+      setEvents(buildEventsFromLeaderOrders(orders));
+    } catch (_) {
+      setEvents([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCalendarEventsFromCache();
+  }, [loadCalendarEventsFromCache]);
+
+  useEffect(() => {
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        loadCalendarEventsFromCache();
+      }
+    });
+    const interval = setInterval(() => {
+      loadCalendarEventsFromCache();
+    }, 2500);
+    return () => {
+      appStateSub?.remove?.();
+      clearInterval(interval);
+    };
+  }, [loadCalendarEventsFromCache]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
@@ -157,7 +219,10 @@ export default function LeaderCalendarScreen({ navigation }) {
           locale="vi"
           date={currentDate}
           events={events}
-          height={600}
+          height={calendarHeight}
+          hourRowHeight={28}
+          minHour={0}
+          maxHour={23}
           mode="week"
           weekStartsOn={1}
           swipeEnabled={true}
@@ -275,13 +340,25 @@ export default function LeaderCalendarScreen({ navigation }) {
         onRequestClose={() => setEventModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.eventModalContent}>
-            <Text style={styles.modalTitle}>
-              {selectedEvent ? selectedEvent.title : ''}
-            </Text>
-            <Text style={styles.eventTimeText}>
-              {selectedEvent ? formatEventTimeRange(selectedEvent) : ''}
-            </Text>
+          <View style={styles.eventModalCard}>
+            <View style={styles.eventModalHeader}>
+              <Ionicons name="calendar-outline" size={18} color={PRIMARY_COLOR} />
+              <Text style={styles.eventModalTitle}>
+                {selectedEvent ? selectedEvent.title : 'Tiệc'}
+              </Text>
+            </View>
+            <View style={styles.eventInfoRow}>
+              <Ionicons name="time-outline" size={16} color={TEXT_PRIMARY} />
+              <Text style={styles.eventInfoText}>
+                {selectedEvent ? formatEventTimeRange(selectedEvent) : ''}
+              </Text>
+            </View>
+            <View style={styles.eventInfoRow}>
+              <Ionicons name="location-outline" size={16} color={TEXT_PRIMARY} />
+              <Text style={styles.eventInfoText} numberOfLines={3}>
+                {selectedEvent?.address || '—'}
+              </Text>
+            </View>
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setEventModalVisible(false)}
@@ -389,27 +466,45 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   closeButton: {
-    marginTop: 12,
-    alignSelf: 'flex-end',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    marginTop: 4,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
   },
   closeButtonText: {
     fontSize: 14,
     color: TEXT_PRIMARY,
     fontWeight: '500',
   },
-  eventModalContent: {
-    width: '80%',
+  eventModalCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 16,
+    padding: 16,
+    width: '84%',
   },
-  eventTimeText: {
-    marginTop: 8,
-    fontSize: 15,
+  eventModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  eventModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
     color: TEXT_PRIMARY,
+    marginLeft: 8,
+    flex: 1,
+  },
+  eventInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  eventInfoText: {
+    fontSize: 14,
+    color: TEXT_PRIMARY,
+    marginLeft: 8,
+    flex: 1,
   },
   calendarContainer: {
     flex: 1,

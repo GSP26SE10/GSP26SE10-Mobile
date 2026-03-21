@@ -1,0 +1,26 @@
+diff --git a/node_modules/react-native-big-calendar/build/index.es.js b/node_modules/react-native-big-calendar/build/index.es.js
+index 2603469..8ec16bf 100644
+--- a/node_modules/react-native-big-calendar/build/index.es.js
++++ b/node_modules/react-native-big-calendar/build/index.es.js
+@@ -892,7 +892,7 @@ function _CalendarBody(_a) {
+                     height: containerHeight - cellHeight * 3,
+                 },
+                 style,
+-            ], ref: scrollView, scrollEventThrottle: 32 }, (Platform.OS !== 'web' ? panResponder.panHandlers : {}), { showsVerticalScrollIndicator: showVerticalScrollIndicator, scrollEnabled: scrollEnabled, nestedScrollEnabled: true, contentOffset: Platform.OS === 'ios' ? { x: 0, y: scrollOffsetMinutes } : { x: 0, y: 0 } }),
++            ], ref: scrollView, scrollEventThrottle: 32 }, (Platform.OS !== 'web' ? panResponder.panHandlers : {}), { showsVerticalScrollIndicator: showVerticalScrollIndicator, scrollEnabled: scrollEnabled, nestedScrollEnabled: true, contentContainerStyle: { paddingBottom: cellHeight * 3 }, contentOffset: Platform.OS === 'ios' ? { x: 0, y: scrollOffsetMinutes } : { x: 0, y: 0 } }),
+             React.createElement(View, __assign({ style: [u['flex-1'], theme.isRTL ? u['flex-row-reverse'] : u['flex-row']] }, (Platform.OS === 'web' ? panResponder.panHandlers : {})),
+                 (!hideHours || showWeekNumber) && (React.createElement(View, { style: [u['z-20'], u['w-50']] }, hours.map(function (hour) { return (React.createElement(HourGuideColumn, { key: hour, cellHeight: cellHeight, hour: hour, ampm: ampm, hourStyle: hourStyle, calendarCellAccessibilityProps: calendarCellAccessibilityProps, hourComponent: hourComponent })); }))),
+                 dateRange.map(function (date) { return (React.createElement(View, { style: [u['flex-1'], u['overflow-hidden']], key: date.toString() },
+diff --git a/node_modules/react-native-big-calendar/build/index.js b/node_modules/react-native-big-calendar/build/index.js
+index e0d4343..bdf4223 100644
+--- a/node_modules/react-native-big-calendar/build/index.js
++++ b/node_modules/react-native-big-calendar/build/index.js
+@@ -923,7 +923,7 @@ function _CalendarBody(_a) {
+                     height: containerHeight - cellHeight * 3,
+                 },
+                 style,
+-            ], ref: scrollView, scrollEventThrottle: 32 }, (reactNative.Platform.OS !== 'web' ? panResponder.panHandlers : {}), { showsVerticalScrollIndicator: showVerticalScrollIndicator, scrollEnabled: scrollEnabled, nestedScrollEnabled: true, contentOffset: reactNative.Platform.OS === 'ios' ? { x: 0, y: scrollOffsetMinutes } : { x: 0, y: 0 } }),
++            ], ref: scrollView, scrollEventThrottle: 32 }, (reactNative.Platform.OS !== 'web' ? panResponder.panHandlers : {}), { showsVerticalScrollIndicator: showVerticalScrollIndicator, scrollEnabled: scrollEnabled, nestedScrollEnabled: true, contentContainerStyle: { paddingBottom: cellHeight * 3 }, contentOffset: reactNative.Platform.OS === 'ios' ? { x: 0, y: scrollOffsetMinutes } : { x: 0, y: 0 } }),
+             React__namespace.createElement(reactNative.View, tslib.__assign({ style: [u['flex-1'], theme.isRTL ? u['flex-row-reverse'] : u['flex-row']] }, (reactNative.Platform.OS === 'web' ? panResponder.panHandlers : {})),
+                 (!hideHours || showWeekNumber) && (React__namespace.createElement(reactNative.View, { style: [u['z-20'], u['w-50']] }, hours.map(function (hour) { return (React__namespace.createElement(HourGuideColumn, { key: hour, cellHeight: cellHeight, hour: hour, ampm: ampm, hourStyle: hourStyle, calendarCellAccessibilityProps: calendarCellAccessibilityProps, hourComponent: hourComponent })); }))),
+                 dateRange.map(function (date) { return (React__namespace.createElement(reactNative.View, { style: [u['flex-1'], u['overflow-hidden']], key: date.toString() },

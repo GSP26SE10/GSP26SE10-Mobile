@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { getAccessToken } from '../utils/auth';
+import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
 import API_URL from '../constants/api';
 import {
   TEXT_PRIMARY,
@@ -62,6 +63,12 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return null;
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
+
 const mockPartyDetail = {
   id: 0,
   image: null,
@@ -91,10 +98,10 @@ function buildPartyDetailFromOrderDetail(od) {
       case 2:
       case 4:
         return 'Đang chuẩn bị';
-      // Đang diễn ra (5,6)
+      // Đang diễn ra (5,6 — 6 chờ thanh toán nốt)
       case 5:
-        return 'Đang diễn ra';
       case 6:
+        return 'Đang diễn ra';
       case 7:
         return 'Kết thúc tiệc';
       // Bị hủy
@@ -108,7 +115,7 @@ function buildPartyDetailFromOrderDetail(od) {
 
   return {
     id: od.orderDetailId,
-    image: null,
+    image: resolveImageUri(od.menuImage),
     name: od.menuName || '—',
     dishes: '—',
     guests: `${od.numberOfGuests ?? 0} người`,
@@ -472,23 +479,30 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
     const currentIndex = steps.indexOf(partyDetail.status);
+    const dotStepIndex = getOrderStatusProgressStepIndex(
+      orderDetail?.status ?? orderDetail?.orderStatus
+    );
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive =
+          const isLabelActive =
             currentIndex >= 0 ? index <= currentIndex : step === partyDetail.status;
+          const isDotActive =
+            dotStepIndex != null
+              ? index <= dotStepIndex
+              : isLabelActive;
           return (
             <View key={step} style={styles.statusStep}>
               <View
                 style={[
                   styles.statusDot,
-                  isActive && styles.statusDotActive,
+                  isDotActive && styles.statusDotActive,
                 ]}
               />
               <Text
                 style={[
                   styles.statusLabel,
-                  isActive && styles.statusLabelActive,
+                  isLabelActive && styles.statusLabelActive,
                 ]}
               >
                 {step}

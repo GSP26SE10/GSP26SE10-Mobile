@@ -38,6 +38,7 @@ import {
 import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
@@ -139,12 +140,11 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         id: orderFromParams.orderDetailId,
         image: orderFromParams.menuImage || null,
         name: orderFromParams.menuName || '—',
-        dishes: orderFromParams.partyCategory || '—',
         guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
         timeRange: formatTimeRangeFromOrder(orderFromParams),
         address: orderFromParams.address || '—',
-        contactName: '—',
-        phone: '',
+        contactName: orderFromParams.customerName || '—',
+        phone: orderFromParams.customerPhone || '',
         status: route?.params?.status && typeof route.params.status === 'string' ? route.params.status : '—',
         subtotal: formatVnd(orderFromParams.totalPrice),
         vat: '—',
@@ -158,6 +158,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       case 4:
         return 'Đang chuẩn bị';
       case 5:
+      case 6:
         return 'Đang diễn ra';
       case 7:
         return 'Kết thúc tiệc';
@@ -169,7 +170,9 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const initialStatus =
     route?.params?.status && typeof route.params.status === 'string'
       ? route.params.status
-      : mapOrderStatusToPartyStatus(orderFromParams?.orderStatus) ||
+      : mapOrderStatusToPartyStatus(
+          orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus
+        ) ||
         (partyDetail.status !== '—' ? partyDetail.status : 'Đang chuẩn bị');
   const [partyStatus, setPartyStatus] = useState(initialStatus);
   const [activeTab, setActiveTab] = useState('overview');
@@ -206,24 +209,35 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [compImages, setCompImages] = useState([]); // [{ uri, type, name }]
   const [submittingComp, setSubmittingComp] = useState(false);
   const [totalCompAmount, setTotalCompAmount] = useState(() => Number(orderFromParams?.extraChargeCost ?? 0) || 0);
-  const [paymentMethod, setPaymentMethod] = useState('zalopay');
+  const [paymentMethod, setPaymentMethod] = useState(null);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
   const [paymentSuccessVisible, setPaymentSuccessVisible] = useState(false);
-  const [isBilling, setIsBilling] = useState(() => Number(orderFromParams?.orderStatus) === 6);
+  const [changingToBilling, setChangingToBilling] = useState(false);
+  const [isBilling, setIsBilling] = useState(
+    () =>
+      Number(
+        orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus
+      ) === 6
+  );
   const paymentPollRef = useRef(null);
   const successHandledRef = useRef(false);
   const paymentAwaitingConfirmationRef = useRef(false);
   const queryClient = useQueryClient();
 
   const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id ?? null;
-  // Backend payment endpoints expect `orderId` (in this app it's typically `orderDetailId`)
-  const orderId =
+  /** Theo API overview: orderStatus / orderDetailStatus — billing = 6 */
+  const [orderStatusNum, setOrderStatusNum] = useState(() =>
+    Number(orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus ?? 0)
+  );
+  const isOrderBilling = orderStatusNum === 6;
+  /**
+   * create-full-qr / create-full-cash / poll payment: path & query dùng OrderId (đơn cha).
+   * Không fallback orderDetailId — backend sẽ trả "order not found".
+   */
+  const paymentOrderId =
     orderFromParams?.orderId ??
-    orderFromParams?.orderDetailId ??
-    orderFromParams?.id ??
     route?.params?.orderId ??
-    route?.params?.orderDetailId ??
     null;
   const endTimeIso = orderFromParams?.endTime ?? null;
 
@@ -250,12 +264,23 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   }, [endTimeIso, isBilling]);
 
   useEffect(() => {
-    // Respect backend status if already BILLING.
-    if (Number(orderFromParams?.orderStatus) === 6) {
-      setIsBilling(true);
+    const nextStatus = Number(
+      orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus ?? 0
+    );
+    setOrderStatusNum(nextStatus);
+    setIsBilling(nextStatus === 6);
+    if (nextStatus === 6) {
       setPartyStatus('Kết thúc tiệc');
     }
-  }, [orderFromParams?.orderStatus]);
+  }, [
+    orderFromParams?.orderStatus,
+    orderFromParams?.orderDetailStatus,
+    orderFromParams?.orderDetailId,
+  ]);
+
+  useEffect(() => {
+    setPaymentMethod(null);
+  }, [orderFromParams?.orderDetailId]);
 
   const stopPaymentPolling = () => {
     if (paymentPollRef.current) {
@@ -265,7 +290,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const startPaymentPolling = async () => {
-    if (!orderId) return;
+    if (!paymentOrderId) return;
     stopPaymentPolling();
     const token = await getAccessToken();
     const headers = {
@@ -275,7 +300,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     const poll = async () => {
       try {
         const res = await fetch(
-          `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=10`,
+          `${API_URL}/api/payment?OrderId=${paymentOrderId}&page=1&pageSize=10`,
           { headers },
         );
         const json = await res.json().catch(() => null);
@@ -302,13 +327,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   useEffect(() => {
     // Không tự poll ngay khi vào màn BILLING:
     // chỉ poll khi người dùng đã bấm tạo QR (createFullQr).
-    if (!isBilling) {
+    if (!isOrderBilling) {
       paymentAwaitingConfirmationRef.current = false;
       successHandledRef.current = false;
       stopPaymentPolling();
     }
     return () => {};
-  }, [isBilling, orderId]);
+  }, [isOrderBilling, paymentOrderId]);
 
   useEffect(() => {
     (async () => {
@@ -474,20 +499,25 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
     const currentIndex = steps.indexOf(partyStatus);
+    const dotStepIndex = getOrderStatusProgressStepIndex(orderStatusNum);
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
-          const isActive =
+          const isLabelActive =
             currentIndex >= 0 ? index <= currentIndex : step === partyStatus;
+          const isDotActive =
+            dotStepIndex != null
+              ? index <= dotStepIndex
+              : isLabelActive;
           return (
             <View key={step} style={styles.statusStep}>
               <View
-                style={[styles.statusDot, isActive && styles.statusDotActive]}
+                style={[styles.statusDot, isDotActive && styles.statusDotActive]}
               />
               <Text
                 style={[
                   styles.statusLabel,
-                  isActive && styles.statusLabelActive,
+                  isLabelActive && styles.statusLabelActive,
                 ]}
               >
                 {step}
@@ -647,6 +677,9 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
   const formatMoney = (value) =>
     `${value.toLocaleString('vi-VN')}₫`;
+  const remainingWithExtraCharge = formatMoney(
+    (Number(orderFromParams?.remainingAmount ?? 0) || 0) + totalCompAmount
+  );
 
   const openCompModal = () => {
     setCompModalVisible(true);
@@ -774,14 +807,35 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     }
   };
 
-  const handleFinishParty = () => {
-    // Trên màn hình "đang diễn ra" người dùng chọn phương thức thanh toán và bấm kết thúc tiệc,
-    // logic gọi API sẽ nằm ở nút "Xác nhận" bên dưới.
+  const handleMoveToBilling = async () => {
+    if (!orderDetailId || changingToBilling) return;
+    try {
+      setChangingToBilling(true);
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail/end-early/${orderDetailId}`, {
+        method: 'PUT',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || 'Không thể chuyển trạng thái sang chờ thanh toán.');
+      }
+      setOrderStatusNum(6);
+      setIsBilling(true);
+      setPaymentMethod(null);
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể chuyển sang trạng thái thanh toán.');
+    } finally {
+      setChangingToBilling(false);
+    }
   };
 
   const createFullQr = async () => {
-    if (!orderId) {
-      Alert.alert('Lỗi', 'Thiếu OrderId.');
+    if (!paymentOrderId) {
+      Alert.alert(
+        'Lỗi',
+        'Thiếu orderId đơn hàng (không phải orderDetailId). Vui lòng làm mới danh sách từ trang chủ.',
+      );
       return;
     }
     try {
@@ -789,7 +843,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       successHandledRef.current = false;
       setPaymentSuccessVisible(false);
       const token = await getAccessToken();
-      const url = `${API_URL}/api/payment/create-full-qr/${orderId}`;
+      const url = `${API_URL}/api/payment/create-full-qr/${paymentOrderId}`;
       const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
       const res = await fetch(url, { method: 'POST', headers });
       const text = await res.text();
@@ -811,14 +865,17 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const createFullCash = async () => {
-    if (!orderId) {
-      Alert.alert('Lỗi', 'Thiếu OrderId.');
+    if (!paymentOrderId) {
+      Alert.alert(
+        'Lỗi',
+        'Thiếu orderId đơn hàng (không phải orderDetailId). Vui lòng làm mới danh sách từ trang chủ.',
+      );
       return;
     }
     try {
       paymentAwaitingConfirmationRef.current = false;
       const token = await getAccessToken();
-      const res = await fetch(`${API_URL}/api/payment/create-full-cash/${orderId}`, {
+      const res = await fetch(`${API_URL}/api/payment/create-full-cash/${paymentOrderId}`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -875,7 +932,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           <View style={styles.partyCardLeft}>
             <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-              {partyDetail.dishes} · {partyDetail.guests}
+              {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>
@@ -903,17 +960,27 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                 Số điện thoại: {partyDetail.phone}
               </Text>
             ) : null}
-            {partyDetail.status === '—' ? (
-              <Text style={styles.partyStatusPlaceholder}>Trạng thái: —</Text>
-            ) : null}
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
 
         {renderStatusSteps()}
 
+        {orderStatusNum === 5 && (
+          <TouchableOpacity
+            style={[styles.finishButton, changingToBilling && { opacity: 0.7 }]}
+            activeOpacity={0.85}
+            onPress={handleMoveToBilling}
+            disabled={changingToBilling}
+          >
+            <Text style={styles.finishButtonText}>
+              {changingToBilling ? 'Đang chuyển...' : 'Thanh toán cho khách hàng'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.summarySection}>
-          {partyStatus === 'Đang diễn ra' && (
+          {isOrderBilling && (
             <View style={styles.compHeaderRow}>
               <Text style={styles.compTitle}>+ Thêm chi phí hư hại / đền bù:</Text>
               <TouchableOpacity
@@ -951,27 +1018,42 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               Còn lại
             </Text>
             <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-              {partyDetail.remaining}
+              {remainingWithExtraCharge}
             </Text>
           </View>
         </View>
 
-        {(partyStatus === 'Đang diễn ra' || isBilling) && (
+        {isOrderBilling && (
           <>
             <View style={styles.paymentSection}>
-              <Text style={styles.paymentTitle}>
-                {isBilling ? 'Thanh toán' : 'Chọn phương thức thanh toán'}
-              </Text>
+              <Text style={styles.paymentTitle}>Thanh toán</Text>
               {[
                 { key: 'bank', label: 'Chuyển khoản ngân hàng' },
                 { key: 'cash', label: 'Tiền mặt' },
               ].map((method) => (
                 <TouchableOpacity
                   key={method.key}
-                  style={styles.paymentRow}
+                  style={[
+                    styles.paymentMethodCard,
+                    paymentMethod === method.key && styles.paymentMethodCardActive,
+                  ]}
                   activeOpacity={0.7}
                   onPress={() => setPaymentMethod(method.key)}
                 >
+                  <View style={styles.paymentMethodLeft}>
+                    <View style={styles.paymentMethodIconWrap}>
+                      {method.key === 'bank' ? (
+                        <Image
+                          source={require('../assets/logo-vietqr.webp')}
+                          style={styles.paymentMethodLogo}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Ionicons name="cash-outline" size={20} color={PRIMARY_COLOR} />
+                      )}
+                    </View>
+                    <Text style={styles.paymentLabel}>{method.label}</Text>
+                  </View>
                   <Ionicons
                     name={
                       paymentMethod === method.key
@@ -981,27 +1063,26 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     size={18}
                     color={PRIMARY_COLOR}
                   />
-                  <Text style={styles.paymentLabel}>{method.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <TouchableOpacity
-              style={styles.finishButton}
-              activeOpacity={0.85}
-              onPress={() => {
-                if (paymentMethod === 'cash') createFullCash();
-                else createFullQr();
-              }}
-            >
-              <Text style={styles.finishButtonText}>
-                {partyStatus === 'Đang diễn ra' && !isBilling
-                  ? 'Kết thúc tiệc'
-                  : paymentMethod === 'cash'
+            {(paymentMethod === 'cash' || paymentMethod === 'bank') && (
+              <TouchableOpacity
+                style={styles.finishButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (paymentMethod === 'cash') createFullCash();
+                  else createFullQr();
+                }}
+              >
+                <Text style={styles.finishButtonText}>
+                  {paymentMethod === 'cash'
                     ? 'Xác nhận tiền mặt'
                     : 'Tạo QR thanh toán'}
-              </Text>
-            </TouchableOpacity>
+                </Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </ScrollView>
@@ -1749,12 +1830,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  partyStatusPlaceholder: {
-    fontSize: 12,
-    color: TEXT_SECONDARY,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
   assigneeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2289,14 +2364,44 @@ const styles = StyleSheet.create({
     color: TEXT_PRIMARY,
     marginBottom: 12,
   },
-  paymentRow: {
+  paymentMethodCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 14,
+    backgroundColor: BACKGROUND_WHITE,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  paymentMethodCardActive: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: 'rgba(232, 113, 46, 0.08)',
+  },
+  paymentMethodLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  paymentMethodIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  paymentMethodLogo: {
+    width: 24,
+    height: 24,
   },
   paymentLabel: {
-    marginLeft: 8,
     fontSize: 14,
+    fontWeight: '600',
     color: TEXT_PRIMARY,
   },
   finishButton: {

@@ -298,7 +298,12 @@ export default function OrderDetail({ navigation, route }) {
     }
   };
 
-  const partyStatusLabel = mapOrderStatusToPartyStatus(order?.status);
+  const getOrderDetailStatusLabel = (od) => {
+    const statusNum = Number(
+      od?.status ?? od?.orderStatus ?? od?.orderDetailStatus ?? order?.status ?? 0
+    );
+    return mapOrderStatusToPartyStatus(statusNum);
+  };
 
   const getDetailImageUri = (detail) => {
     const imgUrl = detail?.menuSnapshot?.imgUrl;
@@ -654,6 +659,12 @@ export default function OrderDetail({ navigation, route }) {
                         <Text style={styles.detailMetaText}>{od.numberOfGuests ?? 0} khách</Text>
                       </View>
                       <View style={styles.detailMetaRow}>
+                        <Ionicons name="ribbon-outline" size={16} color={TEXT_SECONDARY} style={styles.detailMetaIcon} />
+                        <Text style={styles.detailMetaText}>
+                          {od.partyCategoryName ?? od.partyCategory ?? '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.detailMetaRow}>
                         <Ionicons name="time-outline" size={16} color={TEXT_SECONDARY} style={styles.detailMetaIcon} />
                         <Text style={styles.detailMetaText}>{formatTime(od.startTime)} {formatDate(od.startTime)}</Text>
                       </View>
@@ -709,37 +720,40 @@ export default function OrderDetail({ navigation, route }) {
                     <Text style={styles.noteText}>{od.noteOrderDetail}</Text>
                   </View>
                 ) : null}
+                {(() => {
+                  const detailStatusLabel = getOrderDetailStatusLabel(od);
+                  if (!detailStatusLabel) return null;
+                  return (
+                    <View style={styles.statusSteps}>
+                      {['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
+                        const currentIndex = ['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
+                          detailStatusLabel,
+                        );
+                        const isActive =
+                          currentIndex >= 0 ? index <= currentIndex : step === detailStatusLabel;
+                        return (
+                          <View key={`${od.orderDetailId ?? idx}-${step}`} style={styles.statusStep}>
+                            <View
+                              style={[styles.statusDot, isActive && styles.statusDotActive]}
+                            />
+                            <Text
+                              style={[
+                                styles.statusLabel,
+                                isActive && styles.statusLabelActive,
+                              ]}
+                            >
+                              {step}
+                            </Text>
+                            {index < arr.length - 1 && <View style={styles.statusLine} />}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
               </View>
             );
           })}
-
-        {!loading && partyStatusLabel && (
-          <View style={styles.statusSteps}>
-            {['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
-              const currentIndex = ['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
-                partyStatusLabel,
-              );
-              const isActive =
-                currentIndex >= 0 ? index <= currentIndex : step === partyStatusLabel;
-              return (
-                <View key={step} style={styles.statusStep}>
-                  <View
-                    style={[styles.statusDot, isActive && styles.statusDotActive]}
-                  />
-                  <Text
-                    style={[
-                      styles.statusLabel,
-                      isActive && styles.statusLabelActive,
-                    ]}
-                  >
-                    {step}
-                  </Text>
-                  {index < arr.length - 1 && <View style={styles.statusLine} />}
-                </View>
-              );
-            })}
-          </View>
-        )}
 
         {/* Payment info */}
         <View style={styles.section}>

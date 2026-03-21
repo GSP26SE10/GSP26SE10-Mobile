@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
@@ -25,6 +26,12 @@ import {
 const STAFF_TASKS_HISTORY_CACHE_KEY = 'staffTasksHistoryCache';
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 phút
 const PAGE_SIZE = 10;
+
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return '';
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
 
 const formatTimeRange = (startIso, endIso) => {
   if (!startIso) return '—';
@@ -242,15 +249,26 @@ export default function StaffOrderHistoryScreen({ navigation }) {
   const renderOrderCard = useCallback(
     ({ item }) => {
       const od = item.orderDetail || {};
+      const menuImageUri = resolveImageUri(od.menuImage);
       return (
         <TouchableOpacity
           style={styles.partyCard}
           activeOpacity={0.8}
           onPress={() => onPressOrder(item)}
         >
-          <View style={styles.partyImagePlaceholder}>
-            <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
-          </View>
+          {menuImageUri ? (
+            <Image
+              source={{ uri: menuImageUri }}
+              style={styles.partyImage}
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={120}
+            />
+          ) : (
+            <View style={styles.partyImagePlaceholder}>
+              <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
+            </View>
+          )}
           <View style={styles.partyInfo}>
             <Text style={styles.partyName}>{od.menuName || '—'}</Text>
             <Text style={styles.partyMeta}>
@@ -382,6 +400,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 10,
     marginTop: 12,
+  },
+  partyImage: {
+    width: 90,
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#E0E0E0',
   },
   partyImagePlaceholder: {
     width: 90,
