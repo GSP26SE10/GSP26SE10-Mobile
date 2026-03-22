@@ -175,7 +175,7 @@ export default function App() {
       case "StaffHome":
         return <StaffHomeScreen navigation={navigation} />;
       case "StaffNotification":
-        return <StaffNotificationScreen navigation={navigation} />;
+        return <StaffNotificationScreen navigation={navigation} route={{ params: screenParams }} />;
       case "StaffOrderHistory":
         return <StaffOrderHistoryScreen navigation={navigation} />;
       case "StaffCalendar":
@@ -185,7 +185,7 @@ export default function App() {
       case "LeaderHome":
         return <LeaderHomeScreen navigation={navigation} />;
       case "LeaderNotification":
-        return <LeaderNotificationScreen navigation={navigation} />;
+        return <LeaderNotificationScreen navigation={navigation} route={{ params: screenParams }} />;
       case "LeaderOrderHistory":
         return <LeaderOrderHistoryScreen navigation={navigation} />;
       case "LeaderCalendar":

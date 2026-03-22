@@ -28,44 +28,44 @@ export function isChatPushNotificationData(data) {
 }
 
 /**
- * Chỉ khách hàng (USER) xử lý tap → Chat. STAFF / GROUP_LEADER không có chat trên app.
+ * Tap push → mở đúng màn theo role.
+ * - STAFF → StaffNotification
+ * - GROUP_LEADER → LeaderNotification
+ * - USER (khách): chỉ khi payload coi là chat → Chat
  */
-export async function isCustomerUserForChatPushAsync() {
+async function openScreenFromPushNotificationAsync(getNavigation, data) {
   try {
     const token = await AsyncStorage.getItem('accessToken');
-    if (!token) return false;
+    if (!token) return;
     const raw = await AsyncStorage.getItem('userData');
-    if (!raw) return false;
+    if (!raw) return;
     const user = JSON.parse(raw);
     const role = String(user?.roleName ?? 'USER').trim();
-    if (role === 'STAFF' || role === 'GROUP_LEADER') return false;
-    return true;
-  } catch {
-    return false;
-  }
+    const nav = typeof getNavigation === 'function' ? getNavigation() : null;
+    if (!nav?.navigate) return;
+
+    if (role === 'STAFF') {
+      nav.navigate('StaffNotification', { fromPushNotification: true });
+      return;
+    }
+    if (role === 'GROUP_LEADER') {
+      nav.navigate('LeaderNotification', { fromPushNotification: true });
+      return;
+    }
+    if (!isChatPushNotificationData(data)) return;
+    nav.navigate('Chat', { fromPushNotification: true });
+  } catch (_) {}
 }
 
 /**
- * Tap notification → mở Chat (chỉ USER đã đăng nhập; không inject nội dung — ChatScreen tải từ API).
  * @param {() => { navigate: (name: string, params?: object) => void }} getNavigation
  * @returns {{ remove: () => void, flushInitialResponse: () => Promise<void> }}
  */
 export function attachChatNotificationNavigation(getNavigation) {
-  const openChatFromNotification = async () => {
-    try {
-      if (!(await isCustomerUserForChatPushAsync())) return;
-      const nav = typeof getNavigation === 'function' ? getNavigation() : null;
-      if (nav?.navigate) {
-        nav.navigate('Chat', { fromPushNotification: true });
-      }
-    } catch (_) {}
-  };
-
   const onResponse = (response) => {
     try {
       const data = response?.notification?.request?.content?.data ?? {};
-      if (!isChatPushNotificationData(data)) return;
-      void openChatFromNotification();
+      void openScreenFromPushNotificationAsync(getNavigation, data);
     } catch (_) {}
   };
 
@@ -76,8 +76,7 @@ export function attachChatNotificationNavigation(getNavigation) {
       const last = await Notifications.getLastNotificationResponseAsync();
       if (!last?.notification) return;
       const data = last.notification.request?.content?.data ?? {};
-      if (!isChatPushNotificationData(data)) return;
-      await openChatFromNotification();
+      await openScreenFromPushNotificationAsync(getNavigation, data);
     } catch (_) {}
   };
 
