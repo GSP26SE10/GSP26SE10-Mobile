@@ -4,14 +4,92 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import API_URL from '../constants/api';
 
-// Hiển thị thông báo cả khi app đang mở (foreground)
+// Hiển thị thông báo cả khi app đang mở (foreground). Không lưu nội dung push vào app — chỉ OS hiển thị một lần.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
 });
+
+/** Tạm thời chỉ dùng push cho chat; backend có thể gửi data.type / data.screen / data.channel */
+export function isChatPushNotificationData(data) {
+  if (!data || typeof data !== 'object') return true;
+  const t = String(data.type ?? data.Type ?? '').toLowerCase();
+  const screen = String(data.screen ?? data.Screen ?? '').toLowerCase();
+  const channel = String(data.channel ?? data.Channel ?? '').toLowerCase();
+  if (t === 'chat' || t === 'message' || screen === 'chat' || channel === 'chat' || channel === 'message') {
+    return true;
+  }
+  if (!t && !screen && !channel) return true;
+  return false;
+}
+
+/**
+ * Chỉ khách hàng (USER) xử lý tap → Chat. STAFF / GROUP_LEADER không có chat trên app.
+ */
+export async function isCustomerUserForChatPushAsync() {
+  try {
+    const token = await AsyncStorage.getItem('accessToken');
+    if (!token) return false;
+    const raw = await AsyncStorage.getItem('userData');
+    if (!raw) return false;
+    const user = JSON.parse(raw);
+    const role = String(user?.roleName ?? 'USER').trim();
+    if (role === 'STAFF' || role === 'GROUP_LEADER') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tap notification → mở Chat (chỉ USER đã đăng nhập; không inject nội dung — ChatScreen tải từ API).
+ * @param {() => { navigate: (name: string, params?: object) => void }} getNavigation
+ * @returns {{ remove: () => void, flushInitialResponse: () => Promise<void> }}
+ */
+export function attachChatNotificationNavigation(getNavigation) {
+  const openChatFromNotification = async () => {
+    try {
+      if (!(await isCustomerUserForChatPushAsync())) return;
+      const nav = typeof getNavigation === 'function' ? getNavigation() : null;
+      if (nav?.navigate) {
+        nav.navigate('Chat', { fromPushNotification: true });
+      }
+    } catch (_) {}
+  };
+
+  const onResponse = (response) => {
+    try {
+      const data = response?.notification?.request?.content?.data ?? {};
+      if (!isChatPushNotificationData(data)) return;
+      void openChatFromNotification();
+    } catch (_) {}
+  };
+
+  const sub = Notifications.addNotificationResponseReceivedListener(onResponse);
+
+  const flushInitialResponse = async () => {
+    try {
+      const last = await Notifications.getLastNotificationResponseAsync();
+      if (!last?.notification) return;
+      const data = last.notification.request?.content?.data ?? {};
+      if (!isChatPushNotificationData(data)) return;
+      await openChatFromNotification();
+    } catch (_) {}
+  };
+
+  return {
+    remove: () => {
+      try {
+        sub.remove();
+      } catch (_) {}
+    },
+    flushInitialResponse,
+  };
+}
 
 export const logAccessTokenNow = async () => {
   try {

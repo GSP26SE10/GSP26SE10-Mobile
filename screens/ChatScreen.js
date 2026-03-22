@@ -35,6 +35,10 @@ export default function ChatScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const connectionRef = React.useRef(null);
+  const hubConversationIdRef = React.useRef(null);
+  const conversationIdRef = React.useRef(conversationId);
+  const customerIdRef = React.useRef(customerId);
+
   const toHubConversationId = useCallback((raw) => {
     if (raw == null) return null;
     const str = String(raw).trim();
@@ -45,6 +49,16 @@ export default function ChatScreen({ navigation }) {
     () => toHubConversationId(conversationId),
     [conversationId, toHubConversationId],
   );
+
+  React.useEffect(() => {
+    hubConversationIdRef.current = hubConversationId;
+  }, [hubConversationId]);
+  React.useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+  React.useEffect(() => {
+    customerIdRef.current = customerId;
+  }, [customerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,16 +138,88 @@ export default function ChatScreen({ navigation }) {
   // Connect SignalR and join conversation group
   useEffect(() => {
     let cancelled = false;
+    let retryTimer = null;
+
+    const hubBase = `${String(API_URL).replace(/\/$/, '')}/chatHub`;
+
+    const refreshMessagesFromServer = async () => {
+      const cid = conversationIdRef.current;
+      const uid = customerIdRef.current;
+      if (!cid || !uid) return;
+      try {
+        const res = await fetch(
+          `${API_URL}/api/message?ConversationId=${cid}&page=1&pageSize=30`,
+        );
+        const json = await res.json().catch(() => null);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const mapped = items
+          .map((m) => {
+            const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
+            const hhmm = sentAt
+              ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+              : '';
+            return {
+              id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
+              text: String(m?.content ?? ''),
+              isUser: uid != null ? Number(m?.senderId) === Number(uid) : false,
+              timestamp: hhmm,
+            };
+          })
+          .filter((m) => m.text);
+        if (!cancelled) setMessages(mapped);
+      } catch (_) {}
+    };
+
+    const applyIncomingPayload = (raw) => {
+      try {
+        const payload =
+          raw && typeof raw === 'object' && 'data' in raw ? raw.data : raw;
+        const obj =
+          payload && typeof payload === 'object'
+            ? payload
+            : typeof raw === 'string'
+              ? { content: raw }
+              : {};
+        const senderId = obj?.senderId ?? obj?.fromUserId ?? obj?.userId ?? null;
+        const content = obj?.content ?? obj?.message ?? obj?.text ?? '';
+        if (!String(content).trim()) return;
+        const sentAt = obj?.sentAt ? new Date(obj.sentAt) : new Date();
+        const hhmm = sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        const messageId = obj?.messageId ?? obj?.id ?? `rt-${Date.now()}`;
+        const uid = customerIdRef.current;
+        const isUser =
+          uid != null && senderId != null ? Number(senderId) === Number(uid) : false;
+
+        setMessages((prev) => {
+          if (prev.some((m) => String(m.id) === String(messageId))) return prev;
+          return [
+            ...prev,
+            {
+              id: messageId,
+              text: String(content),
+              isUser,
+              timestamp: hhmm,
+            },
+          ];
+        });
+      } catch (e) {
+        refreshMessagesFromServer();
+      }
+    };
+
     (async () => {
       if (!conversationId || !hubConversationId) return;
       const token = await getAccessToken();
       if (!token) return;
 
-      // reuse connection if already built
       if (!connectionRef.current) {
         const conn = new signalR.HubConnectionBuilder()
-          .withUrl(`${API_URL}/chatHub`, {
-            accessTokenFactory: () => token,
+          .withUrl(hubBase, {
+            // Bắt buộc gọi lại storage mỗi lần negotiate / reconnect (tránh JWT hết hạn & tránh closure cũ)
+            accessTokenFactory: () => getAccessToken().then((t) => t ?? ''),
+            transport:
+              signalR.HttpTransportType.WebSockets |
+              signalR.HttpTransportType.LongPolling,
           })
           .withAutomaticReconnect()
           .build();
@@ -141,39 +227,17 @@ export default function ChatScreen({ navigation }) {
         conn.onreconnecting(() => {
           if (!cancelled) setConnected(false);
         });
-        const refreshMessagesFromServer = async () => {
-          if (!conversationId || !customerId) return;
-          try {
-            const res = await fetch(
-              `${API_URL}/api/message?ConversationId=${conversationId}&page=1&pageSize=30`,
-            );
-            const json = await res.json().catch(() => null);
-            const items = Array.isArray(json?.items) ? json.items : [];
-            const mapped = items
-              .map((m) => {
-                const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
-                const hhmm = sentAt
-                  ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-                  : '';
-                return {
-                  id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
-                  text: String(m?.content ?? ''),
-                  isUser: customerId != null ? Number(m?.senderId) === Number(customerId) : false,
-                  timestamp: hhmm,
-                };
-              })
-              .filter((m) => m.text);
-            setMessages(mapped);
-          } catch (_) {}
-        };
 
         conn.onreconnected(async () => {
           if (cancelled) return;
           setConnected(true);
           try {
-            await conn.invoke('JoinConversation', hubConversationId);
+            const hid = hubConversationIdRef.current;
+            if (hid != null && hid !== '') {
+              await conn.invoke('JoinConversation', hid);
+            }
           } catch (e) {
-            console.warn('JoinConversation failed after reconnect', e);
+            if (__DEV__) console.warn('JoinConversation failed after reconnect', e);
           }
           refreshMessagesFromServer();
         });
@@ -181,51 +245,43 @@ export default function ChatScreen({ navigation }) {
           if (!cancelled) setConnected(false);
         });
 
-        conn.on('ReceiveMessage', (msg) => {
-          try {
-            const payload = msg?.data ?? msg;
-            const senderId = payload?.senderId ?? payload?.fromUserId ?? payload?.userId ?? null;
-            const content = payload?.content ?? payload?.message ?? payload?.text ?? '';
-            if (!content) return;
-            const sentAt = payload?.sentAt ? new Date(payload.sentAt) : new Date();
-            const hhmm = sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            const messageId = payload?.messageId ?? payload?.id ?? `rt-${Date.now()}`;
-            const isUser = customerId != null && senderId != null ? Number(senderId) === Number(customerId) : false;
-
-            setMessages((prev) => {
-              // de-dupe by messageId if present
-              if (prev.some((m) => String(m.id) === String(messageId))) return prev;
-              return [
-                ...prev,
-                {
-                  id: messageId,
-                  text: String(content),
-                  isUser,
-                  timestamp: hhmm,
-                },
-              ];
-            });
-          } catch (e) {
-            // Fallback sync when event shape is unexpected.
-            refreshMessagesFromServer();
-          }
-        });
+        const onMessage = (...args) => {
+          const raw = args.length > 1 ? args : args[0];
+          applyIncomingPayload(raw);
+        };
+        conn.on('ReceiveMessage', onMessage);
+        // Một số cấu hình server / protocol dùng camelCase
+        conn.on('receiveMessage', onMessage);
 
         connectionRef.current = conn;
       }
 
       const conn = connectionRef.current;
-      const start = async () => {
+      const joinConversation = async () => {
+        const hid = hubConversationIdRef.current;
+        if (hid == null || hid === '') return;
         try {
-          if (conn.state === signalR.HubConnectionState.Connected) return;
-          await conn.start();
-          if (cancelled) return;
-          setConnected(true);
-          await conn.invoke('JoinConversation', hubConversationId);
+          await conn.invoke('JoinConversation', hid);
+        } catch (e) {
+          if (__DEV__) console.warn('JoinConversation failed', e);
+        }
+      };
+
+      const start = async () => {
+        if (cancelled) return;
+        try {
+          if (conn.state !== signalR.HubConnectionState.Connected) {
+            await conn.start();
+            if (cancelled) return;
+            setConnected(true);
+          }
+          // Luôn join lại khi đã Connected: effect có thể chạy lại (đổi conversation) mà trước đây bị return sớm
+          await joinConversation();
         } catch (e) {
           if (cancelled) return;
           setConnected(false);
-          setTimeout(start, 5000);
+          if (__DEV__) console.warn('SignalR start error', e);
+          retryTimer = setTimeout(start, 5000);
         }
       };
 
@@ -234,6 +290,7 @@ export default function ChatScreen({ navigation }) {
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [conversationId, customerId, hubConversationId]);
 

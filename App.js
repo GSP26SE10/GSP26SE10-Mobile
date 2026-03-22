@@ -1,10 +1,14 @@
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { View, Text, ActivityIndicator } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getAccessToken } from "./utils/auth";
-import { logAccessTokenNow, registerForPushNotificationsAsync } from "./utils/notification";
+import {
+  logAccessTokenNow,
+  registerForPushNotificationsAsync,
+  attachChatNotificationNavigation,
+} from "./utils/notification";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import EmailVerificationScreen from "./screens/EmailVerificationScreen";
@@ -123,6 +127,17 @@ export default function App() {
     },
   };
 
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+
+  useEffect(() => {
+    const { remove, flushInitialResponse } = attachChatNotificationNavigation(
+      () => navigationRef.current,
+    );
+    flushInitialResponse();
+    return remove;
+  }, []);
+
   const renderScreen = () => {
     switch (currentScreen) {
       case "Login":
@@ -154,7 +169,7 @@ export default function App() {
       case "ServiceDetail":
         return <ServiceDetailScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Chat":
-        return <ChatScreen navigation={navigation} />;
+        return <ChatScreen navigation={navigation} route={{ params: screenParams }} />;
       case "TransactionHistory":
         return <TransactionHistoryScreen navigation={navigation} />;
       case "StaffHome":
