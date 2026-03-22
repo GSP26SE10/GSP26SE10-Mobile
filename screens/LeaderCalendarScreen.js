@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
+import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
 const initialDate = new Date();
 const BASE_YEAR = initialDate.getFullYear();
@@ -152,7 +153,9 @@ export default function LeaderCalendarScreen({ navigation }) {
       const digest = `${raw.length}:${raw.slice(0, 120)}`;
       if (digest === cacheDigestRef.current) return;
       cacheDigestRef.current = digest;
-      const orders = JSON.parse(raw || '{}')?.data?.orders || [];
+      const parsed = JSON.parse(raw || '{}');
+      const payload = normalizeLeaderOrdersOverviewApi(parsed?.data || {});
+      const orders = payload.orders || [];
       setEvents(buildEventsFromLeaderOrders(orders));
     } catch (_) {
       setEvents([]);

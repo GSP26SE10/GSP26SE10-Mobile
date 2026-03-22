@@ -310,56 +310,65 @@ export default function OrderDetail({ navigation, route }) {
     return Array.isArray(imgUrl) ? imgUrl[0] : imgUrl;
   };
 
-  const buildFeedbackTargets = () => {
-    if (!orderDetails || orderDetails.length === 0) return [];
-    const ratedMenuIds = new Set(
-      (existingMenuFeedbacks || [])
-        .map((fb) => Number(fb?.menuId ?? 0))
-        .filter((id) => !!id),
-    );
-    const ratedServiceIds = new Set(
-      (existingServiceFeedbacks || [])
-        .map((fb) => Number(fb?.serviceId ?? 0))
-        .filter((id) => !!id),
-    );
+  /** Backend có thể trả camelCase / snake_case / PascalCase */
+  const getFeedbackOrderDetailId = (fb) => {
+    const raw = fb?.orderDetailId ?? fb?.order_detail_id ?? fb?.OrderDetailId;
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isNaN(n) ? null : n;
+  };
 
-    const targets = [];
-    const seenTargetKeys = new Set();
-    orderDetails.forEach((od) => {
-      if (od.menuId) {
-        const mid = Number(od.menuId);
-        if (!ratedMenuIds.has(mid)) {
-          const key = `menu:${mid}`;
-          if (!seenTargetKeys.has(key)) {
-            seenTargetKeys.add(key);
-            targets.push({
-              type: 'menu',
-              id: mid,
-              name: od.menuName || od.menuSnapshot?.menuName || 'Menu',
-            });
-          }
+  /**
+   * Mỗi cặp (tiệc, menu) chỉ 1 feedback.
+   * - Nếu API có OrderDetailId trên feedback: chỉ khớp đúng orderDetail đó.
+   * - Nếu không có OrderDetailId: coi như đánh giá chung cho MenuId trên đơn → ẩn nút ở mọi tiệc cùng menu (tránh 2 nút sau 1 lần gửi).
+   */
+  const isMenuRatedForOrderDetail = (od, menuFeedbacks) => {
+    const mid = Number(od?.menuId ?? 0);
+    if (!mid) return true;
+    const odDetailId =
+      od?.orderDetailId != null && od.orderDetailId !== '' ? Number(od.orderDetailId) : null;
+
+    return (menuFeedbacks || []).some((fb) => {
+      if (Number(fb?.menuId ?? 0) !== mid) return false;
+      const fbOd = getFeedbackOrderDetailId(fb);
+      if (fbOd != null) {
+        if (odDetailId != null && !Number.isNaN(odDetailId)) {
+          return fbOd === odDetailId;
         }
+        return false;
       }
-      const services = Array.isArray(od.serviceSnapshot?.services)
-        ? od.serviceSnapshot.services
-        : [];
-      services.forEach((s) => {
-        if (s.serviceId) {
-          const sid = Number(s.serviceId);
-          if (ratedServiceIds.has(sid)) return;
-          const key = `service:${sid}`;
-          if (!seenTargetKeys.has(key)) {
-            seenTargetKeys.add(key);
-            targets.push({
-              type: 'service',
-              id: sid,
-              name: s.serviceName || 'Dịch vụ',
-            });
-          }
-        }
-      });
+      return true;
     });
-    return targets;
+  };
+
+  const isServiceRatedForOrderDetail = (od, serviceId, serviceFeedbacks) => {
+    const sid = Number(serviceId ?? 0);
+    if (!sid) return true;
+    const odDetailId =
+      od?.orderDetailId != null && od.orderDetailId !== '' ? Number(od.orderDetailId) : null;
+
+    return (serviceFeedbacks || []).some((fb) => {
+      if (Number(fb?.serviceId ?? 0) !== sid) return false;
+      const fbOd = getFeedbackOrderDetailId(fb);
+      if (fbOd != null) {
+        if (odDetailId != null && !Number.isNaN(odDetailId)) {
+          return fbOd === odDetailId;
+        }
+        return false;
+      }
+      return true;
+    });
+  };
+
+  const openFeedbackFlowForTargets = (targets) => {
+    if (!targets?.length) return;
+    setFeedbackTargets(targets);
+    setCurrentFeedbackIndex(0);
+    setFeedbackRating(5);
+    setFeedbackComment('');
+    setFeedbackImages([]);
+    setFeedbackVisible(true);
   };
 
   useEffect(() => {
@@ -435,17 +444,6 @@ export default function OrderDetail({ navigation, route }) {
     } catch (_) { }
   };
 
-  const openFeedbackFlow = () => {
-    const targets = buildFeedbackTargets();
-    if (!targets.length) return;
-    setFeedbackTargets(targets);
-    setCurrentFeedbackIndex(0);
-    setFeedbackRating(5);
-    setFeedbackComment('');
-    setFeedbackImages([]);
-    setFeedbackVisible(true);
-  };
-
   const handleSubmitFeedback = async () => {
     if (submittingFeedback) return;
     const target = feedbackTargets[currentFeedbackIndex];
@@ -485,6 +483,11 @@ export default function OrderDetail({ navigation, route }) {
         formData.append('MenuId', String(target.id));
       } else {
         formData.append('ServiceId', String(target.id));
+      }
+
+      const odId = target.orderDetailId != null ? Number(target.orderDetailId) : NaN;
+      if (!Number.isNaN(odId) && odId > 0) {
+        formData.append('OrderDetailId', String(odId));
       }
 
       // Backend expects array of uploaded files for `ImgFiles`.
@@ -751,6 +754,84 @@ export default function OrderDetail({ navigation, route }) {
                     </View>
                   );
                 })()}
+
+                {isCompleted && !loadingFeedbacks && (() => {
+                  const partyTitle =
+                    od.menuName ?? menuSnapshot.menuName ?? `Tiệc ${idx + 1}`;
+                  const partyLabel =
+                    orderDetails.length > 1
+                      ? `Tiệc ${idx + 1}: ${partyTitle}`
+                      : partyTitle;
+                  const odId = od.orderDetailId != null ? Number(od.orderDetailId) : null;
+                  const showMenuBtn =
+                    !!od.menuId && !isMenuRatedForOrderDetail(od, existingMenuFeedbacks);
+                  const pendingServices = services.filter(
+                    (s) =>
+                      !!s.serviceId &&
+                      !isServiceRatedForOrderDetail(od, s.serviceId, existingServiceFeedbacks),
+                  );
+                  if (!showMenuBtn && pendingServices.length === 0) return null;
+                  return (
+                    <View style={styles.detailFeedbackActions}>
+                      {orderDetails.length > 1 ? (
+                        <Text style={styles.detailFeedbackHint}>Đánh giá theo từng tiệc</Text>
+                      ) : null}
+                      {showMenuBtn ? (
+                        <TouchableOpacity
+                          style={styles.feedbackChipMenu}
+                          activeOpacity={0.85}
+                          onPress={() =>
+                            openFeedbackFlowForTargets([
+                              {
+                                type: 'menu',
+                                id: Number(od.menuId),
+                                name: od.menuName || menuSnapshot.menuName || 'Menu',
+                                orderDetailId: odId,
+                                partyLabel,
+                              },
+                            ])
+                          }
+                        >
+                          <Ionicons
+                            name="restaurant-outline"
+                            size={18}
+                            color={BACKGROUND_WHITE}
+                            style={{ marginRight: 8 }}
+                          />
+                          <Text style={styles.feedbackChipMenuText}>Đánh giá menu</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {pendingServices.map((s, si) => (
+                        <TouchableOpacity
+                          key={`fb-svc-${od.orderDetailId ?? idx}-${s.serviceId ?? si}`}
+                          style={styles.feedbackChipService}
+                          activeOpacity={0.85}
+                          onPress={() =>
+                            openFeedbackFlowForTargets([
+                              {
+                                type: 'service',
+                                id: Number(s.serviceId),
+                                name: s.serviceName || 'Dịch vụ',
+                                orderDetailId: odId,
+                                partyLabel,
+                              },
+                            ])
+                          }
+                        >
+                          <Ionicons
+                            name="construct-outline"
+                            size={18}
+                            color={PRIMARY_COLOR}
+                            style={{ marginRight: 8 }}
+                          />
+                          <Text style={styles.feedbackChipServiceText} numberOfLines={1}>
+                            Đánh giá dịch vụ: {s.serviceName || 'Dịch vụ'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  );
+                })()}
               </View>
             );
           })}
@@ -937,28 +1018,6 @@ export default function OrderDetail({ navigation, route }) {
           )}
         </View>
 
-        {(() => {
-          const pendingTargets = buildFeedbackTargets();
-          const canShowFeedbackButton = !loading && isCompleted && !loadingFeedbacks && pendingTargets.length > 0;
-          return canShowFeedbackButton ? (
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.feedbackButton}
-              activeOpacity={0.85}
-              onPress={openFeedbackFlow}
-            >
-              <Ionicons
-                name="star"
-                size={18}
-                color={BACKGROUND_WHITE}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={styles.feedbackButtonText}>Đánh giá đơn hàng</Text>
-            </TouchableOpacity>
-          </View>
-          ) : null;
-        })()}
-
         {!loading && isCompleted && (hasExistingFeedback || loadingFeedbacks) && (
           <View style={styles.section}>
             {loadingFeedbacks ? (
@@ -1101,13 +1160,17 @@ export default function OrderDetail({ navigation, route }) {
                     {feedbackTargets[currentFeedbackIndex] && (
                       <>
                         <Text style={styles.feedbackTitle}>
-                          Đánh giá{' '}
                           {feedbackTargets[currentFeedbackIndex].type === 'menu'
-                            ? 'menu'
-                            : 'dịch vụ'}
+                            ? 'Đánh giá menu'
+                            : 'Đánh giá dịch vụ'}
                         </Text>
-                        <Text style={styles.feedbackSubtitle} numberOfLines={2}>
-                          {feedbackTargets[currentFeedbackIndex].name}
+                        <Text style={styles.feedbackSubtitle} numberOfLines={3}>
+                          {[
+                            feedbackTargets[currentFeedbackIndex].partyLabel,
+                            feedbackTargets[currentFeedbackIndex].name,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </Text>
                       </>
                     )}
@@ -1745,19 +1808,51 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  feedbackButton: {
-    marginTop: 8,
-    height: 48,
-    borderRadius: 16,
+  detailFeedbackActions: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    gap: 10,
+  },
+  detailFeedbackHint: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 2,
+  },
+  feedbackChipMenu: {
+    alignSelf: 'stretch',
+    minHeight: 44,
+    borderRadius: 12,
     backgroundColor: PRIMARY_COLOR,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  feedbackButtonText: {
+  feedbackChipMenuText: {
     color: BACKGROUND_WHITE,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
+  },
+  feedbackChipService: {
+    alignSelf: 'stretch',
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 1.5,
+    borderColor: PRIMARY_COLOR,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  feedbackChipServiceText: {
+    color: PRIMARY_COLOR,
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   feedbackOverlay: {
     flex: 1,

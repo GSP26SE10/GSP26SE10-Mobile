@@ -8,6 +8,7 @@ import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '../constants/colors';
+import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
@@ -51,18 +52,11 @@ export default function LeaderHomeScreen({ navigation }) {
         return;
       }
       const data = await res.json();
-      const payload = {
-        staffGroupId: data.staffGroupId,
-        staffGroupName: data.staffGroupName,
-        leaderId: data.leaderId,
-        leaderName: data.leaderName,
-        members: Array.isArray(data.members) ? data.members : [],
-        orders: Array.isArray(data.orders) ? data.orders : [],
-      };
+      const payload = normalizeLeaderOrdersOverviewApi(data);
       setOverview(payload);
       await AsyncStorage.setItem(LEADER_OVERVIEW_CACHE_KEY, JSON.stringify({ data: payload, at: Date.now() }));
-      if (Array.isArray(data.members) && data.members.length > 0) {
-        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(data.members));
+      if (Array.isArray(payload.members) && payload.members.length > 0) {
+        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
       }
     } catch (e) {
       console.warn('Leader orders-overview refresh failed', e);
@@ -106,18 +100,11 @@ export default function LeaderHomeScreen({ navigation }) {
         }
         const data = await res.json();
         if (cancelled) return;
-        const payload = {
-          staffGroupId: data.staffGroupId,
-          staffGroupName: data.staffGroupName,
-          leaderId: data.leaderId,
-          leaderName: data.leaderName,
-          members: Array.isArray(data.members) ? data.members : [],
-          orders: Array.isArray(data.orders) ? data.orders : [],
-        };
+        const payload = normalizeLeaderOrdersOverviewApi(data);
         setOverview(payload);
         await AsyncStorage.setItem(LEADER_OVERVIEW_CACHE_KEY, JSON.stringify({ data: payload, at: Date.now() }));
-        if (Array.isArray(data.members) && data.members.length > 0) {
-          await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(data.members));
+        if (Array.isArray(payload.members) && payload.members.length > 0) {
+          await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
         }
       } catch (e) {
         if (!cancelled) setOverview({ orders: [], members: [] });

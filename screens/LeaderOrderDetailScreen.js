@@ -39,6 +39,7 @@ import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
+import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
@@ -129,27 +130,34 @@ const getFileNameFromUri = (uri, fallback = '') => {
 
 export default function LeaderOrderDetailScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
-  const initialTasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
-    ? orderFromParams.tasks.map(mapApiTaskToDisplay)
+  const [refreshedOrder, setRefreshedOrder] = useState(null);
+
+  useLayoutEffect(() => {
+    setRefreshedOrder(null);
+  }, [orderFromParams?.orderDetailId]);
+
+  const order = refreshedOrder ?? orderFromParams;
+  const initialTasks = (order?.tasks && Array.isArray(order.tasks))
+    ? order.tasks.map(mapApiTaskToDisplay)
     : [];
   const formatVnd = (n) =>
     n != null && n !== '' ? `${Number(n).toLocaleString('vi-VN')}₫` : '—';
 
-  const partyDetail = orderFromParams
+  const partyDetail = order
     ? {
-        id: orderFromParams.orderDetailId,
-        image: orderFromParams.menuImage || null,
-        name: orderFromParams.menuName || '—',
-        guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
-        timeRange: formatTimeRangeFromOrder(orderFromParams),
-        address: orderFromParams.address || '—',
-        contactName: orderFromParams.customerName || '—',
-        phone: orderFromParams.customerPhone || '',
+        id: order.orderDetailId,
+        image: order.menuImage || null,
+        name: order.menuName || '—',
+        guests: `${order.numberOfGuests ?? 0} NGƯỜI`,
+        timeRange: formatTimeRangeFromOrder(order),
+        address: order.address || '—',
+        contactName: order.customerName || '—',
+        phone: order.customerPhone || '',
         status: route?.params?.status && typeof route.params.status === 'string' ? route.params.status : '—',
-        subtotal: formatVnd(orderFromParams.totalPrice),
+        subtotal: formatVnd(order.totalPrice),
         vat: '—',
-        deposit: formatVnd(orderFromParams.depositAmount),
-        remaining: formatVnd(orderFromParams.remainingAmount),
+        deposit: formatVnd(order.depositAmount),
+        remaining: formatVnd(order.remainingAmount),
       }
     : emptyPartyDetail;
 
@@ -171,7 +179,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     route?.params?.status && typeof route.params.status === 'string'
       ? route.params.status
       : mapOrderStatusToPartyStatus(
-          orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus
+          order?.orderStatus ?? order?.orderDetailStatus
         ) ||
         (partyDetail.status !== '—' ? partyDetail.status : 'Đang chuẩn bị');
   const [partyStatus, setPartyStatus] = useState(initialStatus);
@@ -208,7 +216,9 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [compNote, setCompNote] = useState('');
   const [compImages, setCompImages] = useState([]); // [{ uri, type, name }]
   const [submittingComp, setSubmittingComp] = useState(false);
-  const [totalCompAmount, setTotalCompAmount] = useState(() => Number(orderFromParams?.extraChargeCost ?? 0) || 0);
+  const [totalCompAmount, setTotalCompAmount] = useState(
+    () => Number(orderFromParams?.extraChargeCost ?? orderFromParams?.extraChargeTotal ?? 0) || 0
+  );
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
@@ -225,7 +235,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const paymentAwaitingConfirmationRef = useRef(false);
   const queryClient = useQueryClient();
 
-  const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id ?? null;
+  const orderDetailId = order?.orderDetailId ?? partyDetail?.id ?? null;
   /** Theo API overview: orderStatus / orderDetailStatus — billing = 6 */
   const [orderStatusNum, setOrderStatusNum] = useState(() =>
     Number(orderFromParams?.orderStatus ?? orderFromParams?.orderDetailStatus ?? 0)
@@ -236,10 +246,10 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
    * Không fallback orderDetailId — backend sẽ trả "order not found".
    */
   const paymentOrderId =
-    orderFromParams?.orderId ??
+    order?.orderId ??
     route?.params?.orderId ??
     null;
-  const endTimeIso = orderFromParams?.endTime ?? null;
+  const endTimeIso = order?.endTime ?? null;
 
   useEffect(() => {
     // Auto move to BILLING when reaching endTime.
@@ -374,26 +384,29 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       });
       if (!res.ok) return;
       const data = await res.json();
-      const orders = Array.isArray(data?.orders) ? data.orders : [];
+      const payload = normalizeLeaderOrdersOverviewApi(data);
+      const orders = payload.orders;
       const order = orders.find((o) => o.orderDetailId === orderDetailId);
       const orderTasks = (order?.tasks && Array.isArray(order.tasks))
         ? order.tasks.map(mapApiTaskToDisplay)
         : [];
       setTasks(orderTasks);
-      const payload = {
-        staffGroupId: data.staffGroupId,
-        staffGroupName: data.staffGroupName,
-        leaderId: data.leaderId,
-        leaderName: data.leaderName,
-        members: Array.isArray(data.members) ? data.members : [],
-        orders,
-      };
+      if (order) {
+        setRefreshedOrder(order);
+        const nextSt = Number(order.orderStatus ?? order.orderDetailStatus ?? 0);
+        setOrderStatusNum(nextSt);
+        setIsBilling(nextSt === 6);
+        const stLabel = mapOrderStatusToPartyStatus(nextSt);
+        if (stLabel) setPartyStatus(stLabel);
+        const extra = Number(order.extraChargeCost ?? order.extraChargeTotal ?? 0) || 0;
+        setTotalCompAmount(extra);
+      }
       await AsyncStorage.setItem(
         LEADER_OVERVIEW_CACHE_KEY,
         JSON.stringify({ data: payload, at: Date.now() })
       );
-      if (Array.isArray(data.members) && data.members.length > 0) {
-        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(data.members));
+      if (Array.isArray(payload.members) && payload.members.length > 0) {
+        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
       }
     } catch (e) {
       // keep current tasks on error
@@ -447,10 +460,10 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
     );
     let datesParam = '';
-    if (orderFromParams?.startTime) {
+    if (order?.startTime) {
       try {
-        const start = new Date(orderFromParams.startTime);
-        const end = orderFromParams.endTime ? new Date(orderFromParams.endTime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+        const start = new Date(order.startTime);
+        const end = order.endTime ? new Date(order.endTime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
         const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
         const format = (d) =>
           `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
@@ -624,7 +637,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       Alert.alert('Thiếu thông tin', 'Vui lòng chọn nhân viên.');
       return;
     }
-    const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
+    const orderDetailId = order?.orderDetailId ?? partyDetail?.id;
     if (orderDetailId == null) {
       Alert.alert('Lỗi', 'Không xác định được đơn.');
       return;
@@ -678,7 +691,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const formatMoney = (value) =>
     `${value.toLocaleString('vi-VN')}₫`;
   const remainingWithExtraCharge = formatMoney(
-    (Number(orderFromParams?.remainingAmount ?? 0) || 0) + totalCompAmount
+    (Number(order?.remainingAmount ?? 0) || 0) + totalCompAmount
   );
 
   const openCompModal = () => {
@@ -905,13 +918,20 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshingTasks}
+            onRefresh={refreshTasksForOrder}
+            colors={[PRIMARY_COLOR]}
+          />
+        }
       >
         <TouchableOpacity
           style={styles.partyCard}
           activeOpacity={0.8}
           onPress={() =>
             navigation.navigate('MenuDetail', {
-              menuId: orderFromParams?.menuId ?? 1,
+              menuId: order?.menuId ?? 1,
               menuName: partyDetail.name,
               buffetType: partyDetail.dishes,
               fromStaff: true,
