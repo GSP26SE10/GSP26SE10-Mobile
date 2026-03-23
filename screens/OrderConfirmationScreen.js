@@ -20,6 +20,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getOrderParties, setActivePartyByIndex } from '../utils/cartStorage';
 import API_URL from '../constants/api';
 import { getAccessToken } from '../utils/auth';
+import {
+  getMinPartyDateKeyVietnam,
+  getMinPartyDateObject,
+  isPartyStartAtLeastTwoDaysFromTodayVietnam,
+  toVietnamDateKey,
+} from '../utils/vietnamPartyDate';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const CITIES = require('../constants/city.json');
@@ -44,17 +50,6 @@ const formatDate = (d) =>
 const formatTime = (d) =>
   d?.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) || '';
 
-const startOfDay = (d) => {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-};
-
-const isSameDay = (a, b) =>
-  a.getFullYear() === b.getFullYear() &&
-  a.getMonth() === b.getMonth() &&
-  a.getDate() === b.getDate();
-
 const combineDateAndTime = (datePart, timePart) => {
   const d = new Date(datePart);
   d.setHours(timePart.getHours(), timePart.getMinutes(), 0, 0);
@@ -71,7 +66,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const [partyIndex, setPartyIndex] = useState(Number(route?.params?.partyIndex ?? 0));
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  const [eventDate, setEventDate] = useState(new Date());
+  const [eventDate, setEventDate] = useState(() => getMinPartyDateObject());
   const [startTime, setStartTime] = useState(() => {
     const d = new Date();
     d.setMinutes(0);
@@ -193,21 +188,23 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     };
   }, []);
 
-  // Một effect duy nhất: đồng bộ eventDate/start/end, clamp quá khứ, đảm bảo end > start.
-  // Dùng timestamp để so sánh, chỉ setState khi giá trị thực sự đổi → tránh vòng lặp.
+  const minPartyDateObj = useMemo(() => getMinPartyDateObject(), []);
+
+  // Đồng bộ: ngày tổ chức theo lịch VN phải >= hôm nay (VN) + 2 ngày; end > start.
   useEffect(() => {
     const now = new Date();
-    const todayStart = startOfDay(now).getTime();
-    const eventDayStart = startOfDay(eventDate).getTime();
+    const minKey = getMinPartyDateKeyVietnam(now);
+    const eventKey = toVietnamDateKey(eventDate);
 
-    const safeDate = eventDayStart < todayStart ? now : eventDate;
-    const safeDateT = startOfDay(safeDate).getTime();
-    const eventDateT = startOfDay(eventDate).getTime();
+    if (eventKey < minKey) {
+      setEventDate(getMinPartyDateObject(now));
+      return;
+    }
 
-    const nextStart = combineDateAndTime(safeDate, startTime);
-    const safeStart = eventDayStart < todayStart ? clampNotPast(nextStart) : nextStart;
-    let safeEnd = combineDateAndTime(safeDate, endTime);
-    if (eventDayStart < todayStart) safeEnd = clampNotPast(safeEnd);
+    const nextStart = combineDateAndTime(eventDate, startTime);
+    const safeStart = nextStart.getTime() < now.getTime() ? clampNotPast(nextStart) : nextStart;
+
+    let safeEnd = combineDateAndTime(eventDate, endTime);
     if (safeEnd.getTime() <= safeStart.getTime()) {
       safeEnd = new Date(safeStart);
       safeEnd.setHours(safeEnd.getHours() + 2);
@@ -216,10 +213,6 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     const startT = safeStart.getTime();
     const endT = safeEnd.getTime();
 
-    if (safeDateT !== eventDateT) {
-      setEventDate(safeDate);
-      return;
-    }
     if (startT !== startTime.getTime()) {
       setStartTime(safeStart);
       return;
@@ -354,7 +347,17 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     return `${API_URL}${imageUrl}`;
   };
 
-  const canContinue = addressLine.trim().length > 0 && partyCategoryId != null;
+  const partyStartCombined = useMemo(
+    () => combineDateAndTime(eventDate, startTime),
+    [eventDate, startTime],
+  );
+  const partyStartMeetsLeadDays = useMemo(
+    () => isPartyStartAtLeastTwoDaysFromTodayVietnam(partyStartCombined),
+    [partyStartCombined],
+  );
+
+  const canContinue =
+    addressLine.trim().length > 0 && partyCategoryId != null && partyStartMeetsLeadDays;
   const isMultiParty = orderParties.length > 1;
   const isLastParty = partyIndex >= orderParties.length - 1;
   const continueLabel = isMultiParty && !isLastParty ? 'Tiếp theo' : 'Tiếp tục';
@@ -464,6 +467,9 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 >
                   <Text style={styles.selectText}>{formatDate(eventDate)}</Text>
                 </TouchableOpacity>
+                <Text style={styles.fieldHint}>
+                  Ngày tổ chức phải cách hôm nay ít nhất 2 ngày.
+                </Text>
               </View>
             </View>
 
@@ -574,10 +580,14 @@ export default function OrderConfirmationScreen({ navigation, route }) {
           value={eventDate}
           mode="date"
           display="default"
-          minimumDate={new Date()}
+          minimumDate={minPartyDateObj}
           onChange={(e, selected) => {
             setShowDatePicker(false);
-            if (selected) setEventDate(selected);
+            if (selected) {
+              const minKey = getMinPartyDateKeyVietnam();
+              const selKey = toVietnamDateKey(selected);
+              setEventDate(selKey < minKey ? getMinPartyDateObject() : selected);
+            }
           }}
         />
       )}
@@ -645,25 +655,25 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 mode={iosPickerType === 'date' ? 'date' : 'time'}
                 display="spinner"
                 is24Hour
-                minimumDate={iosPickerType === 'date' ? new Date() : undefined}
+                minimumDate={iosPickerType === 'date' ? minPartyDateObj : undefined}
                 onChange={(e, selected) => {
                   if (!selected) return;
                   const now = new Date();
                   if (iosPickerType === 'date') {
-                    // clamp date not in past
-                    const safe = startOfDay(selected).getTime() < startOfDay(now).getTime() ? now : selected;
-                    setEventDate(safe);
+                    const minKey = getMinPartyDateKeyVietnam(now);
+                    const selKey = toVietnamDateKey(selected);
+                    setEventDate(selKey < minKey ? getMinPartyDateObject(now) : selected);
                     return;
                   }
                   if (iosPickerType === 'start') {
                     const next = combineDateAndTime(eventDate, selected);
-                    const safe = isSameDay(eventDate, now) ? clampNotPast(next) : next;
+                    const safe = next.getTime() < now.getTime() ? clampNotPast(next) : next;
                     setStartTime(safe);
                     return;
                   }
                   if (iosPickerType === 'end') {
                     const next = combineDateAndTime(eventDate, selected);
-                    let safe = isSameDay(eventDate, now) ? clampNotPast(next) : next;
+                    let safe = next.getTime() < now.getTime() ? clampNotPast(next) : next;
                     if (safe.getTime() <= startTime.getTime()) {
                       safe = new Date(startTime);
                       safe.setHours(safe.getHours() + 2);
@@ -995,6 +1005,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: TEXT_PRIMARY,
     marginBottom: 8,
+  },
+  fieldHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    lineHeight: 15,
   },
   selectInput: {
     flexDirection: 'row',

@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
+import { fetchUnreadNotificationsCount } from '../utils/notificationsApi';
 import API_URL from '../constants/api';
 import {
   TEXT_PRIMARY,
@@ -86,6 +87,17 @@ export default function StaffHomeScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  const refreshUnreadBadge = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      const n = await fetchUnreadNotificationsCount(token);
+      setUnreadNotifications(n);
+    } catch {
+      setUnreadNotifications(0);
+    }
+  }, []);
 
   const allOrders = buildOrdersFromTaskItems(allTaskItems);
   const orders = allOrders.filter(
@@ -161,9 +173,14 @@ export default function StaffHomeScreen({ navigation }) {
     loadFirst();
   }, [loadFirst]);
 
+  useEffect(() => {
+    refreshUnreadBadge();
+  }, [refreshUnreadBadge]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      refreshUnreadBadge();
       const data = await fetchPage(1);
       if (data && Array.isArray(data.items)) {
         setAllTaskItems(data.items);
@@ -318,13 +335,22 @@ export default function StaffHomeScreen({ navigation }) {
               Danh sách tiệc và công việc cần làm.
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.bellButton}
-            onPress={() => navigation.navigate('StaffNotification')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="notifications-outline" size={22} color={TEXT_PRIMARY} />
-          </TouchableOpacity>
+          <View style={styles.bellWrap}>
+            <TouchableOpacity
+              style={styles.bellButton}
+              onPress={() => navigation.navigate('StaffNotification')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="notifications-outline" size={22} color={TEXT_PRIMARY} />
+            </TouchableOpacity>
+            {unreadNotifications > 0 ? (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>
+                  {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
 
@@ -405,6 +431,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  bellWrap: {
+    marginLeft: 12,
+    width: 40,
+    height: 40,
+    position: 'relative',
+  },
   bellButton: {
     width: 40,
     height: 40,
@@ -412,7 +444,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0)',
-    marginLeft: 12,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 10,
+    fontWeight: '800',
   },
   greeting: {
     fontSize: 22,

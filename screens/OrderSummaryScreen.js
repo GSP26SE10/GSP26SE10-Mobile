@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -11,6 +11,7 @@ import { getAccessToken } from '../utils/auth';
 import { getOrderParties, clearCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+import { isPartyStartAtLeastTwoDaysFromTodayVietnam } from '../utils/vietnamPartyDate';
 
 const formatVnd = (value) => {
   const val = Number(value ?? 0);
@@ -306,6 +307,16 @@ export default function OrderSummaryScreen({ navigation, route }) {
           .join(', ');
         const startTime = draft?.startTime || params.startTime || null;
         const endTime = draft?.endTime || params.endTime || null;
+
+        if (!isPartyStartAtLeastTwoDaysFromTodayVietnam(startTime)) {
+          setCreating(false);
+          Alert.alert(
+            'Thời gian đặt tiệc không hợp lệ',
+            'Ngày tổ chức phải cách hôm nay ít nhất 2 ngày (theo giờ Việt Nam). Vui lòng quay lại bước xác nhận để chọn lại ngày giờ.',
+            [{ text: 'Đã hiểu' }],
+          );
+          return;
+        }
         const partyCategoryId =
           draft?.partyCategoryId != null
             ? Number(draft.partyCategoryId)
@@ -355,6 +366,9 @@ export default function OrderSummaryScreen({ navigation, route }) {
         setQrVisible(true);
         startCountdown();
         startPaymentPolling(orderId, token);
+      } else if (!res.ok && json?.message) {
+        setToastMessage(String(json.message));
+        setToastVisible(true);
       }
     } catch (e) {
       console.log('[order/create] error', e);

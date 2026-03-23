@@ -1,4 +1,4 @@
-// const API_URL = 'https://gsp26se10-be.fly.dev';
+const API_URL = 'https://gsp26se10-be.fly.dev';
 
-export const API_URL = 'https://creek-claire-score-studios.trycloudflare.com';
+// export const API_URL = 'https://creek-claire-score-studios.trycloudflare.com';
 export default API_URL;
