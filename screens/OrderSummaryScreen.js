@@ -86,6 +86,9 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const dishItems = items.filter((i) => i.type === 'dish');
       // 1 party có thể có nhiều menu -> số lượng khách lấy theo MAX, không phải SUM
       const menuCount = Math.max(...menuItems.map((i) => Number(i.count ?? 0)), 1);
+      const hasMenu = menuItems.some((m) => Number(m.menuId) > 0);
+      // Đơn món lẻ không có menu thì không nhân theo số lượng khách
+      const effectiveGuestCount = hasMenu ? menuCount : 1;
       const menuBaseSum = menuItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
       const serviceSum = serviceItems.reduce(
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
@@ -95,14 +98,28 @@ export default function OrderSummaryScreen({ navigation, route }) {
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
         0
       );
-      const subTotal = menuBaseSum * menuCount + serviceSum + dishSum;
-      const hasMenu = !!menuItems.find((m) => m.menuId);
-      return { index, partyId: p.partyId, items, menuItems, serviceItems, dishItems, hasMenu, menuCount, menuBaseSum, serviceSum, dishSum, subTotal };
+      const subTotal = menuBaseSum * effectiveGuestCount + serviceSum + dishSum;
+      const hasOrderableItems = hasMenu;
+      return {
+        index,
+        partyId: p.partyId,
+        items,
+        menuItems,
+        serviceItems,
+        dishItems,
+        hasMenu,
+        hasOrderableItems,
+        menuCount,
+        menuBaseSum,
+        serviceSum,
+        dishSum,
+        subTotal,
+      };
     });
   }, [orderParties]);
 
   const subTotal = useMemo(
-    () => partiesPricing.filter((p) => p.hasMenu).reduce((sum, p) => sum + Number(p.subTotal ?? 0), 0),
+    () => partiesPricing.filter((p) => p.hasOrderableItems).reduce((sum, p) => sum + Number(p.subTotal ?? 0), 0),
     [partiesPricing]
   );
   const total = subTotal;
@@ -281,15 +298,35 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const customerId = userData?.userId ?? 0;
 
       const partiesAll = orderParties || [];
+      const partiesWithItems = partiesAll.filter((p) => (p.items || []).length > 0);
+      const invalidPartyIndex = partiesWithItems.findIndex(
+        (p) => !(p.items || []).some((i) => i.type === 'menu' && Number(i.menuId) > 0),
+      );
+      if (invalidPartyIndex >= 0) {
+        setToastMessage(`Tiệc ${invalidPartyIndex + 1} cần có ít nhất 1 menu để tạo đơn`);
+        setToastVisible(true);
+        return;
+      }
+
       const itemsPayload = [];
       for (let originalIndex = 0; originalIndex < partiesAll.length; originalIndex++) {
         const p = partiesAll[originalIndex];
         const partyItems = p.items || [];
-        const menu = partyItems.find((i) => i.type === 'menu');
-        const menuId = menu?.menuId ?? 0;
-        if (!menuId) continue; // bỏ qua tiệc chưa chọn menu
+        const menu = partyItems.find((i) => i.type === 'menu' && Number(i.menuId) > 0);
+        const menuId = Number(menu?.menuId ?? 0);
+        const customDishes = partyItems
+          .filter((i) => i.type === 'dish')
+          .flatMap((d) => {
+            const dishId = Number(d?.dishId ?? 0);
+            const quantity = Math.max(1, Number(d?.count ?? 1));
+            if (!dishId) return [];
+            return Array.from({ length: quantity }, () => ({ dishId }));
+          });
+        const hasOrderableItems = menuId > 0 || customDishes.length > 0;
+        if (!hasOrderableItems) continue; // bỏ qua party chưa chọn món
+        if (menuId <= 0) continue; // bắt buộc có menu, không cho đặt riêng món lẻ
         const menuCounts = partyItems.filter((i) => i.type === 'menu').map((i) => Number(i.count ?? 0));
-        const numberOfGuests = Math.max(...menuCounts, 1);
+        const numberOfGuests = menuId > 0 ? Math.max(...menuCounts, 1) : 0;
         const services = partyItems
           .filter((i) => i.type === 'service')
           .map((s) => ({
@@ -332,7 +369,14 @@ export default function OrderSummaryScreen({ navigation, route }) {
           startTime,
           endTime,
           services,
+          customDishes,
         });
+      }
+
+      if (!itemsPayload.length) {
+        setToastMessage('Vui lòng chọn ít nhất 1 menu để tạo đơn');
+        setToastVisible(true);
+        return;
       }
 
       const payload = { customerId, items: itemsPayload };
@@ -432,7 +476,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryBlock}>
           {partiesPricing
-            .filter((p) => p.hasMenu)
+            .filter((p) => p.hasOrderableItems)
             .map((p, displayIdx, arr) => {
               const draft = partyDrafts[p.index] || {};
               const partyLocation = [draft.addressLine, draft.wardName, draft.cityName].filter(Boolean).join(', ');

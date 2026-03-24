@@ -257,9 +257,10 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
   const menuCount = useMemo(() => {
     // 1 party có thể có nhiều menu -> số lượng khách lấy theo MAX, không phải SUM
-    const counts = (cartItems || []).filter((i) => i.type === 'menu').map((i) => Number(i.count || 0));
-    const max = Math.max(...counts, 1);
-    return max;
+    const menuItems = (cartItems || []).filter((i) => i.type === 'menu' && Number(i.menuId) > 0);
+    if (!menuItems.length) return 0;
+    const counts = menuItems.map((i) => Number(i.count || 0));
+    return Math.max(...counts, 1);
   }, [cartItems]);
 
   const openSelectCity = () => {

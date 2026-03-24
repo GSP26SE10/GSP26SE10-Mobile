@@ -14,7 +14,14 @@ import { Image as ExpoImage } from 'expo-image';
 import BottomNavigation from '../components/BottomNavigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_URL from '../constants/api';
-import { getOrderParties, addParty, setActivePartyByIndex, updateCartItemQuantity, removeCartItem } from '../utils/cartStorage';
+import {
+  getOrderParties,
+  setOrderParties as persistOrderParties,
+  addParty,
+  setActivePartyByIndex,
+  updateCartItemQuantity,
+  removeCartItem,
+} from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
@@ -338,6 +345,9 @@ export default function OrdersScreen({ navigation, route }) {
 
   const renderCartContent = () => {
     const partiesWithItems = (orderParties || []).filter((p) => (p.items || []).length > 0);
+    const hasInvalidPartyWithoutMenu = partiesWithItems.some(
+      (p) => !(p.items || []).some((i) => i.type === 'menu'),
+    );
     if (partiesWithItems.length === 0) {
       return (
         <View style={styles.tabContent}>
@@ -453,14 +463,22 @@ export default function OrdersScreen({ navigation, route }) {
           <TouchableOpacity
             style={[
               styles.continueButton,
-              !partiesWithItems.some((p) => (p.items || []).some((i) => i.type === 'menu')) && styles.continueButtonDisabled,
+              hasInvalidPartyWithoutMenu && styles.continueButtonDisabled,
             ]}
             activeOpacity={0.7}
             onPress={() => {
-              const hasMenu = partiesWithItems.some((p) => (p.items || []).some((i) => i.type === 'menu'));
-              if (!hasMenu) {
-                showToast('Vui lòng chọn ít nhất 1 menu để tiếp tục');
+              const invalidPartyIndex = partiesWithItems.findIndex(
+                (p) => !(p.items || []).some((i) => i.type === 'menu'),
+              );
+              if (invalidPartyIndex >= 0) {
+                showToast(`Tiệc ${invalidPartyIndex + 1} cần có ít nhất 1 menu để tiếp tục`);
                 return;
+              }
+              const sanitizedParties = (orderParties || []).filter((p) => (p.items || []).length > 0);
+              if (sanitizedParties.length !== (orderParties || []).length) {
+                persistOrderParties(sanitizedParties).catch(() => {});
+                setOrderParties(sanitizedParties);
+                setActivePartyByIndex(0).catch(() => {});
               }
               navigation.navigate('OrderConfirmation');
             }}

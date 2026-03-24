@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   unreadDotPlaceholder: { width: 8, marginRight: 8 },
-  title: { flex: 1, fontSize: 15, fontWeight: '600', color: TEXT_PRIMARY },
+  title: { flex: 1, fontSize: 13, fontWeight: '600', color: TEXT_PRIMARY },
   titleUnread: { fontWeight: '800' },
   time: { fontSize: 11, color: TEXT_SECONDARY, maxWidth: 100, textAlign: 'right' },
   timeUnread: { fontWeight: '700', color: TEXT_PRIMARY },
