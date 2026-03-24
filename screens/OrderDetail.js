@@ -615,8 +615,12 @@ export default function OrderDetail({ navigation, route }) {
           orderDetails.map((od, idx) => {
             const menuSnapshot = od.menuSnapshot ?? {};
             const serviceSnapshot = od.serviceSnapshot ?? {};
+            const customDishSnapshot = od.customDishSnapshot ?? {};
             const dishes = Array.isArray(menuSnapshot.dishes) ? menuSnapshot.dishes : [];
             const services = Array.isArray(serviceSnapshot.services) ? serviceSnapshot.services : [];
+            const customDishes = Array.isArray(customDishSnapshot.customDishes)
+              ? customDishSnapshot.customDishes
+              : [];
             const imgUri = getDetailImageUri(od);
             const isDishesExpanded = expandedDishesSet.has(idx);
             const mid = Math.ceil(dishes.length / 2);
@@ -711,6 +715,33 @@ export default function OrderDetail({ navigation, route }) {
                           <View style={styles.serviceInfo}>
                             <Text style={styles.serviceName}>{s.serviceName}</Text>
                             <Text style={styles.serviceMeta}>SL: {s.quantity ?? 1} × {formatVnd(s.basePrice)}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+                {customDishes.length > 0 && (
+                  <View style={styles.snapshotSection}>
+                    <Text style={styles.snapshotLabel}>Món lẻ</Text>
+                    {customDishes.map((d, i) => {
+                      const dishImg = d?.img ?? (Array.isArray(d?.imgUrl) ? d.imgUrl[0] : d?.imgUrl);
+                      const total = Number(d?.totalAmount ?? d?.unitPrice ?? 0);
+                      const unit = Number(d?.unitPrice ?? total ?? 0);
+                      return (
+                        <View key={`${d?.dishId ?? 'custom-dish'}-${i}`} style={styles.serviceRow}>
+                          {dishImg ? (
+                            <ExpoImage source={{ uri: String(dishImg) }} style={styles.serviceThumb} contentFit="cover" cachePolicy="disk" />
+                          ) : (
+                            <View style={[styles.serviceThumb, styles.imagePlaceholder]}>
+                              <Ionicons name="restaurant-outline" size={20} color={TEXT_SECONDARY} />
+                            </View>
+                          )}
+                          <View style={styles.serviceInfo}>
+                            <Text style={styles.serviceName}>{d?.dishName || 'Món lẻ'}</Text>
+                            <Text style={styles.serviceMeta}>
+                              Đơn giá: {formatVnd(unit)} · Thành tiền: {formatVnd(total)}
+                            </Text>
                           </View>
                         </View>
                       );

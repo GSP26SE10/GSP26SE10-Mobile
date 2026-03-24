@@ -132,6 +132,19 @@ export default function MenuDetailScreen({ navigation, route }) {
     showToast('Đã thêm vào giỏ hàng');
   };
 
+  const handleChatMenu = async () => {
+    const ok = await requireAuth(navigation, {
+      returnScreen: 'MenuDetail',
+      returnParams: { menuId, menuCategoryId, buffetType, fromStaff, menuName: menuNameFromParams },
+    });
+    if (!ok) return;
+
+    navigation.navigate('Chat', {
+      menuId: Number(menuId),
+      fromMenuDetail: true,
+    });
+  };
+
   const formatPrice = (price) => {
     if (price == null) return '';
 
@@ -470,17 +483,26 @@ export default function MenuDetailScreen({ navigation, route }) {
               {menuInfo?.basePrice != null ? formatPrice(menuInfo.basePrice) : ''}
             </Text>
           )}
-          <TouchableOpacity
-            style={[
-              styles.chooseButton,
-              (isLoadingMenuInfo || !menuInfo) && styles.chooseButtonDisabled,
-            ]}
-            onPress={handleChooseMenu}
-            disabled={isLoadingMenuInfo || !menuInfo}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chooseButtonText}>Chọn Menu</Text>
-          </TouchableOpacity>
+          <View style={styles.bottomActions}>
+            <TouchableOpacity
+              style={styles.chatButton}
+              onPress={handleChatMenu}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={PRIMARY_COLOR} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.chooseButton,
+                (isLoadingMenuInfo || !menuInfo) && styles.chooseButtonDisabled,
+              ]}
+              onPress={handleChooseMenu}
+              disabled={isLoadingMenuInfo || !menuInfo}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.chooseButtonText}>Chọn Menu</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -767,6 +789,21 @@ const styles = StyleSheet.create({
     color: BACKGROUND_WHITE,
     fontSize: 16,
     fontWeight: '600',
+  },
+  bottomActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chatButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    borderColor: PRIMARY_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: BACKGROUND_WHITE,
   },
   fullscreenContainer: {
     flex: 1,

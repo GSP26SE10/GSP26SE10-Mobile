@@ -22,7 +22,87 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_L
 
 const { width } = Dimensions.get('window');
 
-export default function ChatScreen({ navigation }) {
+const formatVnd = (value) => {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return `${n.toLocaleString('vi-VN')}đ`;
+};
+
+const normalizeMenuImage = (raw) => {
+  const pick = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof pick !== 'string') return null;
+  const uri = pick.trim();
+  if (!uri) return null;
+  // Chỉ chấp nhận uri mà RN Image xử lý ổn định
+  if (
+    uri.startsWith('http://') ||
+    uri.startsWith('https://') ||
+    uri.startsWith('file://') ||
+    uri.startsWith('content://') ||
+    uri.startsWith('data:image/')
+  ) {
+    return uri;
+  }
+  return null;
+};
+
+const normalizeMessageFromApi = (m, currentUserId) => {
+  const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
+  const hhmm = sentAt
+    ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  const messageType = String(
+    m?.messageType ?? m?.type ?? m?.message_type ?? 'TEXT',
+  ).toUpperCase();
+  const menuIdRaw = m?.menuId ?? m?.MenuId ?? m?.menu?.menuId ?? null;
+  const menuIdNum = Number(menuIdRaw);
+  const menuPayload = menuIdRaw != null ? {
+    menuId: Number.isNaN(menuIdNum) ? menuIdRaw : menuIdNum,
+    name:
+      m?.menuName ??
+      m?.menu?.menuName ??
+      m?.menu?.name ??
+      null,
+    price:
+      m?.menuPrice ??
+      m?.menu?.basePrice ??
+      m?.menu?.price ??
+      null,
+    image:
+      normalizeMenuImage(m?.menuImage) ??
+      normalizeMenuImage(m?.menu?.imgUrl) ??
+      normalizeMenuImage(m?.menu?.image) ??
+      null,
+  } : null;
+
+  return {
+    id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
+    text: String(m?.content ?? ''),
+    isUser: currentUserId != null ? Number(m?.senderId) === Number(currentUserId) : false,
+    timestamp: hhmm,
+    messageType,
+    menu: menuPayload,
+  };
+};
+
+const dedupeMessagesById = (list) => {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const key = String(item?.id ?? '');
+    if (!key) {
+      out.push(item);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+};
+
+export default function ChatScreen({ navigation, route }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [conversationId, setConversationId] = useState(null);
@@ -32,6 +112,8 @@ export default function ChatScreen({ navigation }) {
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [messagesHydrated, setMessagesHydrated] = useState(false);
+  const [pendingMenuPreview, setPendingMenuPreview] = useState(null);
+  const [loadingPendingMenu, setLoadingPendingMenu] = useState(false);
   const insets = useSafeAreaInsets();
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const connectionRef = React.useRef(null);
@@ -153,20 +235,9 @@ export default function ChatScreen({ navigation }) {
         const json = await res.json().catch(() => null);
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items
-          .map((m) => {
-            const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
-            const hhmm = sentAt
-              ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-              : '';
-            return {
-              id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
-              text: String(m?.content ?? ''),
-              isUser: uid != null ? Number(m?.senderId) === Number(uid) : false,
-              timestamp: hhmm,
-            };
-          })
+          .map((m) => normalizeMessageFromApi(m, uid))
           .filter((m) => m.text);
-        if (!cancelled) setMessages(mapped);
+        if (!cancelled) setMessages(dedupeMessagesById(mapped));
       } catch (_) {}
     };
 
@@ -186,21 +257,46 @@ export default function ChatScreen({ navigation }) {
         const sentAt = obj?.sentAt ? new Date(obj.sentAt) : new Date();
         const hhmm = sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
         const messageId = obj?.messageId ?? obj?.id ?? `rt-${Date.now()}`;
+        const messageType = String(
+          obj?.messageType ?? obj?.type ?? obj?.message_type ?? 'TEXT',
+        ).toUpperCase();
+        const menuIdRaw = obj?.menuId ?? obj?.MenuId ?? obj?.menu?.menuId ?? null;
+        const menuIdNum = Number(menuIdRaw);
+        const menuPayload = menuIdRaw != null ? {
+          menuId: Number.isNaN(menuIdNum) ? menuIdRaw : menuIdNum,
+          name:
+            obj?.menuName ??
+            obj?.menu?.menuName ??
+            obj?.menu?.name ??
+            null,
+          price:
+            obj?.menuPrice ??
+            obj?.menu?.basePrice ??
+            obj?.menu?.price ??
+            null,
+          image:
+            normalizeMenuImage(obj?.menuImage) ??
+            normalizeMenuImage(obj?.menu?.imgUrl) ??
+            normalizeMenuImage(obj?.menu?.image) ??
+            null,
+        } : null;
         const uid = customerIdRef.current;
         const isUser =
           uid != null && senderId != null ? Number(senderId) === Number(uid) : false;
 
         setMessages((prev) => {
           if (prev.some((m) => String(m.id) === String(messageId))) return prev;
-          return [
+          return dedupeMessagesById([
             ...prev,
             {
               id: messageId,
               text: String(content),
               isUser,
               timestamp: hhmm,
+                  messageType,
+                  menu: menuPayload,
             },
-          ];
+          ]);
         });
       } catch (e) {
         refreshMessagesFromServer();
@@ -335,18 +431,7 @@ export default function ChatScreen({ navigation }) {
         const json = await res.json().catch(() => null);
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items
-          .map((m) => {
-            const sentAt = m?.sentAt ? new Date(m.sentAt) : null;
-            const hhmm = sentAt
-              ? sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-              : '';
-            return {
-              id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
-              text: String(m?.content ?? ''),
-              isUser: customerId != null ? Number(m?.senderId) === Number(customerId) : false,
-              timestamp: hhmm,
-            };
-          })
+          .map((m) => normalizeMessageFromApi(m, customerId))
           .filter((m) => m.text);
 
         // API thường trả theo thời gian tăng dần, nếu backend trả ngược thì đảo lại cho đúng.
@@ -357,11 +442,11 @@ export default function ChatScreen({ navigation }) {
         });
 
         if (!cancelled) {
-          setMessages(sorted);
+          setMessages(dedupeMessagesById(sorted));
           // Persist latest messages to cache per user+conversation
           try {
             const cacheKey = `chatMessages:${customerId}:${conversationId}`;
-            await AsyncStorage.setItem(cacheKey, JSON.stringify(sorted));
+            await AsyncStorage.setItem(cacheKey, JSON.stringify(dedupeMessagesById(sorted)));
           } catch (e) {}
         }
       } catch (e) {
@@ -375,40 +460,44 @@ export default function ChatScreen({ navigation }) {
     };
   }, [conversationId, customerId]);
 
-  const handleSend = async () => {
-    const content = inputText.trim();
-    if (!content) return;
-    if (!conversationId || !customerId) return;
-    if (sending) return;
-
+  const sendMessage = async ({ content, messageType, menuId, menuPayload, clearInput = false }) => {
+    if (!conversationId || !customerId) return false;
+    const safeContent = String(content ?? '').trim();
+    if (!safeContent) return false;
+    const msgType = String(messageType ?? 'TEXT').toUpperCase();
     const tmpId = `tmp-${Date.now()}`;
     const now = new Date();
     const optimistic = {
       id: tmpId,
-      text: content,
+      text: safeContent,
       isUser: true,
       timestamp: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      messageType: msgType,
+      menu: menuPayload ?? null,
     };
 
     setSending(true);
-    setInputText('');
-    setMessages((prev) => [...prev, optimistic]);
-
+    if (clearInput) setInputText('');
+    setMessages((prev) => dedupeMessagesById([...prev, optimistic]));
     try {
       const payload = {
         conversationId: hubConversationId,
         senderId: Number(customerId),
-        content,
+        content: safeContent,
+        messageType: msgType,
+        menuId: menuId == null ? null : Number(menuId),
       };
+      const requestBody = JSON.stringify(payload);
+      console.log('[chat/send] body', requestBody);
       const res = await fetch(`${API_URL}/api/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: requestBody,
       });
-      const text = await res.text();
+      const responseText = await res.text();
       let json = null;
       try {
-        json = text ? JSON.parse(text) : null;
+        json = responseText ? JSON.parse(responseText) : null;
       } catch {
         json = null;
       }
@@ -422,20 +511,80 @@ export default function ChatScreen({ navigation }) {
 
       if (messageId != null) {
         setMessages((prev) =>
-          prev.map((m) =>
+          dedupeMessagesById(prev.map((m) =>
             m.id === tmpId
               ? { ...m, id: messageId, timestamp }
               : m,
-          ),
+          )),
         );
       }
+      return true;
     } catch (e) {
       // Nếu lỗi thì bỏ message optimistic để tránh gây nhầm
       setMessages((prev) => prev.filter((m) => m.id !== tmpId));
+      return false;
     } finally {
       setSending(false);
     }
   };
+
+  const handleSend = async () => {
+    const content = inputText.trim();
+    if (!content || sending) return;
+    const hasPendingMenu = !!pendingMenuPreview?.menuId;
+    await sendMessage({
+      content,
+      messageType: hasPendingMenu ? 'MENU' : 'TEXT',
+      menuId: hasPendingMenu ? pendingMenuPreview.menuId : null,
+      menuPayload: hasPendingMenu ? pendingMenuPreview : null,
+      clearInput: true,
+    });
+    if (hasPendingMenu) {
+      setPendingMenuPreview(null);
+    }
+  };
+
+  useEffect(() => {
+    const params = route?.params ?? {};
+    const intentMenuIdRaw = params?.menuId;
+    const intentMenuIdNum = Number(intentMenuIdRaw);
+    if (intentMenuIdRaw == null || Number.isNaN(intentMenuIdNum)) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoadingPendingMenu(true);
+        const res = await fetch(
+          `${API_URL}/api/menu?MenuId=${intentMenuIdNum}&page=1&pageSize=10`,
+        );
+        const json = await res.json().catch(() => null);
+        const first = Array.isArray(json?.items) ? json.items[0] : null;
+        if (cancelled) return;
+        const fallbackName = `Menu #${intentMenuIdNum}`;
+        const preview = {
+          menuId: intentMenuIdNum,
+          name: first?.menuName ?? fallbackName,
+          price: first?.basePrice ?? null,
+          image: normalizeMenuImage(first?.imgUrl),
+        };
+        setPendingMenuPreview(preview);
+      } catch (_) {
+        if (cancelled) return;
+        setPendingMenuPreview({
+          menuId: intentMenuIdNum,
+          name: `Menu #${intentMenuIdNum}`,
+          price: null,
+          image: null,
+        });
+      } finally {
+        if (!cancelled) setLoadingPendingMenu(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [route?.params?.menuId]);
 
   const handleRemoveImage = (messageId) => {
     setMessages(messages.map(msg => 
@@ -524,9 +673,9 @@ export default function ChatScreen({ navigation }) {
              
             </View>
           )}
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <View
-              key={message.id}
+              key={`${String(message.id)}-${index}`}
               style={[
                 styles.messageWrapper,
                 message.isUser ? styles.messageWrapperUser : styles.messageWrapperOther,
@@ -554,14 +703,48 @@ export default function ChatScreen({ navigation }) {
                     </TouchableOpacity>
                   </View>
                 )}
-                <Text
-                  style={[
-                    styles.messageText,
-                    message.isUser ? styles.messageTextUser : styles.messageTextOther,
-                  ]}
-                >
-                  {message.text}
-                </Text>
+                {message.messageType === 'MENU' && message.menu ? (
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={styles.menuCard}
+                    onPress={() => {
+                      if (!message.menu?.menuId) return;
+                      navigation.navigate('MenuDetail', {
+                        menuId: message.menu.menuId,
+                        menuName: message.menu?.name,
+                      });
+                    }}
+                  >
+                    {typeof message.menu?.image === 'string' && message.menu.image ? (
+                      <Image
+                        source={{ uri: message.menu.image }}
+                        style={styles.menuCardImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.menuCardImage, styles.menuCardImagePlaceholder]}>
+                        <Ionicons name="image-outline" size={20} color={TEXT_SECONDARY} />
+                      </View>
+                    )}
+                    <View style={styles.menuCardInfo}>
+                      <Text style={styles.menuCardTitle} numberOfLines={2}>
+                        {message.menu?.name || `Menu #${message.menu?.menuId ?? ''}`}
+                      </Text>
+                      <Text style={styles.menuCardPrice}>
+                        {formatVnd(message.menu?.price) || ' '}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <Text
+                    style={[
+                      styles.messageText,
+                      message.isUser ? styles.messageTextUser : styles.messageTextOther,
+                    ]}
+                  >
+                    {message.text}
+                  </Text>
+                )}
                 {!!message.timestamp && (
                   <Text
                     style={[
@@ -576,6 +759,61 @@ export default function ChatScreen({ navigation }) {
             </View>
           ))}
         </ScrollView>
+
+        {(loadingPendingMenu || pendingMenuPreview) && (
+          <View style={styles.pendingMenuWrap}>
+            <View style={styles.pendingMenuHeader}>
+              <Text style={styles.pendingMenuHeaderText}>
+                Bạn đang trao đổi về menu này
+              </Text>
+              {!!pendingMenuPreview && (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setPendingMenuPreview(null)}
+                  style={styles.pendingMenuClose}
+                >
+                  <Ionicons name="close" size={22} color={TEXT_SECONDARY} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {loadingPendingMenu ? (
+              <View style={[styles.pendingMenuCard, { justifyContent: 'center', height: 84 }]}>
+                <Text style={styles.pendingMenuLoadingText}>Đang tải thông tin menu...</Text>
+              </View>
+            ) : pendingMenuPreview ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.pendingMenuCard}
+                onPress={() =>
+                  navigation.navigate('MenuDetail', {
+                    menuId: pendingMenuPreview.menuId,
+                    menuName: pendingMenuPreview.name,
+                  })
+                }
+              >
+                {pendingMenuPreview.image ? (
+                  <Image
+                    source={{ uri: pendingMenuPreview.image }}
+                    style={styles.pendingMenuImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.pendingMenuImage, styles.menuCardImagePlaceholder]}>
+                    <Ionicons name="image-outline" size={20} color={TEXT_SECONDARY} />
+                  </View>
+                )}
+                <View style={styles.pendingMenuInfo}>
+                  <Text style={styles.pendingMenuName} numberOfLines={2}>
+                    {pendingMenuPreview.name}
+                  </Text>
+                  <Text style={styles.pendingMenuPrice}>
+                    {formatVnd(pendingMenuPreview.price)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
 
         {/* Message Input Bar */}
         <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? insets.bottom : 12 }]}>
@@ -698,6 +936,99 @@ const styles = StyleSheet.create({
   },
   messageTimeOther: {
     textAlign: 'left',
+  },
+  pendingMenuWrap: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
+  pendingMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  pendingMenuHeaderText: {
+    fontSize: 14,
+    color: '#6A6A6A',
+    flex: 1,
+    paddingRight: 8,
+  },
+  pendingMenuClose: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingMenuCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 8,
+  },
+  pendingMenuImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    backgroundColor: '#EFEFEF',
+  },
+  pendingMenuInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  pendingMenuName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  pendingMenuPrice: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+  },
+  pendingMenuLoadingText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  },
+  menuCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    padding: 8,
+    minWidth: 230,
+  },
+  menuCardImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    backgroundColor: '#EFEFEF',
+  },
+  menuCardImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuCardInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  menuCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  menuCardPrice: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
   },
   imageContainer: {
     position: 'relative',
