@@ -28,8 +28,38 @@ const formatVnd = (value) => {
   return `${n.toLocaleString('vi-VN')}đ`;
 };
 
+const buildMessageFingerprint = ({ text, messageType, menuId, isUser }) => {
+  return [
+    isUser ? '1' : '0',
+    String(messageType ?? 'TEXT').toUpperCase(),
+    String(menuId ?? ''),
+    String(text ?? '').trim(),
+  ].join('|');
+};
+
 const normalizeMenuImage = (raw) => {
-  const pick = Array.isArray(raw) ? raw[0] : raw;
+  let pick = raw;
+
+  // API có thể trả JSONB dưới dạng string: "[\"https://...\", ...]"
+  if (typeof pick === 'string') {
+    const trimmed = pick.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        pick = JSON.parse(trimmed);
+      } catch {
+        pick = raw;
+      }
+    }
+  }
+
+  if (Array.isArray(pick)) {
+    pick = pick[0];
+  }
+
+  if (pick && typeof pick === 'object') {
+    pick = pick?.url ?? pick?.uri ?? pick?.image ?? pick?.imgUrl ?? null;
+  }
+
   if (typeof pick !== 'string') return null;
   const uri = pick.trim();
   if (!uri) return null;
@@ -77,6 +107,9 @@ const normalizeMessageFromApi = (m, currentUserId) => {
 
   return {
     id: m?.messageId ?? `${m?.sentAt ?? ''}-${m?.senderId ?? ''}-${m?.content ?? ''}`,
+    clientKey: m?.messageId != null
+      ? `srv-${String(m.messageId)}`
+      : `srv-${String(m?.sentAt ?? '')}-${String(m?.senderId ?? '')}-${String(m?.content ?? '')}`,
     text: String(m?.content ?? ''),
     isUser: currentUserId != null ? Number(m?.senderId) === Number(currentUserId) : false,
     timestamp: hhmm,
@@ -120,6 +153,16 @@ export default function ChatScreen({ navigation, route }) {
   const hubConversationIdRef = React.useRef(null);
   const conversationIdRef = React.useRef(conversationId);
   const customerIdRef = React.useRef(customerId);
+  const pendingOptimisticRef = React.useRef(new Map());
+  const scrollViewRef = React.useRef(null);
+  const shouldAutoScrollRef = React.useRef(true);
+  const didInitialScrollRef = React.useRef(false);
+
+  const scrollToBottom = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd?.({ animated });
+    });
+  }, []);
 
   const toHubConversationId = useCallback((raw) => {
     if (raw == null) return null;
@@ -236,7 +279,7 @@ export default function ChatScreen({ navigation, route }) {
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items
           .map((m) => normalizeMessageFromApi(m, uid))
-          .filter((m) => m.text);
+          .filter((m) => m.text || (m.messageType === 'MENU' && m.menu));
         if (!cancelled) setMessages(dedupeMessagesById(mapped));
       } catch (_) {}
     };
@@ -253,7 +296,6 @@ export default function ChatScreen({ navigation, route }) {
               : {};
         const senderId = obj?.senderId ?? obj?.fromUserId ?? obj?.userId ?? null;
         const content = obj?.content ?? obj?.message ?? obj?.text ?? '';
-        if (!String(content).trim()) return;
         const sentAt = obj?.sentAt ? new Date(obj.sentAt) : new Date();
         const hhmm = sentAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
         const messageId = obj?.messageId ?? obj?.id ?? `rt-${Date.now()}`;
@@ -280,17 +322,56 @@ export default function ChatScreen({ navigation, route }) {
             normalizeMenuImage(obj?.menu?.image) ??
             null,
         } : null;
+        const normalizedContent = String(content ?? '').trim();
+        const isMenuMessage = messageType === 'MENU';
+        if (!normalizedContent && !(isMenuMessage && menuPayload)) return;
         const uid = customerIdRef.current;
         const isUser =
           uid != null && senderId != null ? Number(senderId) === Number(uid) : false;
+        const incomingFingerprint = buildMessageFingerprint({
+          text: normalizedContent,
+          messageType,
+          menuId: menuPayload?.menuId ?? null,
+          isUser,
+        });
 
         setMessages((prev) => {
           if (prev.some((m) => String(m.id) === String(messageId))) return prev;
+
+          // Tin nhắn của chính user: ưu tiên merge vào bubble optimistic để tránh nháy/remount
+          if (isUser) {
+            const now = Date.now();
+            for (const [tmpId, pending] of pendingOptimisticRef.current.entries()) {
+              if (now - pending.createdAt > 25000) {
+                pendingOptimisticRef.current.delete(tmpId);
+                continue;
+              }
+              if (pending.fingerprint !== incomingFingerprint) continue;
+              const idx = prev.findIndex((m) => String(m.id) === String(tmpId));
+              if (idx === -1) {
+                pendingOptimisticRef.current.delete(tmpId);
+                continue;
+              }
+              const next = [...prev];
+              next[idx] = {
+                ...next[idx],
+                id: messageId,
+                text: String(content ?? ''),
+                timestamp: hhmm,
+                messageType,
+                menu: menuPayload,
+              };
+              pendingOptimisticRef.current.delete(tmpId);
+              return dedupeMessagesById(next);
+            }
+          }
+
           return dedupeMessagesById([
             ...prev,
             {
               id: messageId,
-              text: String(content),
+              clientKey: `srv-${String(messageId)}`,
+              text: String(content ?? ''),
               isUser,
               timestamp: hhmm,
                   messageType,
@@ -404,6 +485,12 @@ export default function ChatScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    // Đổi conversation thì reset hành vi auto-scroll
+    didInitialScrollRef.current = false;
+    shouldAutoScrollRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!conversationId) return;
@@ -432,7 +519,7 @@ export default function ChatScreen({ navigation, route }) {
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items
           .map((m) => normalizeMessageFromApi(m, customerId))
-          .filter((m) => m.text);
+          .filter((m) => m.text || (m.messageType === 'MENU' && m.menu));
 
         // API thường trả theo thời gian tăng dần, nếu backend trả ngược thì đảo lại cho đúng.
         const sorted = [...mapped].sort((a, b) => {
@@ -460,6 +547,24 @@ export default function ChatScreen({ navigation, route }) {
     };
   }, [conversationId, customerId]);
 
+  useEffect(() => {
+    // Sau khi hydrate/xong tải lần đầu: luôn nhảy xuống cuối để thấy tin mới nhất
+    if (!messagesHydrated || initializingConversation || loadingMessages) return;
+    if (!messages.length) return;
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true;
+      scrollToBottom(false);
+    }
+  }, [messagesHydrated, initializingConversation, loadingMessages, messages.length, scrollToBottom]);
+
+  useEffect(() => {
+    // Tin nhắn mới đến: chỉ auto-scroll nếu user đang ở gần cuối
+    if (!messagesHydrated || !messages.length) return;
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom(true);
+    }
+  }, [messages, messagesHydrated, scrollToBottom]);
+
   const sendMessage = async ({ content, messageType, menuId, menuPayload, clearInput = false }) => {
     if (!conversationId || !customerId) return false;
     const safeContent = String(content ?? '').trim();
@@ -469,16 +574,27 @@ export default function ChatScreen({ navigation, route }) {
     const now = new Date();
     const optimistic = {
       id: tmpId,
+      clientKey: tmpId,
       text: safeContent,
       isUser: true,
       timestamp: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       messageType: msgType,
       menu: menuPayload ?? null,
     };
+    const optimisticFingerprint = buildMessageFingerprint({
+      text: safeContent,
+      messageType: msgType,
+      menuId: menuId == null ? null : Number(menuId),
+      isUser: true,
+    });
 
     setSending(true);
     if (clearInput) setInputText('');
     setMessages((prev) => dedupeMessagesById([...prev, optimistic]));
+    pendingOptimisticRef.current.set(tmpId, {
+      fingerprint: optimisticFingerprint,
+      createdAt: Date.now(),
+    });
     try {
       const payload = {
         conversationId: hubConversationId,
@@ -518,10 +634,12 @@ export default function ChatScreen({ navigation, route }) {
           )),
         );
       }
+      pendingOptimisticRef.current.delete(tmpId);
       return true;
     } catch (e) {
       // Nếu lỗi thì bỏ message optimistic để tránh gây nhầm
       setMessages((prev) => prev.filter((m) => m.id !== tmpId));
+      pendingOptimisticRef.current.delete(tmpId);
       return false;
     } finally {
       setSending(false);
@@ -614,10 +732,17 @@ export default function ChatScreen({ navigation, route }) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
+          ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScroll={(event) => {
+            const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+            const distanceToBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+            shouldAutoScrollRef.current = distanceToBottom < 80;
+          }}
+          scrollEventThrottle={16}
         >
           {(messages.length === 0 && (!messagesHydrated || initializingConversation || loadingMessages)) && (
             <View style={{ paddingTop: 6 }}>
@@ -675,7 +800,7 @@ export default function ChatScreen({ navigation, route }) {
           )}
           {messages.map((message, index) => (
             <View
-              key={`${String(message.id)}-${index}`}
+              key={String(message.clientKey ?? message.id ?? index)}
               style={[
                 styles.messageWrapper,
                 message.isUser ? styles.messageWrapperUser : styles.messageWrapperOther,
@@ -704,37 +829,50 @@ export default function ChatScreen({ navigation, route }) {
                   </View>
                 )}
                 {message.messageType === 'MENU' && message.menu ? (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    style={styles.menuCard}
-                    onPress={() => {
-                      if (!message.menu?.menuId) return;
-                      navigation.navigate('MenuDetail', {
-                        menuId: message.menu.menuId,
-                        menuName: message.menu?.name,
-                      });
-                    }}
-                  >
-                    {typeof message.menu?.image === 'string' && message.menu.image ? (
-                      <Image
-                        source={{ uri: message.menu.image }}
-                        style={styles.menuCardImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.menuCardImage, styles.menuCardImagePlaceholder]}>
-                        <Ionicons name="image-outline" size={20} color={TEXT_SECONDARY} />
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={styles.menuCard}
+                      onPress={() => {
+                        if (!message.menu?.menuId) return;
+                        navigation.navigate('MenuDetail', {
+                          menuId: message.menu.menuId,
+                          menuName: message.menu?.name,
+                        });
+                      }}
+                    >
+                      {typeof message.menu?.image === 'string' && message.menu.image ? (
+                        <Image
+                          source={{ uri: message.menu.image }}
+                          style={styles.menuCardImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.menuCardImage, styles.menuCardImagePlaceholder]}>
+                          <Ionicons name="image-outline" size={20} color={TEXT_SECONDARY} />
+                        </View>
+                      )}
+                      <View style={styles.menuCardInfo}>
+                        <Text style={styles.menuCardTitle} numberOfLines={2}>
+                          {message.menu?.name || `Menu #${message.menu?.menuId ?? ''}`}
+                        </Text>
+                        <Text style={styles.menuCardPrice}>
+                          {formatVnd(message.menu?.price) || ' '}
+                        </Text>
                       </View>
+                    </TouchableOpacity>
+                    {!!String(message.text ?? '').trim() && (
+                      <Text
+                        style={[
+                          styles.messageText,
+                          styles.menuMessageText,
+                          message.isUser ? styles.messageTextUser : styles.messageTextOther,
+                        ]}
+                      >
+                        {message.text}
+                      </Text>
                     )}
-                    <View style={styles.menuCardInfo}>
-                      <Text style={styles.menuCardTitle} numberOfLines={2}>
-                        {message.menu?.name || `Menu #${message.menu?.menuId ?? ''}`}
-                      </Text>
-                      <Text style={styles.menuCardPrice}>
-                        {formatVnd(message.menu?.price) || ' '}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                  </>
                 ) : (
                   <Text
                     style={[
@@ -1029,6 +1167,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  menuMessageText: {
+    marginTop: 8,
   },
   imageContainer: {
     position: 'relative',
