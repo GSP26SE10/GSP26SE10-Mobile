@@ -49,6 +49,7 @@ const normalizeService = (serviceFromRoute) => {
 
 export default function ServiceDetailScreen({ navigation, route }) {
   const raw = route?.params?.service;
+  const readOnly = route?.params?.readOnly === true;
   const service = normalizeService(raw);
   const priceText = service.priceFormatted || formatPrice(service.basePrice);
   const imageUri = service.image;
@@ -240,18 +241,20 @@ export default function ServiceDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      <SafeAreaView edges={['bottom']} style={styles.bottomBarSafe}>
-        <View style={styles.bottomBar}>
-          <Text style={styles.bottomPrice}>{priceText}</Text>
-          <TouchableOpacity
-            style={styles.chooseButton}
-            onPress={handleChooseService}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chooseButtonText}>Chọn dịch vụ</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      {!readOnly && (
+        <SafeAreaView edges={['bottom']} style={styles.bottomBarSafe}>
+          <View style={styles.bottomBar}>
+            <Text style={styles.bottomPrice}>{priceText}</Text>
+            <TouchableOpacity
+              style={styles.chooseButton}
+              onPress={handleChooseService}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.chooseButtonText}>Chọn dịch vụ</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )}
     </SafeAreaView>
   );
 }

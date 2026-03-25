@@ -44,6 +44,7 @@ const normalizeDish = (dishFromRoute) => {
 
 export default function DishDetailScreen({ navigation, route }) {
   const raw = route?.params?.dish;
+  const readOnly = route?.params?.readOnly === true;
   const dish = normalizeDish(raw);
   const priceText = dish.priceFormatted || formatPrice(dish.price);
   const imageUri = dish.image;
@@ -225,18 +226,20 @@ export default function DishDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      <SafeAreaView edges={['bottom']} style={styles.bottomBarSafe}>
-        <View style={styles.bottomBar}>
-          <Text style={styles.bottomPrice}>{priceText}</Text>
-          <TouchableOpacity
-            style={styles.chooseButton}
-            onPress={handleChooseDish}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chooseButtonText}>Thêm vào giỏ</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      {!readOnly && (
+        <SafeAreaView edges={['bottom']} style={styles.bottomBarSafe}>
+          <View style={styles.bottomBar}>
+            <Text style={styles.bottomPrice}>{priceText}</Text>
+            <TouchableOpacity
+              style={styles.chooseButton}
+              onPress={handleChooseDish}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.chooseButtonText}>Thêm vào giỏ</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )}
     </SafeAreaView>
   );
 }

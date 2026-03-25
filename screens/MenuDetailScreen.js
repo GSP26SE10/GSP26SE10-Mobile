@@ -45,6 +45,7 @@ export default function MenuDetailScreen({ navigation, route }) {
   const menuCategoryId = route?.params?.menuCategoryId;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
   const fromStaff = route?.params?.fromStaff || false;
+  const readOnly = route?.params?.readOnly === true;
   const menuNameFromParams = route?.params?.menuName;
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -411,7 +412,7 @@ export default function MenuDetailScreen({ navigation, route }) {
         </View>
 
         {/* Similar Menus */}
-        {!!menuCategoryId && (
+        {false && !!menuCategoryId && (
           <View style={styles.similarSection}>
             <Text style={styles.similarTitle}>Menu tương tự</Text>
             {isLoadingSimilar ? (
@@ -474,7 +475,7 @@ export default function MenuDetailScreen({ navigation, route }) {
       </ScrollView>
 
       {/* Bottom Action Bar (ẩn với staff) */}
-      {!fromStaff && (
+      {!fromStaff && !readOnly && (
         <View style={styles.bottomBar}>
           {isLoadingMenuInfo ? (
             <SkeletonBox style={{ width: 120, height: 24, borderRadius: 6 }} />

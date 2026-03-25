@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import BottomNavigation from '../components/BottomNavigation';
 import API_URL from '../constants/api';
 import { requireAuth } from '../utils/auth';
-import { addServiceToCart, addDishToCart } from '../utils/cartStorage';
+import { addServiceToCart, addDishToCart, getCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY } from '../constants/colors';
 
@@ -25,6 +25,7 @@ const TABS = ['Dịch vụ', 'Món lẻ'];
 
 let serviceDataCache = { services: null, fetched: false };
 let dishDataCache = { dishes: null, fetched: false };
+let menuDishMapCache = { byMenuId: null, fetched: false };
 let lastActiveTab = 0;
 
 const formatPrice = (price) => {
@@ -50,6 +51,8 @@ export default function ServiceScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [activeMenuId, setActiveMenuId] = useState(null);
+  const [excludedDishIds, setExcludedDishIds] = useState(() => new Set());
 
   const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
 
@@ -65,6 +68,11 @@ export default function ServiceScreen({ navigation }) {
       tension: 68,
       friction: 10,
     }).start();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 1) return;
+    refreshDishFilterContext(false);
   }, [activeTab]);
 
   const loadServices = async (forceRefresh = false) => {
@@ -130,14 +138,65 @@ export default function ServiceScreen({ navigation }) {
     }
   };
 
+  const loadMenuDishMap = async (forceRefresh = false) => {
+    if (!forceRefresh && menuDishMapCache.fetched && menuDishMapCache.byMenuId) {
+      return menuDishMapCache.byMenuId;
+    }
+    const byMenuId = {};
+    let page = 1;
+    let totalPages = 1;
+    try {
+      do {
+        const res = await fetch(`${API_URL}/api/menu-dish?page=${page}&pageSize=100`);
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : [];
+        totalPages = Number(json?.totalPages ?? 1);
+        items.forEach((it) => {
+          const menuId = Number(it?.menuId ?? 0);
+          const dishId = Number(it?.dishId ?? 0);
+          if (!menuId || !dishId) return;
+          if (!byMenuId[menuId]) byMenuId[menuId] = new Set();
+          byMenuId[menuId].add(dishId);
+        });
+        page += 1;
+      } while (page <= totalPages);
+    } catch (error) {
+      console.error('Failed to fetch menu dishes', error);
+    }
+    menuDishMapCache = { byMenuId, fetched: true };
+    return byMenuId;
+  };
+
+  const refreshDishFilterContext = async (forceRefresh = false) => {
+    const items = await getCart();
+    const selectedMenu = (items || []).find((i) => i.type === 'menu' && Number(i.menuId) > 0);
+    const selectedMenuId = Number(selectedMenu?.menuId ?? 0);
+    if (!selectedMenuId) {
+      setActiveMenuId(null);
+      setExcludedDishIds(new Set());
+      return;
+    }
+    const byMenuId = await loadMenuDishMap(forceRefresh);
+    setActiveMenuId(selectedMenuId);
+    setExcludedDishIds(new Set(byMenuId?.[selectedMenuId] ?? []));
+  };
+
   useEffect(() => {
-    loadServices(false);
-    loadDishes(false);
+    (async () => {
+      await Promise.all([loadServices(false), loadDishes(false)]);
+      await refreshDishFilterContext(false);
+    })();
   }, []);
 
   const handleRefresh = () => {
-    if (activeTab === 0) loadServices(true);
-    else loadDishes(true);
+    if (activeTab === 0) {
+      loadServices(true);
+      return;
+    }
+    (async () => {
+      await loadDishes(true);
+      await refreshDishFilterContext(true);
+    })();
   };
 
   const handleAddService = async (service) => {
@@ -151,6 +210,10 @@ export default function ServiceScreen({ navigation }) {
   };
 
   const handleAddDish = async (dish) => {
+    if (!activeMenuId) {
+      showToast('Vui lòng chọn menu trước!');
+      return;
+    }
     const ok = await requireAuth(navigation, {
       returnScreen: 'DishDetail',
       returnParams: { dish },
@@ -172,6 +235,7 @@ export default function ServiceScreen({ navigation }) {
   });
 
   const filteredDishes = dishes.filter((d) => {
+    if (activeMenuId && excludedDishIds.has(Number(d?.dishId ?? 0))) return false;
     if (!searchQuery.trim()) return true;
     return d.dishName?.toLowerCase().includes(searchQuery.trim().toLowerCase());
   });
@@ -231,12 +295,25 @@ export default function ServiceScreen({ navigation }) {
 
   const renderDishList = () => {
     if (isLoadingDishes) return renderSkeletons();
+    if (filteredDishes.length === 0) {
+      return (
+        <View style={styles.emptyStateWrap}>
+          <Text style={styles.emptyStateText}>Không còn món lẻ ngoài menu đã chọn</Text>
+        </View>
+      );
+    }
     return filteredDishes.map((dish) => (
       <TouchableOpacity
         key={dish.dishId}
         style={styles.serviceCard}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('DishDetail', { dish })}
+        onPress={() => {
+          if (!activeMenuId) {
+            showToast('Vui lòng chọn menu trước!');
+            return;
+          }
+          navigation.navigate('DishDetail', { dish });
+        }}
       >
         {dish.image ? (
           <Image
@@ -472,5 +549,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  emptyStateWrap: {
+    paddingTop: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

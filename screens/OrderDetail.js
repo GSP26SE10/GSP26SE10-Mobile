@@ -659,9 +659,22 @@ export default function OrderDetail({ navigation, route }) {
               <View key={od.orderDetailId ?? idx} style={[styles.detailBlock, idx === 0 && styles.detailBlockFirst]}>
                 <View style={styles.detailCard}>
                   <View style={styles.detailCardHeader}>
-                    <Text style={styles.detailBlockTitle} numberOfLines={1}>
-                      Tiệc {od.menuName ?? menuSnapshot.menuName ?? 'Menu'}
-                    </Text>
+                    <TouchableOpacity
+                      style={styles.detailMenuTitleWrap}
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        navigation.navigate('MenuDetail', {
+                          menuId: od.menuId ?? menuSnapshot.menuId,
+                          menuCategoryId: od.partyCategoryId ?? null,
+                          menuName: od.menuName ?? menuSnapshot.menuName ?? 'Menu',
+                          readOnly: true,
+                        })
+                      }
+                    >
+                      <Text style={styles.detailBlockTitle} numberOfLines={1}>
+                        Tiệc {od.menuName ?? menuSnapshot.menuName ?? 'Menu'}
+                      </Text>
+                    </TouchableOpacity>
                     {dishes.length > 0 && (
                       <TouchableOpacity
                         style={styles.dishesDropdown}
@@ -733,7 +746,23 @@ export default function OrderDetail({ navigation, route }) {
                     {services.map((s, i) => {
                       const serviceImg = s.img ?? (Array.isArray(s.imgUrl) ? s.imgUrl[0] : s.imgUrl);
                       return (
-                        <View key={`${s.serviceId}-${i}`} style={styles.serviceRow}>
+                        <TouchableOpacity
+                          key={`${s.serviceId}-${i}`}
+                          style={styles.serviceRow}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            navigation.navigate('ServiceDetail', {
+                              service: {
+                                serviceId: s.serviceId,
+                                serviceName: s.serviceName,
+                                basePrice: s.basePrice,
+                                image: serviceImg || null,
+                                description: s.description || '',
+                              },
+                              readOnly: true,
+                            })
+                          }
+                        >
                           {serviceImg ? (
                             <ExpoImage source={{ uri: serviceImg }} style={styles.serviceThumb} contentFit="cover" cachePolicy="disk" />
                           ) : (
@@ -745,7 +774,7 @@ export default function OrderDetail({ navigation, route }) {
                             <Text style={styles.serviceName}>{s.serviceName}</Text>
                             <Text style={styles.serviceMeta}>SL: {s.quantity ?? 1} × {formatVnd(s.basePrice)}</Text>
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </View>
@@ -758,7 +787,24 @@ export default function OrderDetail({ navigation, route }) {
                       const total = Number(d?.totalAmount ?? d?.unitPrice ?? 0);
                       const unit = Number(d?.unitPrice ?? total ?? 0);
                       return (
-                        <View key={`${d?.dishId ?? 'custom-dish'}-${i}`} style={styles.serviceRow}>
+                        <TouchableOpacity
+                          key={`${d?.dishId ?? 'custom-dish'}-${i}`}
+                          style={styles.serviceRow}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            navigation.navigate('DishDetail', {
+                              dish: {
+                                dishId: d?.dishId,
+                                dishName: d?.dishName || 'Món lẻ',
+                                price: unit,
+                                image: dishImg || null,
+                                description: '',
+                                note: '',
+                              },
+                              readOnly: true,
+                            })
+                          }
+                        >
                           {dishImg ? (
                             <ExpoImage source={{ uri: String(dishImg) }} style={styles.serviceThumb} contentFit="cover" cachePolicy="disk" />
                           ) : (
@@ -772,7 +818,7 @@ export default function OrderDetail({ navigation, route }) {
                               Đơn giá: {formatVnd(unit)} · Thành tiền: {formatVnd(total)}
                             </Text>
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </View>
@@ -1565,12 +1611,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
+  detailMenuTitleWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
   detailBlockTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: TEXT_PRIMARY,
     flex: 1,
-    marginRight: 8,
   },
   dishesDropdown: {
     alignItems: 'center',
