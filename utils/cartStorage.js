@@ -4,6 +4,25 @@ const LEGACY_CART_KEY = 'cart';
 const PARTIES_KEY_PREFIX = 'orderParties';
 const ACTIVE_PARTY_KEY_PREFIX = 'activePartyId';
 
+const orderPartiesChangeListeners = new Set();
+
+/** Gọi sau khi danh sách tiệc/giỏ được lưu — dùng cho badge giỏ ở bottom bar. */
+export function subscribeOrderPartiesChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  orderPartiesChangeListeners.add(listener);
+  return () => orderPartiesChangeListeners.delete(listener);
+}
+
+function notifyOrderPartiesChange() {
+  orderPartiesChangeListeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      // ignore
+    }
+  });
+}
+
 async function getCurrentUserId() {
   try {
     const raw = await AsyncStorage.getItem('userData');
@@ -81,6 +100,7 @@ export async function setOrderParties(parties) {
   try {
     const key = await getPartiesKey();
     await AsyncStorage.setItem(key, JSON.stringify(Array.isArray(parties) ? parties : []));
+    notifyOrderPartiesChange();
   } catch (e) {
     console.error('Failed to save order parties', e);
   }

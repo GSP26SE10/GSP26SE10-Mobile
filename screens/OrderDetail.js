@@ -279,6 +279,8 @@ export default function OrderDetail({ navigation, route }) {
   const paymentRemainingAfterExtra = Math.max(0, Number(order?.totalPrice ?? 0) + extraChargeTotal - paidAmount);
   const isPaidFullAfterExtra = paymentRemainingAfterExtra <= 0;
 
+  // Enum Order:
+  // 1 Pending, 2 Approved, 3 Rejected, 4 Preparing, 5 InProgress, 6 Billing, 7 Completed, 8 Cancelled
   const mapOrderStatusToPartyStatus = (orderStatus) => {
     switch (orderStatus) {
       case 1:
@@ -298,11 +300,38 @@ export default function OrderDetail({ navigation, route }) {
     }
   };
 
+  // Enum OrderDetail:
+  // 1 Pending, 2 Approved, 3 Rejected, 4 Preparing, 5 InProgress, 6 Completed, 7 Cancelled
+  const mapOrderDetailStatusToPartyStatus = (orderDetailStatus) => {
+    switch (orderDetailStatus) {
+      case 1:
+      case 2:
+      case 4:
+        return 'Sắp tới';
+      case 5:
+        return 'Đang diễn ra';
+      case 6:
+        return 'Kết thúc tiệc';
+      case 3:
+      case 7:
+        return 'Bị hủy';
+      default:
+        return null;
+    }
+  };
+
   const getOrderDetailStatusLabel = (od) => {
-    const statusNum = Number(
-      od?.status ?? od?.orderStatus ?? od?.orderDetailStatus ?? order?.status ?? 0
+    const orderStatus = Number(order?.status ?? 0);
+    // Ưu tiên trạng thái đơn cha khi đơn tổng đã bị từ chối/hủy.
+    if (orderStatus === 3 || orderStatus === 8) {
+      return 'Bị hủy';
+    }
+    const detailStatusNum = Number(
+      od?.status ?? od?.orderDetailStatus ?? od?.orderStatus ?? 0
     );
-    return mapOrderStatusToPartyStatus(statusNum);
+    const byDetail = mapOrderDetailStatusToPartyStatus(detailStatusNum);
+    if (byDetail) return byDetail;
+    return mapOrderStatusToPartyStatus(orderStatus);
   };
 
   const getDetailImageUri = (detail) => {
@@ -757,12 +786,14 @@ export default function OrderDetail({ navigation, route }) {
                 {(() => {
                   const detailStatusLabel = getOrderDetailStatusLabel(od);
                   if (!detailStatusLabel) return null;
+                  const isCancelledStatus = detailStatusLabel === 'Bị hủy';
+                  const statusSteps = isCancelledStatus
+                    ? ['Bị hủy']
+                    : ['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'];
                   return (
                     <View style={styles.statusSteps}>
-                      {['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].map((step, index, arr) => {
-                        const currentIndex = ['Sắp tới', 'Đang diễn ra', 'Kết thúc tiệc'].indexOf(
-                          detailStatusLabel,
-                        );
+                      {statusSteps.map((step, index, arr) => {
+                        const currentIndex = statusSteps.indexOf(detailStatusLabel);
                         const isActive =
                           currentIndex >= 0 ? index <= currentIndex : step === detailStatusLabel;
                         return (

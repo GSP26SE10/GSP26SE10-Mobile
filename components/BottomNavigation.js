@@ -10,6 +10,19 @@ import {
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIMARY_COLOR, TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
+import { getOrderParties, subscribeOrderPartiesChange } from '../utils/cartStorage';
+
+function countCartItems(parties) {
+  if (!Array.isArray(parties)) return 0;
+  return parties.reduce((acc, party) => {
+    const items = party?.items;
+    if (!Array.isArray(items)) return acc;
+    return (
+      acc +
+      items.reduce((sum, item) => sum + Math.max(0, Number(item?.count) || 0), 0)
+    );
+  }, 0);
+}
 
 const { width } = Dimensions.get('window');
 const NAV_BAR_PADDING = 16 * 2; // paddingHorizontal của container
@@ -44,7 +57,22 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
+  const [cartBadgeCount, setCartBadgeCount] = React.useState(0);
   const initializedRef = React.useRef(false);
+
+  const refreshCartBadge = React.useCallback(async () => {
+    try {
+      const parties = await getOrderParties();
+      setCartBadgeCount(countCartItems(parties));
+    } catch {
+      setCartBadgeCount(0);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    refreshCartBadge();
+    return subscribeOrderPartiesChange(refreshCartBadge);
+  }, [refreshCartBadge]);
 
   const handleNavBarLayout = (event) => {
     const { width } = event.nativeEvent.layout;
@@ -135,11 +163,20 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
                 onPress={() => onTabPress(tab.key)}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name={isActive ? tab.iconActive : tab.icon}
-                  size={24}
-                  style={[styles.icon, isActive && styles.iconActive]}
-                />
+                <View style={styles.iconBadgeWrap}>
+                  <Ionicons
+                    name={isActive ? tab.iconActive : tab.icon}
+                    size={24}
+                    style={[styles.icon, isActive && styles.iconActive]}
+                  />
+                  {tab.key === 'Orders' && activeTab !== 'Orders' && cartBadgeCount > 0 ? (
+                    <View style={styles.cartBadge} pointerEvents="none">
+                      <Text style={styles.cartBadgeText} allowFontScaling={false}>
+                        {cartBadgeCount > 99 ? '99+' : String(cartBadgeCount)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 {isActive && (
                   <Text 
                     style={styles.label} 
@@ -211,6 +248,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, // Giảm từ 12 xuống 8 để tiết kiệm không gian
     zIndex: 1,
     minWidth: 0,
+  },
+  iconBadgeWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: BUTTON_TEXT_WHITE,
+  },
+  cartBadgeText: {
+    color: BUTTON_TEXT_WHITE,
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 12,
   },
   icon: {
     color: TEXT_PRIMARY,
