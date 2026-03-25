@@ -42,6 +42,8 @@ import StaffNotificationScreen from "./screens/StaffNotificationScreen";
 import LeaderNotificationScreen from "./screens/LeaderNotificationScreen";
 import FeedbackScreen from "./screens/FeedbackScreen";
 import DishDetailScreen from "./screens/DishDetailScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+import ChangePasswordScreen from "./screens/ChangePassword";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY } from "./constants/colors";
 
@@ -162,6 +164,10 @@ export default function App() {
         return <ContactScreen navigation={navigation} />;
       case "Account":
         return <AccountScreen navigation={navigation} />;
+      case "Profile":
+        return <ProfileScreen navigation={navigation} />;
+      case "ChangePassword":
+        return <ChangePasswordScreen navigation={navigation} />;
       case "MenuList":
         return <MenuListScreen navigation={navigation} route={{ params: screenParams }} />;
       case "MenuDetail":

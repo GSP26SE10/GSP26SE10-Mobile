@@ -82,39 +82,20 @@ export default function AccountScreen({ navigation }) {
           
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => {
-              // TODO: Navigate to settings
-              console.log('Settings');
-            }}
+            onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuText}>Cài đặt</Text>
+            <Text style={styles.menuText}>Thông tin cá nhân</Text>
             <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <View style={styles.menuDivider} />
-          
+
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => {
-              // TODO: Navigate to settings
-              console.log('Settings');
-            }}
+            onPress={() => navigation.navigate('ChangePassword')}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuText}>Cài đặt</Text>
-            <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
-          </TouchableOpacity>
-          <View style={styles.menuDivider} />
-          
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => {
-              // TODO: Navigate to settings
-              console.log('Settings');
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.menuText}>Cài đặt</Text>
+            <Text style={styles.menuText}>Đổi mật khẩu</Text>
             <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
           </TouchableOpacity>
         </View>
