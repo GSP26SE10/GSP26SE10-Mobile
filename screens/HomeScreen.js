@@ -8,12 +8,14 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNavigation from '../components/BottomNavigation';
 import Toast from '../components/Toast';
 import API_URL from '../constants/api';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { getAccessToken } from '../utils/auth';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -125,6 +127,16 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
+  const handleAiSuggestionPress = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMessage('Tính năng này chỉ hỗ trợ khi đăng nhập');
+      setToastVisible(true);
+      return;
+    }
+    navigation.navigate('AiSuggestion');
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Toast
@@ -147,7 +159,17 @@ export default function HomeScreen({ navigation, route }) {
       >
         {/* Greeting */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>{greetingText}</Text>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.greeting}>{greetingText}</Text>
+            <TouchableOpacity
+              style={styles.aiButton}
+              onPress={handleAiSuggestionPress}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="sparkles-outline" size={16} color={BACKGROUND_WHITE} />
+              <Text style={styles.aiButtonText}>AI</Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.tagline}>Thưởng thức buffet đa dạng tại Bookfet!</Text>
         </View>
 
@@ -261,11 +283,31 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 24,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   greeting: {
     fontSize: 24,
     fontWeight: 'bold',
     color: TEXT_PRIMARY,
     marginBottom: 8,
+  },
+  aiButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: PRIMARY_COLOR,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+    marginBottom: 8,
+  },
+  aiButtonText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 12,
+    fontWeight: '700',
   },
   tagline: {
     fontSize: 16,

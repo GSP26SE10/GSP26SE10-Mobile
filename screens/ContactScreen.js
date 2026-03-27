@@ -153,7 +153,7 @@ export default function ContactScreen({ navigation }) {
             activeOpacity={0.7}
           >
             <Ionicons name="chatbubble-outline" size={24} color={TEXT_PRIMARY} />
-            <Text style={styles.contactText}>Chat với chủ cửa hàng</Text>
+            <Text style={styles.contactChatText}>Chat với chủ cửa hàng</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -290,5 +290,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: TEXT_PRIMARY,
     textDecorationLine: 'underline',
+  },
+    contactChatText: {
+    fontSize: 24,
+    color: TEXT_PRIMARY
   },
 });

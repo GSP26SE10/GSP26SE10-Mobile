@@ -96,6 +96,34 @@ export async function getOrderParties() {
   }
 }
 
+/**
+ * Xoa toan bo du lieu gio hang khi logout va thong bao cap nhat badge.
+ */
+export async function clearCartOnLogout() {
+  try {
+    const userId = await getCurrentUserId();
+    const keysToRemove = [
+      PARTIES_KEY_PREFIX,
+      ACTIVE_PARTY_KEY_PREFIX,
+      LEGACY_CART_KEY,
+    ];
+
+    if (userId) {
+      keysToRemove.push(
+        `${PARTIES_KEY_PREFIX}:${userId}`,
+        `${ACTIVE_PARTY_KEY_PREFIX}:${userId}`,
+        `${LEGACY_CART_KEY}:${userId}`
+      );
+    }
+
+    await AsyncStorage.multiRemove(keysToRemove);
+  } catch (e) {
+    console.error('Failed to clear cart on logout', e);
+  } finally {
+    notifyOrderPartiesChange();
+  }
+}
+
 export async function setOrderParties(parties) {
   try {
     const key = await getPartiesKey();

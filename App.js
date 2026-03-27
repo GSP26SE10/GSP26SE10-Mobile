@@ -44,6 +44,7 @@ import FeedbackScreen from "./screens/FeedbackScreen";
 import DishDetailScreen from "./screens/DishDetailScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ChangePasswordScreen from "./screens/ChangePassword";
+import AiSuggestionScreen from "./screens/AiSuggestion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY } from "./constants/colors";
 
@@ -212,6 +213,8 @@ export default function App() {
         return <FeedbackScreen navigation={navigation} route={{ params: screenParams }} />;
       case "DishDetail":
         return <DishDetailScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "AiSuggestion":
+        return <AiSuggestionScreen navigation={navigation} route={{ params: screenParams }} />;
       default:
         return <LoginScreen navigation={navigation} />;
     }
