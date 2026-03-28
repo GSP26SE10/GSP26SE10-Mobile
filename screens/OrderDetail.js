@@ -12,6 +12,7 @@ import {
   TouchableWithoutFeedback,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -129,6 +130,9 @@ export default function OrderDetail({ navigation, route }) {
   const [feedbackImages, setFeedbackImages] = useState([]); // [{ uri, type, name }]
   const [previewFeedbackImage, setPreviewFeedbackImage] = useState('');
   const [previewExtraChargeImage, setPreviewExtraChargeImage] = useState('');
+  const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancellingOrder, setCancellingOrder] = useState(false);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
@@ -248,6 +252,7 @@ export default function OrderDetail({ navigation, route }) {
   const orderDetails = order?.orderDetails ?? [];
   const canCancel = order?.status === 1;
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
+  const canSubmitCancel = cancelReason.trim().length > 0 && !cancellingOrder;
   const isCompleted = Number(order?.status) === 7;
   const isOrderRejectedOrCancelled = [3, 8].includes(Number(order?.status));
   const orderReasonText = String(order?.noteOrder ?? '').trim();
@@ -573,6 +578,58 @@ export default function OrderDetail({ navigation, route }) {
       // bỏ qua lỗi, có thể bổ sung toast sau
     } finally {
       setSubmittingFeedback(false);
+    }
+  };
+
+  const openCancelPolicy = async () => {
+    try {
+      await Linking.openURL('https://bookfet.vercel.app/policy');
+    } catch (_) {
+      Alert.alert('Lỗi', 'Không thể mở trang chính sách.');
+    }
+  };
+
+  const handleCancelOrder = async () => {
+    const reason = cancelReason.trim();
+    if (!orderId || cancellingOrder || !reason) return;
+    try {
+      setCancellingOrder(true);
+      const accessToken = await AsyncStorage.getItem('accessToken');
+      const res = await fetch(`${API_URL}/api/order/${orderId}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ reason }),
+      });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+
+      if (!res.ok || json?.success === false) {
+        throw new Error(json?.message || 'Không thể hủy đơn hàng.');
+      }
+
+      setOrder((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 8,
+          noteOrder: reason,
+        };
+      });
+      setCancelConfirmVisible(false);
+      setCancelReason('');
+      Alert.alert('Thành công', 'Đã hủy đơn hàng.');
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể hủy đơn hàng.');
+    } finally {
+      setCancellingOrder(false);
     }
   };
 
@@ -1435,6 +1492,73 @@ export default function OrderDetail({ navigation, route }) {
         </View>
       </Modal>
 
+      <Modal
+        visible={cancelConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!cancellingOrder) {
+            setCancelConfirmVisible(false);
+            setCancelReason('');
+          }
+        }}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={styles.cancelOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
+              <View style={styles.cancelCard}>
+                <Text style={styles.cancelTitle}>Xác nhận hủy đơn</Text>
+                <Text style={styles.cancelBody}>
+                  Bạn có chắc muốn hủy đơn, đọc thêm về chính sách hủy đơn/hoàn tiền của chúng tôi{' '}
+                  <Text style={styles.cancelPolicyLink} onPress={openCancelPolicy}>tại đây</Text>
+                </Text>
+
+                <TextInput
+                  style={styles.cancelReasonInput}
+                  placeholder="Nhập lý do hủy đơn"
+                  placeholderTextColor="#9CA3AF"
+                  value={cancelReason}
+                  onChangeText={setCancelReason}
+                  multiline
+                  maxLength={500}
+                  editable={!cancellingOrder}
+                  textAlignVertical="top"
+                />
+
+                <View style={styles.cancelActions}>
+                  <TouchableOpacity
+                    style={[styles.cancelActionBtn, styles.cancelActionBtnSecondary]}
+                    activeOpacity={0.85}
+                    disabled={cancellingOrder}
+                    onPress={() => {
+                      setCancelConfirmVisible(false);
+                      setCancelReason('');
+                    }}
+                  >
+                    <Text style={styles.cancelActionSecondaryText}>Đóng</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.cancelActionBtn,
+                      styles.cancelActionBtnDanger,
+                      !canSubmitCancel && styles.cancelButtonDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={!canSubmitCancel}
+                    onPress={handleCancelOrder}
+                  >
+                    <Text style={styles.cancelActionDangerText}>
+                      {cancellingOrder ? 'Đang hủy...' : 'Hủy tiệc'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* Bottom: cancel button if pending and not from "Đang diễn ra" tab */}
       {showCancelButton && (
         <SafeAreaView edges={['bottom']} style={styles.bottomSafe}>
@@ -1443,7 +1567,8 @@ export default function OrderDetail({ navigation, route }) {
               style={styles.cancelButton}
               activeOpacity={0.8}
               onPress={() => {
-                // TODO: call cancel API when backend ready
+                setCancelReason('');
+                setCancelConfirmVisible(true);
               }}
             >
               <Text style={styles.cancelButtonText}>Hủy đơn</Text>
@@ -1924,6 +2049,76 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: BACKGROUND_WHITE,
     fontSize: 16,
+    fontWeight: '700',
+  },
+  cancelOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  cancelCard: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 16,
+    padding: 16,
+  },
+  cancelTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  cancelBody: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    lineHeight: 20,
+  },
+  cancelPolicyLink: {
+    color: TEXT_PRIMARY,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
+  },
+  cancelReasonInput: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 10,
+    minHeight: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: TEXT_PRIMARY,
+    fontSize: 14,
+    backgroundColor: '#FAFAFA',
+  },
+  cancelActions: {
+    flexDirection: 'row',
+    marginTop: 16,
+    columnGap: 10,
+  },
+  cancelActionBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelActionBtnSecondary: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  cancelActionBtnDanger: {
+    backgroundColor: '#FF3B30',
+  },
+  cancelActionSecondaryText: {
+    color: TEXT_PRIMARY,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  cancelActionDangerText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 14,
     fontWeight: '700',
   },
   detailFeedbackActions: {
