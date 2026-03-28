@@ -13,6 +13,9 @@ import Toast from '../components/Toast';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 import { isPartyStartAtLeastTwoDaysFromTodayVietnam } from '../utils/vietnamPartyDate';
 
+const PAYMENT_METHOD_BANK = 2;
+const PAYMENT_METHOD_ZALOPAY = 3;
+
 const formatVnd = (value) => {
   const val = Number(value ?? 0);
   try {
@@ -43,6 +46,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
   const [termsVisible, setTermsVisible] = useState(false);
   const [calendarPromptVisible, setCalendarPromptVisible] = useState(false);
   const [mapsPromptVisible, setMapsPromptVisible] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHOD_BANK);
   const [creating, setCreating] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
@@ -200,8 +204,9 @@ export default function OrderSummaryScreen({ navigation, route }) {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const createDepositQr = async (orderId, token) => {
-    const url = `${API_URL}/api/payment/create-deposit-qr/${orderId}`;
+  const createDepositQr = async (orderId, token, methodValue) => {
+    const paymentMethodValue = Number(methodValue);
+    const url = `${API_URL}/api/payment/create-deposit-qr/${orderId}?paymentMethod=${encodeURIComponent(String(paymentMethodValue))}`;
     const headers = {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
@@ -216,21 +221,79 @@ export default function OrderSummaryScreen({ navigation, route }) {
         json = { raw: text };
       }
       console.log(`[payment/create-deposit-qr] method ${method} status`, res.status);
+      console.log(`[payment/create-deposit-qr] method ${method} url`, url);
       console.log(`[payment/create-deposit-qr] method ${method} raw`, text);
       console.log(`[payment/create-deposit-qr] method ${method} json`, json);
       return { res, json };
     };
 
-    // Backend thường dùng POST cho "create"
     let out = await tryOnce('POST');
     if (out.res.status === 405) {
-      out = await tryOnce('GET');
+      const getRes = await fetch(url, { method: 'GET', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+      const getText = await getRes.text();
+      let getJson = null;
+      try {
+        getJson = getText ? JSON.parse(getText) : null;
+      } catch (e) {
+        getJson = { raw: getText };
+      }
+      out = { res: getRes, json: getJson };
     }
 
     if (!out.res.ok || !out.json?.success) {
       throw new Error(out.json?.message || 'Failed to create QR');
     }
     return out.json?.data;
+  };
+
+  const extractZaloOrderUrl = (paymentData) => {
+    if (!paymentData || typeof paymentData !== 'object') return '';
+    const candidates = [
+      paymentData.orderUrl,
+      paymentData.paymentUrl,
+      paymentData.checkoutUrl,
+      paymentData.deeplink,
+      paymentData.deepLink,
+      paymentData.zaloPayUrl,
+      paymentData.appUrl,
+    ];
+    const firstValid = candidates.find((value) => typeof value === 'string' && value.trim());
+    return firstValid ? String(firstValid).trim() : '';
+  };
+
+  const openZaloPaySandbox = async (orderUrl) => {
+    try {
+      const schemes = ['zalopaysb://app', 'zalopay://'];
+      for (const scheme of schemes) {
+        const can = await Linking.canOpenURL(scheme);
+        if (!can) continue;
+
+        if (orderUrl) {
+          let token = '';
+          try {
+            const urlObj = new URL(orderUrl);
+            const tokenParam = urlObj.searchParams.get('order');
+            token = tokenParam || '';
+          } catch {}
+          const deepLink = token ? `${scheme}?order=${encodeURIComponent(token)}` : scheme;
+          await Linking.openURL(deepLink);
+        } else {
+          await Linking.openURL(scheme);
+        }
+        return true;
+      }
+
+      if (orderUrl) {
+        await Linking.openURL(orderUrl);
+        return true;
+      }
+
+      Alert.alert('Không mở được ZaloPay', 'Không tìm thấy ứng dụng ZaloPay hoặc liên kết thanh toán.');
+      return false;
+    } catch (error) {
+      Alert.alert('Lỗi', 'Không thể mở ZaloPay. Vui lòng thử lại sau.');
+      return false;
+    }
   };
 
   const startPaymentPolling = (orderId, token) => {
@@ -412,10 +475,21 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const orderId = json?.data;
       if (res.ok && json?.success && orderId) {
         setCreatedOrderId(orderId);
-        const data = await createDepositQr(orderId, token);
-        setQrData(data);
-        setQrVisible(true);
-        startCountdown();
+        const data = await createDepositQr(orderId, token, paymentMethod);
+
+        if (paymentMethod === PAYMENT_METHOD_BANK) {
+          setQrData(data);
+          setQrVisible(true);
+          startCountdown();
+        } else if (paymentMethod === PAYMENT_METHOD_ZALOPAY) {
+          const orderUrl = extractZaloOrderUrl(data);
+          const opened = await openZaloPaySandbox(orderUrl);
+          if (opened) {
+            setToastMessage('Đã mở ZaloPay, vui lòng hoàn tất thanh toán');
+            setToastVisible(true);
+          }
+        }
+
         startPaymentPolling(orderId, token);
       } else if (!res.ok && json?.message) {
         setToastMessage(String(json.message));
@@ -544,16 +618,52 @@ export default function OrderSummaryScreen({ navigation, route }) {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Phương thức thanh toán cọc:</Text>
-          <View style={styles.payRow}>
-            <View style={styles.radioOuter}>
-              <View style={styles.radioInner} />
-            </View>
-            <Text style={styles.payText}>Chuyển khoản ngân hàng</Text>
-            <Image
-              source={require('../assets/logo-vietqr.webp')}
-              style={styles.vietqrLogo}
-              contentFit="contain"
-            />
+          <View style={styles.paymentMethodsWrap}>
+            <TouchableOpacity
+              style={[
+                styles.paymentMethodCard,
+                paymentMethod === PAYMENT_METHOD_BANK && styles.paymentMethodCardActive,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => setPaymentMethod(PAYMENT_METHOD_BANK)}
+            >
+              <View style={styles.paymentMethodLeft}>
+                <Image
+                  source={require('../assets/logo-vietqr.webp')}
+                  style={styles.methodLogoBank}
+                  contentFit="contain"
+                />
+                <Text style={styles.payText}>Chuyển khoản ngân hàng</Text>
+              </View>
+              <Ionicons
+                name={paymentMethod === PAYMENT_METHOD_BANK ? 'radio-button-on' : 'radio-button-off'}
+                size={20}
+                color={PRIMARY_COLOR}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.paymentMethodCard,
+                paymentMethod === PAYMENT_METHOD_ZALOPAY && styles.paymentMethodCardActive,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => setPaymentMethod(PAYMENT_METHOD_ZALOPAY)}
+            >
+              <View style={styles.paymentMethodLeft}>
+                <Image
+                  source={require('../assets/zalopay.jpg')}
+                  style={styles.methodLogoZalo}
+                  contentFit="contain"
+                />
+                <Text style={styles.payText}>ZaloPay</Text>
+              </View>
+              <Ionicons
+                name={paymentMethod === PAYMENT_METHOD_ZALOPAY ? 'radio-button-on' : 'radio-button-off'}
+                size={20}
+                color={PRIMARY_COLOR}
+              />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -888,20 +998,31 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: TEXT_PRIMARY, marginBottom: 10 },
-  payRow: { flexDirection: 'row', alignItems: 'center' },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: TEXT_PRIMARY,
+  paymentMethodsWrap: { gap: 10 },
+  paymentMethodCard: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+    justifyContent: 'space-between',
+    backgroundColor: BACKGROUND_WHITE,
   },
-  radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: TEXT_PRIMARY },
+  paymentMethodCardActive: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: '#FFF9F2',
+  },
+  paymentMethodLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
   payText: { flex: 1, fontSize: 14, color: TEXT_PRIMARY, fontWeight: '600' },
-  vietqrLogo: { width: 62, height: 22 },
+  methodLogoBank: { width: 62, height: 22 },
+  methodLogoZalo: { width: 62, height: 22, borderRadius: 4 },
   lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
   lineLabel: { fontSize: 13, color: TEXT_SECONDARY, fontWeight: '600' },
   lineValue: { fontSize: 13, color: TEXT_PRIMARY, fontWeight: '700' },

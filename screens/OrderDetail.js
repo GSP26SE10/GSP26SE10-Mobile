@@ -85,6 +85,7 @@ const getFileNameFromUri = (uri, fallback = '') => {
 const PAYMENT_METHOD = {
   1: 'Tiền mặt',
   2: 'Chuyển khoản ngân hàng',
+  3: 'Zalopay',
 };
 const PAYMENT_TYPE = {
   1: 'Đặt cọc',
