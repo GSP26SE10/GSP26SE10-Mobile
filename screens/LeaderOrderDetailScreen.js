@@ -843,7 +843,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     }
   };
 
-  const createFullQr = async () => {
+  const createFullQr = async (methodValue) => {
     if (!paymentOrderId) {
       Alert.alert(
         'Lỗi',
@@ -852,11 +852,16 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      const paymentMethodValue = Number(methodValue);
+      if (![2, 3].includes(paymentMethodValue)) {
+        Alert.alert('Lỗi', 'Phương thức thanh toán không hợp lệ.');
+        return;
+      }
       paymentAwaitingConfirmationRef.current = true;
       successHandledRef.current = false;
       setPaymentSuccessVisible(false);
       const token = await getAccessToken();
-      const url = `${API_URL}/api/payment/create-full-qr/${paymentOrderId}`;
+      const url = `${API_URL}/api/payment/create-full-qr/${paymentOrderId}?paymentMethod=${encodeURIComponent(String(paymentMethodValue))}`;
       const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
       const res = await fetch(url, { method: 'POST', headers });
       const text = await res.text();
@@ -1048,7 +1053,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <View style={styles.paymentSection}>
               <Text style={styles.paymentTitle}>Thanh toán</Text>
               {[
-                { key: 'bank', label: 'Chuyển khoản ngân hàng' },
+                { key: 'bank', label: 'Chuyển khoản ngân hàng', paymentMethodValue: 2 },
+                { key: 'zalopay', label: 'ZaloPay', paymentMethodValue: 3 },
                 { key: 'cash', label: 'Tiền mặt' },
               ].map((method) => (
                 <TouchableOpacity
@@ -1067,6 +1073,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                           source={require('../assets/logo-vietqr.webp')}
                           style={styles.paymentMethodLogo}
                           resizeMode="contain"
+                        />
+                      ) : method.key === 'zalopay' ? (
+                        <Image
+                          source={require('../assets/zalopay.jpg')}
+                          style={styles.paymentMethodLogoZalo}
+                          resizeMode="cover"
                         />
                       ) : (
                         <Ionicons name="cash-outline" size={20} color={PRIMARY_COLOR} />
@@ -1087,13 +1099,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               ))}
             </View>
 
-            {(paymentMethod === 'cash' || paymentMethod === 'bank') && (
+            {(paymentMethod === 'cash' || paymentMethod === 'bank' || paymentMethod === 'zalopay') && (
               <TouchableOpacity
                 style={styles.finishButton}
                 activeOpacity={0.85}
                 onPress={() => {
                   if (paymentMethod === 'cash') createFullCash();
-                  else createFullQr();
+                  else createFullQr(paymentMethod === 'zalopay' ? 3 : 2);
                 }}
               >
                 <Text style={styles.finishButtonText}>
@@ -2418,6 +2430,11 @@ const styles = StyleSheet.create({
   paymentMethodLogo: {
     width: 24,
     height: 24,
+  },
+  paymentMethodLogoZalo: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
   },
   paymentLabel: {
     fontSize: 14,
