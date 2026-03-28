@@ -235,10 +235,10 @@ const styles = StyleSheet.create({
   activeBackground: {
     position: 'absolute',
     left: 2, // Dịch sang trái từ 4 xuống 2 để bao trọn text
-    height: '88%', // Tăng từ 85% lên 88% để bao trọn text tốt hơn
+    top: 11,
+    bottom: 11,
     backgroundColor: '#000000',
     borderRadius: 25,
-    bottom: '30%', // Giảm từ 5% xuống 3% để xuống dưới hơn và bao trọn text
   },
   tab: {
     flexDirection: 'row',

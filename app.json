@@ -4,6 +4,9 @@
     "slug": "mb",
     "version": "1.0.0",
     "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -25,7 +28,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.taivippro123.bookfet"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/297dbc86-bf1c-4c0d-81eb-0dcb9cfe6bf3",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     },
     "web": {
       "favicon": "./assets/favicon.png"
