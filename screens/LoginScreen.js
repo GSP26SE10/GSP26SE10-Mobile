@@ -75,8 +75,8 @@ export default function LoginScreen({ navigation, route }) {
   };
 
   const handleGoogleLogin = async () => {
-    const authUrl = `${API_URL}/api/authentication/google-login?redirect=myapp://auth/callback`;
     const redirectUrl = 'myapp://auth/callback';
+    const authUrl = `${API_URL}/api/authentication/google-login?redirect=${encodeURIComponent(redirectUrl)}`;
     try {
       setLoading(true);
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);

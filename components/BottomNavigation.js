@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { PRIMARY_COLOR, TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
+import { TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
 import { getOrderParties, subscribeOrderPartiesChange } from '../utils/cartStorage';
 import { getChatUnreadCount, subscribeChatUnreadChange } from '../utils/chatUnread';
 
@@ -26,10 +26,6 @@ function countCartItems(parties) {
 }
 
 const { width } = Dimensions.get('window');
-const NAV_BAR_PADDING = 16 * 2; // paddingHorizontal của container
-const NAV_BAR_INNER_PADDING = 8 * 2; // paddingHorizontal của navBar
-const NAV_BAR_WIDTH = width - NAV_BAR_PADDING;
-const TAB_WIDTH = NAV_BAR_WIDTH / 5;
 
 const tabs = [
   { key: 'Home', label: 'Trang chủ', icon: 'home-outline', iconActive: 'home' },
@@ -41,17 +37,16 @@ const tabs = [
 
 // Helper function để tính toán width của active tab
 const calculateActiveTabWidth = (label, navBarWidth) => {
-  const textWidth = label ? label.length * 7.2 : 70; // Tăng từ 7 lên 7.2 để đủ chỗ cho text
+  const textWidth = label ? label.length * 7.2 : 70;
   const iconWidth = 24;
   const marginBetween = 5;
-  const paddingHorizontal = 16; // Tăng từ 14 lên 16 để bao trọn text tốt hơn
+  const paddingHorizontal = 16;
   const activeTabWidth = iconWidth + marginBetween + textWidth + (paddingHorizontal * 2);
   const minWidth = 50;
-  const maxWidth = navBarWidth * 0.4; // Tăng từ 38% lên 40% để đủ chỗ cho text dài
+  const maxWidth = navBarWidth * 0.4;
   return Math.max(minWidth, Math.min(activeTabWidth, maxWidth));
 };
 
-// Width của inactive tab (chỉ icon) - giảm để vừa đủ 5 tab
 const INACTIVE_TAB_WIDTH = 50;
 
 export default function BottomNavigation({ activeTab, onTabPress }) {
@@ -106,41 +101,38 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
     if (activeIndex === -1) return;
 
     const activeTabData = tabs[activeIndex];
-    const finalWidth = calculateActiveTabWidth(activeTabData?.label, navBarWidth);
+    const activeTabWidth = calculateActiveTabWidth(activeTabData?.label, navBarWidth);
 
-    // Tính spacing và vị trí tuyệt đối của tab active
-    const totalInactiveWidth = INACTIVE_TAB_WIDTH * 4;
-    const totalWidthNeeded = totalInactiveWidth + finalWidth;
-    const remainingSpace = navBarWidth - totalWidthNeeded - 8;
-    const spacing = Math.max(0, remainingSpace / 5);
+    const totalInactiveWidth = INACTIVE_TAB_WIDTH * (tabs.length - 1);
+    const totalWidth = totalInactiveWidth + activeTabWidth;
+    const availableSpace = Math.max(0, navBarWidth - totalWidth);
+    const spacing = availableSpace / (tabs.length - 1);
 
     let position = 0;
     for (let i = 0; i < activeIndex; i++) {
       position += INACTIVE_TAB_WIDTH + spacing;
     }
 
-    const targetX = position + 2;
+    const targetX = position;
 
-    // Lần đầu: set thẳng vị trí, không animate (tránh nhảy từ A)
     if (!initializedRef.current) {
       slideAnim.setValue(targetX);
-      widthAnim.setValue(finalWidth);
+      widthAnim.setValue(activeTabWidth);
       initializedRef.current = true;
       return;
     }
 
-    // Các lần sau: animate từ vị trí hiện tại sang vị trí mới
     Animated.parallel([
       Animated.spring(slideAnim, {
         toValue: targetX,
         useNativeDriver: false,
-        tension: 65,
+        tension: 100,
         friction: 8,
       }),
       Animated.spring(widthAnim, {
-        toValue: finalWidth,
+        toValue: activeTabWidth,
         useNativeDriver: false,
-        tension: 65,
+        tension: 100,
         friction: 8,
       }),
     ]).start();
@@ -150,22 +142,19 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
     <View style={styles.container}>
       <BlurView intensity={20} tint="light" style={styles.blurContainer}>
         <View style={styles.navBar} onLayout={handleNavBarLayout}>
-          {/* Animated background for active tab */}
           <Animated.View
               style={[
                 styles.activeBackground,
                 {
+                  left: slideAnim,
                   width: widthAnim,
-                  transform: [{ translateX: slideAnim }],
                 },
               ]}
           />
           
-          {/* Tab buttons */}
-          {tabs.map((tab, index) => {
+          {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
-            
-            // Tính width cho từng tab
+
             let tabWidth = INACTIVE_TAB_WIDTH;
             if (isActive && navBarWidth > 0) {
               tabWidth = calculateActiveTabWidth(tab.label, navBarWidth);
@@ -247,33 +236,32 @@ const styles = StyleSheet.create({
   },
   navBar: {
     flexDirection: 'row',
-    backgroundColor: 'transparent', // Đổi từ rgba(255, 255, 255, 0.3) sang transparent
-    borderRadius: 30,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    backgroundColor: 'transparent',
+    borderRadius: 25,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     width: '100%',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 0, // Bỏ border vì background đã trong suốt
+    position: 'relative',
+    borderWidth: 0,
     borderColor: 'transparent',
   },
   activeBackground: {
     position: 'absolute',
-    left: -5, // Dịch sang trái từ 4 xuống 2 để bao trọn text
-    top: 11,
-    right: 15,
-    bottom: 11,
+    top: 8,
+    bottom: 8,
     backgroundColor: '#000000',
-    borderRadius: 25,
+    borderRadius: 20,
   },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 8, // Giảm từ 12 xuống 8 để tiết kiệm không gian
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     zIndex: 1,
-    minWidth: 0,
+    minWidth: INACTIVE_TAB_WIDTH,
   },
   iconBadgeWrap: {
     position: 'relative',
@@ -307,9 +295,9 @@ const styles = StyleSheet.create({
     color: BUTTON_TEXT_WHITE,
   },
   label: {
-    fontSize: 12, // Giảm từ 13 xuống 12 để tiết kiệm không gian
+    fontSize: 12,
     color: BUTTON_TEXT_WHITE,
-    marginLeft: 5, // Giảm từ 6 xuống 5
+    marginLeft: 5,
     fontWeight: '600',
     includeFontPadding: false,
     textAlignVertical: 'center',
