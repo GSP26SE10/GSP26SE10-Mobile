@@ -344,6 +344,12 @@ export default function OrderSummaryScreen({ navigation, route }) {
           .join(', ');
         const startTime = draft?.startTime || params.startTime || null;
         const endTime = draft?.endTime || params.endTime || null;
+        const noteOrderDetail =
+          draft?.noteOrderDetail != null
+            ? String(draft.noteOrderDetail)
+            : params?.noteOrderDetail != null
+              ? String(params.noteOrderDetail)
+              : '';
 
         if (!isPartyStartAtLeastTwoDaysFromTodayVietnam(startTime)) {
           setCreating(false);
@@ -368,6 +374,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
           address: address || '',
           startTime,
           endTime,
+          noteOrderDetail,
           services,
           customDishes,
         });

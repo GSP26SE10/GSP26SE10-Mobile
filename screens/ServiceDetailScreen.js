@@ -27,6 +27,12 @@ const formatPrice = (price) => {
   }
 };
 
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return null;
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
+
 const getServiceDetailMeta = () => ({
   rating: 4.8,
   reviewCount: '1.2k',
@@ -43,7 +49,7 @@ const normalizeService = (serviceFromRoute) => {
     basePrice: s.basePrice ?? (typeof s.price === 'number' ? s.price : null),
     priceFormatted: s.priceFormatted ?? (typeof s.price === 'string' ? s.price : formatPrice(s.basePrice ?? s.price)),
     description: s.description ?? 'Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
-    image: s.image ?? (s.img ? `${API_URL}${s.img}` : null),
+    image: s.image ?? resolveImageUri(s.img),
   };
 };
 
@@ -99,7 +105,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
           description: item.description,
           basePrice: item.basePrice,
           status: item.status,
-          image: item.img ? `${API_URL}${item.img}` : null,
+          image: resolveImageUri(item.img),
         }));
         otherServicesCache = { fetched: true, items: mapped };
         setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));

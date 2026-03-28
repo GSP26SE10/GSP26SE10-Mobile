@@ -248,6 +248,8 @@ export default function OrderDetail({ navigation, route }) {
   const canCancel = order?.status === 1;
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
   const isCompleted = Number(order?.status) === 7;
+  const isOrderRejectedOrCancelled = [3, 8].includes(Number(order?.status));
+  const orderReasonText = String(order?.noteOrder ?? '').trim();
   const hasExistingFeedback =
     (existingMenuFeedbacks?.length ?? 0) > 0 || (existingServiceFeedbacks?.length ?? 0) > 0;
 
@@ -631,15 +633,6 @@ export default function OrderDetail({ navigation, route }) {
             </View>
           </>
         )}
-        {!loading && order?.noteOrder ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Ghi chú đơn hàng</Text>
-            <View style={styles.noteBox}>
-              <Text style={styles.noteText}>{order.noteOrder}</Text>
-            </View>
-          </View>
-        ) : null}
-
         {!loading &&
           orderDetails.map((od, idx) => {
             const menuSnapshot = od.menuSnapshot ?? {};
@@ -825,7 +818,7 @@ export default function OrderDetail({ navigation, route }) {
                 )}
                 {od.noteOrderDetail ? (
                   <View style={styles.noteBox}>
-                    <Text style={styles.noteLabel}>Ghi chú tiệc</Text>
+                    <Text style={styles.noteLabel}>Ghi chú</Text>
                     <Text style={styles.noteText}>{od.noteOrderDetail}</Text>
                   </View>
                 ) : null}
@@ -1093,24 +1086,28 @@ export default function OrderDetail({ navigation, route }) {
                       {formatVnd(dueFullPlusExtra)}
                     </Text>
                   </View>
-                  <View style={[styles.payRow, { marginTop: 8 }]}>
-                    <Text style={styles.payLabel}>Thời gian</Text>
-                    <Text style={styles.payValueSmall}>
-                      {formatDateTime(fullPayment?.paidAt)}
-                    </Text>
-                  </View>
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabel}>Phương thức</Text>
-                    <Text style={styles.payValueSmall}>
-                      {formatPaymentMethod(fullPayment?.paymentMethod)}
-                    </Text>
-                  </View>
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabel}>Trạng thái</Text>
-                    <Text style={styles.payValueSmall}>
-                      {formatPaymentStatus(fullPayment?.paymentStatus)}
-                    </Text>
-                  </View>
+                  {fullPayment ? (
+                    <>
+                      <View style={[styles.payRow, { marginTop: 8 }]}>
+                        <Text style={styles.payLabel}>Thời gian</Text>
+                        <Text style={styles.payValueSmall}>
+                          {formatDateTime(fullPayment?.paidAt)}
+                        </Text>
+                      </View>
+                      <View style={styles.payRow}>
+                        <Text style={styles.payLabel}>Phương thức</Text>
+                        <Text style={styles.payValueSmall}>
+                          {formatPaymentMethod(fullPayment?.paymentMethod)}
+                        </Text>
+                      </View>
+                      <View style={styles.payRow}>
+                        <Text style={styles.payLabel}>Trạng thái</Text>
+                        <Text style={styles.payValueSmall}>
+                          {formatPaymentStatus(fullPayment?.paymentStatus)}
+                        </Text>
+                      </View>
+                    </>
+                  ) : null}
 
                   {!isPaidFullAfterExtra && (
                     <View style={[styles.payRow, { marginTop: 10 }]}>
@@ -1231,6 +1228,15 @@ export default function OrderDetail({ navigation, route }) {
             )}
           </View>
         )}
+
+        {!loading && isOrderRejectedOrCancelled && orderReasonText ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Lí do</Text>
+            <View style={styles.noteBox}>
+              <Text style={styles.noteText}>{orderReasonText}</Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={{ height: 120 }} />
       </ScrollView>

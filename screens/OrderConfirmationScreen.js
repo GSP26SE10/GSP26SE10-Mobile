@@ -85,6 +85,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   });
 
   const [addressLine, setAddressLine] = useState('');
+  const [noteOrderDetail, setNoteOrderDetail] = useState('');
   const [selectedCity, setSelectedCity] = useState(() => {
     const hcm = CITIES.find((c) => c.fullName === 'Thành phố Hồ Chí Minh') || CITIES[0];
     return hcm || null;
@@ -136,6 +137,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         if (!raw) return;
         const draft = JSON.parse(raw);
         if (draft?.addressLine != null) setAddressLine(String(draft.addressLine));
+        if (draft?.noteOrderDetail != null) setNoteOrderDetail(String(draft.noteOrderDetail));
 
         if (draft?.eventDate) setEventDate(new Date(draft.eventDate));
         if (draft?.startTime) setStartTime(new Date(draft.startTime));
@@ -165,6 +167,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     const t = setTimeout(() => {
       const draft = {
         addressLine,
+        noteOrderDetail,
         eventDate: eventDate?.toISOString?.() || null,
         startTime: startTime?.toISOString?.() || null,
         endTime: endTime?.toISOString?.() || null,
@@ -177,7 +180,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
       AsyncStorage.setItem(DRAFT_KEY(partyIndex), JSON.stringify(draft)).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [addressLine, eventDate, startTime, endTime, selectedCity, selectedWard, partyCategoryId]);
+  }, [addressLine, noteOrderDetail, eventDate, startTime, endTime, selectedCity, selectedWard, partyCategoryId]);
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -295,6 +298,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     try {
       const draft = {
         addressLine,
+        noteOrderDetail,
         eventDate: eventDate?.toISOString?.() || null,
         startTime: startTime?.toISOString?.() || null,
         endTime: endTime?.toISOString?.() || null,
@@ -538,6 +542,20 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
             </View>
+
+            <View style={styles.formRowVertical}>
+              <Text style={styles.fieldLabel}>Ghi chú</Text>
+              <TextInput
+                value={noteOrderDetail}
+                onChangeText={setNoteOrderDetail}
+                placeholder="Nhập ghi chú cho tiệc (không bắt buộc)"
+                placeholderTextColor={TEXT_SECONDARY}
+                style={[styles.input, styles.noteInput]}
+                multiline
+                textAlignVertical="top"
+                maxLength={500}
+              />
+            </View>
           </View>
 
           {/* Spacer để không bị che bởi bottom bar; khi mở bàn phím thì giảm để tránh khoảng trắng thừa */}
@@ -566,6 +584,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 addressLine,
                 city: selectedCity?.fullName || '',
                 ward: selectedWard?.name || '',
+                noteOrderDetail,
                 menuCount,
                 partyCategoryId: partyCategoryId != null ? Number(partyCategoryId) : null,
               });
@@ -1035,6 +1054,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 14,
     color: TEXT_PRIMARY,
+  },
+  noteInput: {
+    minHeight: 88,
+    height: 88,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   modalOverlay: {
     flex: 1,

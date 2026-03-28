@@ -41,6 +41,12 @@ const formatPrice = (price) => {
   }
 };
 
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return null;
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
+
 export default function ServiceScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState(lastActiveTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,7 +99,7 @@ export default function ServiceScreen({ navigation }) {
         description: item.description,
         basePrice: item.basePrice,
         status: item.status,
-        image: item.img ? `${API_URL}${item.img}` : null,
+        image: resolveImageUri(item.img),
       }));
       setServices(mapped);
       serviceDataCache = { services: mapped, fetched: true };
