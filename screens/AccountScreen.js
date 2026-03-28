@@ -14,6 +14,7 @@ import BottomNavigation from '../components/BottomNavigation';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 import { deactivateCurrentDeviceAsync } from '../utils/notification';
 import { clearCartOnLogout } from '../utils/cartStorage';
+import { clearChatUnreadOnLogout } from '../utils/chatUnread';
 
 export default function AccountScreen({ navigation }) {
   const [user, setUser] = useState(null);
@@ -37,6 +38,7 @@ export default function AccountScreen({ navigation }) {
     try {
       await deactivateCurrentDeviceAsync();
       await clearCartOnLogout();
+      await clearChatUnreadOnLogout();
       await AsyncStorage.multiRemove(['accessToken', 'userData']);
     } catch (error) {
       console.error('Failed to clear auth data', error);

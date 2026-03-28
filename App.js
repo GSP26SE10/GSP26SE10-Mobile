@@ -8,7 +8,9 @@ import {
   logAccessTokenNow,
   registerForPushNotificationsAsync,
   attachChatNotificationNavigation,
+  attachChatUnreadNotificationCounter,
 } from "./utils/notification";
+import { refreshChatUnreadCount } from "./utils/chatUnread";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import EmailVerificationScreen from "./screens/EmailVerificationScreen";
@@ -56,11 +58,17 @@ export default function App() {
   const [screenParams, setScreenParams] = useState({});
   const [screenHistory, setScreenHistory] = useState([{ name: "Home", params: {} }]);
   const [initializing, setInitializing] = useState(true);
+  const currentScreenRef = useRef(currentScreen);
+
+  useEffect(() => {
+    currentScreenRef.current = currentScreen;
+  }, [currentScreen]);
 
   useEffect(() => {
     (async () => {
       logAccessTokenNow();
       registerForPushNotificationsAsync();
+      refreshChatUnreadCount();
       try {
         const raw = await AsyncStorage.getItem("userData");
         if (raw) {
@@ -138,6 +146,13 @@ export default function App() {
       () => navigationRef.current,
     );
     flushInitialResponse();
+    return remove;
+  }, []);
+
+  useEffect(() => {
+    const { remove } = attachChatUnreadNotificationCounter(
+      () => currentScreenRef.current,
+    );
     return remove;
   }, []);
 

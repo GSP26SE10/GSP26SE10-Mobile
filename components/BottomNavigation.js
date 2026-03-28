@@ -11,6 +11,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIMARY_COLOR, TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
 import { getOrderParties, subscribeOrderPartiesChange } from '../utils/cartStorage';
+import { getChatUnreadCount, subscribeChatUnreadChange } from '../utils/chatUnread';
 
 function countCartItems(parties) {
   if (!Array.isArray(parties)) return 0;
@@ -58,6 +59,7 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
   const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
   const [cartBadgeCount, setCartBadgeCount] = React.useState(0);
+  const [chatBadgeCount, setChatBadgeCount] = React.useState(0);
   const initializedRef = React.useRef(false);
 
   const refreshCartBadge = React.useCallback(async () => {
@@ -73,6 +75,22 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
     refreshCartBadge();
     return subscribeOrderPartiesChange(refreshCartBadge);
   }, [refreshCartBadge]);
+
+  const refreshChatBadge = React.useCallback(async () => {
+    try {
+      const unread = await getChatUnreadCount();
+      setChatBadgeCount(unread);
+    } catch {
+      setChatBadgeCount(0);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    refreshChatBadge();
+    return subscribeChatUnreadChange((nextCount) => {
+      setChatBadgeCount(Number(nextCount) || 0);
+    });
+  }, [refreshChatBadge]);
 
   const handleNavBarLayout = (event) => {
     const { width } = event.nativeEvent.layout;
@@ -176,6 +194,13 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
                       </Text>
                     </View>
                   ) : null}
+                  {tab.key === 'Contact' && activeTab !== 'Contact' && chatBadgeCount > 0 ? (
+                    <View style={styles.cartBadge} pointerEvents="none">
+                      <Text style={styles.cartBadgeText} allowFontScaling={false}>
+                        {chatBadgeCount > 99 ? '99+' : String(chatBadgeCount)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 {isActive && (
                   <Text 
@@ -234,8 +259,9 @@ const styles = StyleSheet.create({
   },
   activeBackground: {
     position: 'absolute',
-    left: 2, // Dịch sang trái từ 4 xuống 2 để bao trọn text
+    left: -5, // Dịch sang trái từ 4 xuống 2 để bao trọn text
     top: 11,
+    right: 15,
     bottom: 11,
     backgroundColor: '#000000',
     borderRadius: 25,

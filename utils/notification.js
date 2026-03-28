@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import API_URL from '../constants/api';
+import { incrementChatUnreadCount, resetChatUnreadCount } from './chatUnread';
 
 // Hiển thị thông báo cả khi app đang mở (foreground). Không lưu nội dung push vào app — chỉ OS hiển thị một lần.
 Notifications.setNotificationHandler({
@@ -53,8 +54,36 @@ async function openScreenFromPushNotificationAsync(getNavigation, data) {
       return;
     }
     if (!isChatPushNotificationData(data)) return;
+    await resetChatUnreadCount();
     nav.navigate('Chat', { fromPushNotification: true });
   } catch (_) {}
+}
+
+/**
+ * Foreground chat push -> increase unread counter when user is not on Chat screen.
+ * @param {() => string} getCurrentScreen
+ */
+export function attachChatUnreadNotificationCounter(getCurrentScreen) {
+  const onReceived = (notification) => {
+    try {
+      const data = notification?.request?.content?.data ?? {};
+      if (!isChatPushNotificationData(data)) return;
+      const currentScreen =
+        typeof getCurrentScreen === 'function' ? String(getCurrentScreen() ?? '') : '';
+      if (currentScreen === 'Chat') return;
+      void incrementChatUnreadCount(1);
+    } catch (_) {}
+  };
+
+  const sub = Notifications.addNotificationReceivedListener(onReceived);
+
+  return {
+    remove: () => {
+      try {
+        sub.remove();
+      } catch (_) {}
+    },
+  };
 }
 
 /**

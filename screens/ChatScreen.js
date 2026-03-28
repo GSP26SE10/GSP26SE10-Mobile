@@ -19,6 +19,7 @@ import API_URL from '../constants/api';
 import { getAccessToken } from '../utils/auth';
 import * as signalR from '@microsoft/signalr';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
+import { resetChatUnreadCount } from '../utils/chatUnread';
 
 const { width } = Dimensions.get('window');
 
@@ -178,6 +179,11 @@ export default function ChatScreen({ navigation, route }) {
   React.useEffect(() => {
     hubConversationIdRef.current = hubConversationId;
   }, [hubConversationId]);
+
+  useEffect(() => {
+    void resetChatUnreadCount();
+  }, []);
+
   React.useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
