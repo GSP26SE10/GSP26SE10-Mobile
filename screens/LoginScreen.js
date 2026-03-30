@@ -15,6 +15,7 @@ import { MadimiOne_400Regular } from '@expo-google-fonts/madimi-one';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import API_URL from '../constants/api';
 import Toast from '../components/Toast';
 import { registerForPushNotificationsAsync } from '../utils/notification';
@@ -327,9 +328,11 @@ export default function LoginScreen({ navigation, route }) {
               style={styles.eyeIcon}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.eyeIconText}>
-                {showPassword ? '👁️' : '👁️‍🗨️'}
-              </Text>
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color={TEXT_SECONDARY}
+              />
             </TouchableOpacity>
           </View>
 
@@ -371,7 +374,14 @@ export default function LoginScreen({ navigation, route }) {
             onPress={handleGoogleLogin}
             activeOpacity={0.8}
           >
-            <Text style={styles.googleButtonText}>Đăng nhập bằng Google</Text>
+            <View style={styles.googleButtonContent}>
+              <Image
+                source={require('../assets/google.webp')}
+                style={styles.googleIcon}
+                contentFit="contain"
+              />
+              <Text style={styles.googleButtonText}>Đăng nhập bằng Google</Text>
+            </View>
           </TouchableOpacity>
 
           {/* Register Link */}
@@ -502,10 +512,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_LIGHT,
   },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+  },
   googleButtonText: {
     fontSize: 16,
     color: TEXT_PRIMARY,
     fontWeight: '600',
+    marginLeft: 8,
   },
   registerContainer: {
     flexDirection: 'row',

@@ -193,7 +193,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
   const minPartyDateObj = useMemo(() => getMinPartyDateObject(), []);
 
-  // Đồng bộ: ngày tổ chức theo lịch VN phải >= hôm nay (VN) + 2 ngày; end > start.
+  // Đồng bộ: ngày tổ chức theo lịch VN phải >= hôm nay (VN) + 3 ngày; end > start.
   useEffect(() => {
     const now = new Date();
     const minKey = getMinPartyDateKeyVietnam(now);
@@ -210,7 +210,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     let safeEnd = combineDateAndTime(eventDate, endTime);
     if (safeEnd.getTime() <= safeStart.getTime()) {
       safeEnd = new Date(safeStart);
-      safeEnd.setHours(safeEnd.getHours() + 2);
+      safeEnd.setHours(safeEnd.getHours() + 3);
     }
 
     const startT = safeStart.getTime();
@@ -473,7 +473,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                   <Text style={styles.selectText}>{formatDate(eventDate)}</Text>
                 </TouchableOpacity>
                 <Text style={styles.fieldHint}>
-                  Ngày tổ chức phải cách hôm nay ít nhất 2 ngày.
+                  Ngày tổ chức phải cách hôm nay ít nhất 3 ngày.
                 </Text>
               </View>
             </View>

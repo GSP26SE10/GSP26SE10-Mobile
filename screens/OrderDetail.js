@@ -107,9 +107,15 @@ const formatPaymentType = (type) => {
   return PAYMENT_TYPE[Number(type)] ?? String(type);
 };
 
-const formatPaymentStatus = (status) => {
+const formatPaymentStatus = (status, paymentType) => {
   if (status == null || status === '') return '';
-  return PAYMENT_STATUS[Number(status)] ?? String(status);
+  const statusNum = Number(status);
+  // Nếu thanh toán cọc (type 1) và đã trả (status 2) -> "Đã cọc"
+  if (Number(paymentType) === 1 && statusNum === 2) {
+    return 'Đã cọc';
+  }
+  // Ngược lại dùng bảng chung
+  return PAYMENT_STATUS[statusNum] ?? String(status);
 };
 
 export default function OrderDetail({ navigation, route }) {
@@ -254,6 +260,7 @@ export default function OrderDetail({ navigation, route }) {
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
   const canSubmitCancel = cancelReason.trim().length > 0 && !cancellingOrder;
   const isCompleted = Number(order?.status) === 7;
+  const isCancelled = Number(order?.status) === 8;
   const isOrderRejectedOrCancelled = [3, 8].includes(Number(order?.status));
   const orderReasonText = String(order?.noteOrder ?? '').trim();
   const hasExistingFeedback =
@@ -1060,7 +1067,7 @@ export default function OrderDetail({ navigation, route }) {
                   <View style={styles.payRow}>
                     <Text style={styles.payLabel}>Trạng thái</Text>
                     <Text style={styles.payValueSmall}>
-                      {formatPaymentStatus(depositPayment?.paymentStatus)}
+                      {formatPaymentStatus(depositPayment?.paymentStatus, 1)}
                     </Text>
                   </View>
 
@@ -1130,21 +1137,23 @@ export default function OrderDetail({ navigation, route }) {
                     </View>
                   )}
 
-                  <View style={[styles.payRow, { marginTop: 14 }]}>
-                    <View style={styles.payLabelWithIcon}>
-                      <Ionicons
-                        name="wallet-outline"
-                        size={16}
-                        color={TEXT_SECONDARY}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.payLabel}>Thanh toán nốt</Text>
+                  {!isCancelled && (
+                    <View style={[styles.payRow, { marginTop: 14 }]}>
+                      <View style={styles.payLabelWithIcon}>
+                        <Ionicons
+                          name="wallet-outline"
+                          size={16}
+                          color={TEXT_SECONDARY}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text style={styles.payLabel}>Thanh toán nốt</Text>
+                      </View>
+                      <Text style={styles.payValue}>
+                        {formatVnd(dueFullPlusExtra)}
+                      </Text>
                     </View>
-                    <Text style={styles.payValue}>
-                      {formatVnd(dueFullPlusExtra)}
-                    </Text>
-                  </View>
-                  {fullPayment ? (
+                  )}
+                  {!isCancelled && fullPayment ? (
                     <>
                       <View style={[styles.payRow, { marginTop: 8 }]}>
                         <Text style={styles.payLabel}>Thời gian</Text>
@@ -1161,13 +1170,13 @@ export default function OrderDetail({ navigation, route }) {
                       <View style={styles.payRow}>
                         <Text style={styles.payLabel}>Trạng thái</Text>
                         <Text style={styles.payValueSmall}>
-                          {formatPaymentStatus(fullPayment?.paymentStatus)}
+                          {formatPaymentStatus(fullPayment?.paymentStatus, 2)}
                         </Text>
                       </View>
                     </>
                   ) : null}
 
-                  {!isPaidFullAfterExtra && (
+                  {!isCancelled && !isPaidFullAfterExtra && (
                     <View style={[styles.payRow, { marginTop: 10 }]}>
                       <Text style={styles.payLabelStrong}>Còn lại</Text>
                       <Text style={styles.payValueStrong}>

@@ -338,14 +338,16 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
             <Text style={styles.summaryValue}>{formatVnd(extraChargeTotal)}</Text>
           </View>
         )}
-        <View style={styles.summaryRow}>
-          <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
-            Còn lại
-          </Text>
-          <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-            {partyDetail.remaining}
-          </Text>
-        </View>
+        {Number(orderFromParams?.remainingAmount ?? 0) > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
+              Còn lại
+            </Text>
+            <Text style={[styles.summaryValue, styles.summaryHighlight]}>
+              {partyDetail.remaining}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.extraChargeSection}>

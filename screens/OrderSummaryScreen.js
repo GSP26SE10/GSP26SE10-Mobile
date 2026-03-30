@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Linking, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -48,6 +48,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
   const [mapsPromptVisible, setMapsPromptVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHOD_BANK);
   const [creating, setCreating] = useState(false);
+  const [isPaymentPending, setIsPaymentPending] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
   const [secondsLeft, setSecondsLeft] = useState(60);
@@ -333,6 +334,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
             timerRef.current = null;
           }
           setQrVisible(false);
+          setIsPaymentPending(false);
           setPaymentSuccessVisible(true);
         // Clear cart on successful payment
         try {
@@ -480,8 +482,10 @@ export default function OrderSummaryScreen({ navigation, route }) {
         if (paymentMethod === PAYMENT_METHOD_BANK) {
           setQrData(data);
           setQrVisible(true);
+          setIsPaymentPending(true);
           startCountdown();
         } else if (paymentMethod === PAYMENT_METHOD_ZALOPAY) {
+          setIsPaymentPending(true);
           const orderUrl = extractZaloOrderUrl(data);
           const opened = await openZaloPaySandbox(orderUrl);
           if (opened) {
@@ -491,6 +495,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
         }
 
         startPaymentPolling(orderId, token);
+        setCreating(false);
       } else if (!res.ok && json?.message) {
         setToastMessage(String(json.message));
         setToastVisible(true);
@@ -943,6 +948,23 @@ export default function OrderSummaryScreen({ navigation, route }) {
         </View>
       </Modal>
 
+      {/* Loading overlay - prevents interaction while creating order and confirming payment */}
+      <Modal
+        visible={creating || isPaymentPending}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+            <Text style={styles.loadingText}>
+              {creating ? 'Đang tạo đơn...' : 'Đang xác nhận thanh toán...'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1191,6 +1213,25 @@ const styles = StyleSheet.create({
     color: BACKGROUND_WHITE,
     fontSize: 16,
     fontWeight: '800',
+  },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    backgroundColor: BACKGROUND_WHITE,
+    borderRadius: 16,
+    paddingHorizontal: 32,
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginTop: 16,
   },
 });
 

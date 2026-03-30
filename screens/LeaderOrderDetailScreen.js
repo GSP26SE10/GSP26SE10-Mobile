@@ -999,7 +999,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             disabled={changingToBilling}
           >
             <Text style={styles.finishButtonText}>
-              {changingToBilling ? 'Đang chuyển...' : 'Thanh toán cho khách hàng'}
+              {changingToBilling ? 'Đang chuyển...' : 'Cho khách hàng thanh toán'}
             </Text>
           </TouchableOpacity>
         )}

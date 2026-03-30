@@ -313,13 +313,7 @@ export default function ServiceScreen({ navigation }) {
         key={dish.dishId}
         style={styles.serviceCard}
         activeOpacity={0.8}
-        onPress={() => {
-          if (!activeMenuId) {
-            showToast('Vui lòng chọn menu trước!');
-            return;
-          }
-          navigation.navigate('DishDetail', { dish });
-        }}
+        onPress={() => navigation.navigate('DishDetail', { dish })}
       >
         {dish.image ? (
           <Image

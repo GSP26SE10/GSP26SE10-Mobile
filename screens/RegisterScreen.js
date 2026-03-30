@@ -396,9 +396,11 @@ export default function RegisterScreen({ navigation }) {
               style={styles.eyeIcon}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.eyeIconText}>
-                {showPassword ? '👁️' : '👁️‍🗨️'}
-              </Text>
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color={TEXT_SECONDARY}
+              />
             </TouchableOpacity>
           </View>
 
@@ -422,9 +424,11 @@ export default function RegisterScreen({ navigation }) {
               style={styles.eyeIcon}
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
             >
-              <Text style={styles.eyeIconText}>
-                {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
-              </Text>
+              <Ionicons
+                name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color={TEXT_SECONDARY}
+              />
             </TouchableOpacity>
           </View>
           {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
