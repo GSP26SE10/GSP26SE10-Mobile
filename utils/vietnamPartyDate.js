@@ -1,6 +1,6 @@
 /**
- * Ràng buộc đặt tiệc: ngày tổ chức (theo lịch Việt Nam) phải cách hôm nay ít nhất 2 ngày.
- * Khớp message backend: "First party date must be at least 2 days from today (Vietnam time)."
+ * Ràng buộc đặt tiệc: ngày tổ chức (theo lịch Việt Nam) phải cách hôm nay ít nhất 3 ngày.
+ * Khớp message backend: "First party date must be at least 3 days from today (Vietnam time)."
  */
 
 const VIETNAM_TZ = 'Asia/Ho_Chi_Minh';
@@ -31,11 +31,11 @@ function addCalendarDaysYmd(y, m, d, deltaDays) {
   };
 }
 
-/** Ngày tối thiểu được phép đặt (YYYY-MM-DD theo giờ VN) = hôm nay (VN) + 2 ngày. */
+/** Ngày tối thiểu được phép đặt (YYYY-MM-DD theo giờ VN) = hôm nay (VN) + 3 ngày. */
 export function getMinPartyDateKeyVietnam(now = new Date()) {
   const todayKey = toVietnamDateKey(now);
   const { y, m, d } = parseYmd(todayKey);
-  const next = addCalendarDaysYmd(y, m, d, 2);
+  const next = addCalendarDaysYmd(y, m, d, 3);
   return `${String(next.y).padStart(4, '0')}-${String(next.m).padStart(2, '0')}-${String(next.d).padStart(2, '0')}`;
 }
 
@@ -51,11 +51,16 @@ export function getMinPartyDateObject(now = new Date()) {
 }
 
 /** Thời điểm bắt đầu tiệc có ngày (theo VN) >= ngày tối thiểu không? */
-export function isPartyStartAtLeastTwoDaysFromTodayVietnam(start, now = new Date()) {
+export function isPartyStartAtLeastThreeDaysFromTodayVietnam(start, now = new Date()) {
   if (!start) return false;
   const d = typeof start === 'string' ? new Date(start) : start;
   if (Number.isNaN(d.getTime())) return false;
   const startKey = toVietnamDateKey(d);
   const minKey = getMinPartyDateKeyVietnam(now);
   return startKey >= minKey;
+}
+
+// Backward compatibility for old call sites.
+export function isPartyStartAtLeastTwoDaysFromTodayVietnam(start, now = new Date()) {
+  return isPartyStartAtLeastThreeDaysFromTodayVietnam(start, now);
 }

@@ -36,8 +36,6 @@ const resolveImageUri = (img) => {
 const getServiceDetailMeta = () => ({
   rating: 4.8,
   reviewCount: '1.2k',
-  aiSummary:
-    'Dịch vụ được đánh giá cao về chất lượng và sự chuyên nghiệp. Thời gian thi công nhanh, phù hợp nhiều loại sự kiện và dễ phối hợp với thực đơn.',
 });
 
 /** Chuẩn hóa service từ route: API shape (serviceId, serviceName, basePrice, description, image/img) */
@@ -50,6 +48,7 @@ const normalizeService = (serviceFromRoute) => {
     priceFormatted: s.priceFormatted ?? (typeof s.price === 'string' ? s.price : formatPrice(s.basePrice ?? s.price)),
     description: s.description ?? 'Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
     image: s.image ?? resolveImageUri(s.img),
+    aisServiceSummary: s.aisServiceSummary,
   };
 };
 
@@ -66,6 +65,9 @@ export default function ServiceDetailScreen({ navigation, route }) {
   const [loadingOther, setLoadingOther] = useState(false);
 
   const meta = useMemo(() => getServiceDetailMeta(), []);
+  const aiSummaryText =
+    typeof service?.aisServiceSummary === 'string' ? service.aisServiceSummary.trim() : '';
+  const hasAiSummary = aiSummaryText.length > 0;
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -106,6 +108,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
           basePrice: item.basePrice,
           status: item.status,
           image: resolveImageUri(item.img),
+          aisServiceSummary: item.aisServiceSummary,
         }));
         otherServicesCache = { fetched: true, items: mapped };
         setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));
@@ -183,8 +186,12 @@ export default function ServiceDetailScreen({ navigation, route }) {
               <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
-          <Text style={styles.aiSummaryText}>{meta.aiSummary}</Text>
+          {hasAiSummary ? (
+            <>
+              <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
+              <Text style={styles.aiSummaryText}>{aiSummaryText}</Text>
+            </>
+          ) : null}
         </View>
 
         {/* Other services */}

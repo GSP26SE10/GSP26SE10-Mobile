@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
 	ActivityIndicator,
 	FlatList,
+	Image,
 	Modal,
 	ScrollView,
 	StyleSheet,
@@ -37,6 +38,21 @@ const EMPTY_FORM = {
 
 function normalizeValue(value) {
 	return String(value ?? '').trim();
+}
+
+function normalizeAvatarUri(rawAvatar) {
+	const uri = normalizeValue(rawAvatar);
+	if (!uri) return null;
+	if (
+		uri.startsWith('http://') ||
+		uri.startsWith('https://') ||
+		uri.startsWith('file://') ||
+		uri.startsWith('content://') ||
+		uri.startsWith('data:image/')
+	) {
+		return uri;
+	}
+	return null;
 }
 
 function splitAddress(rawAddress) {
@@ -92,6 +108,10 @@ export default function ProfileScreen({ navigation }) {
 	const selectedWard = useMemo(
 		() => wardOptions.find((ward) => ward.code === form.wardCode) ?? null,
 		[wardOptions, form.wardCode],
+	);
+	const avatarUri = useMemo(
+		() => normalizeAvatarUri(user?.avatar ?? user?.avatarUrl ?? user?.image),
+		[user],
 	);
 
 	const showToast = (message) => {
@@ -325,7 +345,11 @@ export default function ProfileScreen({ navigation }) {
 			<ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 				<View style={styles.avatarContainer}>
 					<View style={styles.avatarCircle}>
-						<Ionicons name="person" size={42} color={TEXT_SECONDARY} />
+						{avatarUri ? (
+							<Image source={{ uri: avatarUri }} style={styles.avatarImage} resizeMode="cover" />
+						) : (
+							<Ionicons name="person" size={42} color={TEXT_SECONDARY} />
+						)}
 					</View>
 					<Text style={styles.avatarName}>{normalizeValue(user?.fullName) || 'Khách hàng'}</Text>
 				</View>
@@ -520,7 +544,12 @@ const styles = StyleSheet.create({
 		backgroundColor: '#EFEFEF',
 		alignItems: 'center',
 		justifyContent: 'center',
+		overflow: 'hidden',
 		marginBottom: 10,
+	},
+	avatarImage: {
+		width: '100%',
+		height: '100%',
 	},
 	avatarName: {
 		fontSize: 18,

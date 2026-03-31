@@ -59,10 +59,13 @@ const ORDER_STATUS_LABEL = {
   3: 'Bị hủy',
   4: 'Đang chuẩn bị',
   5: 'Đang diễn ra',
-  6: 'Đang diễn ra',
+  6: 'Thanh toán',
   7: 'Hoàn thành',
   8: 'Bị hủy',
 };
+
+const getOrderStatus = (orderDetail) =>
+  Number(orderDetail?.orderStatus ?? orderDetail?.status ?? 0);
 
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */
 function buildOrdersFromTaskItems(items) {
@@ -101,7 +104,7 @@ export default function StaffHomeScreen({ navigation }) {
 
   const allOrders = buildOrdersFromTaskItems(allTaskItems);
   const orders = allOrders.filter(
-    (item) => !ORDER_STATUS_HIDE_ON_HOME.includes(item.orderDetail?.status)
+    (item) => !ORDER_STATUS_HIDE_ON_HOME.includes(getOrderStatus(item.orderDetail))
   );
 
   const fetchPage = useCallback(async (pageNum, append = false) => {
@@ -302,7 +305,7 @@ export default function StaffHomeScreen({ navigation }) {
               {od.address || '—'}
             </Text>
             <Text style={styles.partyStatus}>
-              {ORDER_STATUS_LABEL[od.status] ?? '—'}
+              {ORDER_STATUS_LABEL[getOrderStatus(od)] ?? '—'}
             </Text>
           </View>
         </TouchableOpacity>

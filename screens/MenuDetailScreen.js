@@ -35,8 +35,6 @@ const getMenuDetail = () => {
     images: [baseImageUrl, baseImageUrl, baseImageUrl],
     rating: 4.9,
     reviewCount: '1.8k',
-    aiSummary:
-      'Menu đa dạng, nguyên liệu tươi, phù hợp đi nhóm và gia đình. Rau và nấm giúp cân bằng dinh dưỡng, các món chính được ưa chuộng bởi hương vị đậm đà.',
   };
 };
 
@@ -74,6 +72,9 @@ export default function MenuDetailScreen({ navigation, route }) {
         ? [menuInfo.imgUrl]
         : baseDetail.images,
   };
+  const aiSummaryText =
+    typeof menuInfo?.aisMenuSummary === 'string' ? menuInfo.aisMenuSummary.trim() : '';
+  const hasAiSummary = aiSummaryText.length > 0;
   const flatListRef = useRef(null);
   const fullscreenFlatListRef = useRef(null);
   const swipeBack = useSwipeBack(() => navigation.goBack());
@@ -403,12 +404,12 @@ export default function MenuDetailScreen({ navigation, route }) {
               <View style={{ height: 6 }} />
               <SkeletonBox style={{ width: '80%', height: 14, borderRadius: 4 }} />
             </View>
-          ) : (
+          ) : hasAiSummary ? (
             <>
               <Text style={styles.aiSummaryTitle}>AI tóm tắt đánh giá</Text>
-              <Text style={styles.aiSummaryText}>{menuDetail.aiSummary}</Text>
+              <Text style={styles.aiSummaryText}>{aiSummaryText}</Text>
             </>
-          )}
+          ) : null}
         </View>
 
         {/* Similar Menus */}

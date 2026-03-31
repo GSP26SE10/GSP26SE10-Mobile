@@ -11,7 +11,7 @@ import { getAccessToken } from '../utils/auth';
 import { getOrderParties, clearCart } from '../utils/cartStorage';
 import Toast from '../components/Toast';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
-import { isPartyStartAtLeastTwoDaysFromTodayVietnam } from '../utils/vietnamPartyDate';
+import { isPartyStartAtLeastThreeDaysFromTodayVietnam } from '../utils/vietnamPartyDate';
 
 const PAYMENT_METHOD_BANK = 2;
 const PAYMENT_METHOD_ZALOPAY = 3;
@@ -416,11 +416,11 @@ export default function OrderSummaryScreen({ navigation, route }) {
               ? String(params.noteOrderDetail)
               : '';
 
-        if (!isPartyStartAtLeastTwoDaysFromTodayVietnam(startTime)) {
+        if (!isPartyStartAtLeastThreeDaysFromTodayVietnam(startTime)) {
           setCreating(false);
           Alert.alert(
             'Thời gian đặt tiệc không hợp lệ',
-            'Ngày tổ chức phải cách hôm nay ít nhất 2 ngày (theo giờ Việt Nam). Vui lòng quay lại bước xác nhận để chọn lại ngày giờ.',
+            'Ngày tổ chức phải cách hôm nay ít nhất 3 ngày (theo giờ Việt Nam). Vui lòng quay lại bước xác nhận để chọn lại ngày giờ.',
             [{ text: 'Đã hiểu' }],
           );
           return;

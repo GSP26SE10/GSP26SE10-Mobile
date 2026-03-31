@@ -123,7 +123,7 @@ function buildPartyDetailFromOrderDetail(od) {
     address: od.address || '—',
     contactName: '—',
     phone: '—',
-    status: mapOrderStatusToPartyStatus(od.status ?? od.orderStatus),
+    status: mapOrderStatusToPartyStatus(od.orderStatus ?? od.status),
     subtotal: '—',
     vat: '—',
     deposit: '—',
@@ -277,7 +277,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const partyDetailFromParams = buildPartyDetailFromOrderDetail(orderDetail);
   const partyDetail = partyDetailFromParams || mockPartyDetail;
   const initialTasksFromApi = (paramsTasks || []).map(mapApiTaskToDisplay);
-  const orderStatusNum = Number(orderDetail?.status ?? orderDetail?.orderStatus ?? 0);
+  const orderStatusNum = Number(orderDetail?.orderStatus ?? orderDetail?.status ?? 0);
   const allowTaskConfirmByOrder = !fromApi ? true : [4, 5].includes(orderStatusNum);
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
@@ -480,7 +480,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
     const currentIndex = steps.indexOf(partyDetail.status);
     const dotStepIndex = getOrderStatusProgressStepIndex(
-      orderDetail?.status ?? orderDetail?.orderStatus
+      orderDetail?.orderStatus ?? orderDetail?.status
     );
     return (
       <View style={styles.statusSteps}>

@@ -44,7 +44,7 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
-/** orderDetail.status === 7 (Completed/Hoàn thành) mới hiện ở lịch sử */
+/** orderDetail.orderStatus === 7 (Completed/Hoàn thành) mới hiện ở lịch sử */
 const ORDER_STATUS_COMPLETED = 7;
 
 const ORDER_STATUS_LABEL = {
@@ -55,7 +55,11 @@ const ORDER_STATUS_LABEL = {
   5: 'Đang diễn ra',
   6: 'Thanh toán',
   7: 'Hoàn thành',
+  8: 'Bị hủy',
 };
+
+const getOrderStatus = (orderDetail) =>
+  Number(orderDetail?.orderStatus ?? orderDetail?.status ?? 0);
 
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */
 function buildOrdersFromTaskItems(items) {
@@ -83,7 +87,7 @@ export default function StaffOrderHistoryScreen({ navigation }) {
 
   const allOrders = buildOrdersFromTaskItems(allTaskItems);
   const orders = allOrders.filter(
-    (item) => item.orderDetail?.status === ORDER_STATUS_COMPLETED
+    (item) => getOrderStatus(item.orderDetail) === ORDER_STATUS_COMPLETED
   );
 
   const fetchPage = useCallback(async (pageNum) => {
@@ -279,7 +283,7 @@ export default function StaffOrderHistoryScreen({ navigation }) {
               {od.address || '—'}
             </Text>
             <Text style={styles.partyStatus}>
-              {ORDER_STATUS_LABEL[od.status] ?? '—'}
+              {ORDER_STATUS_LABEL[getOrderStatus(od)] ?? '—'}
             </Text>
           </View>
         </TouchableOpacity>

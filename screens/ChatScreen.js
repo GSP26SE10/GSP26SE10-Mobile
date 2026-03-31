@@ -148,6 +148,8 @@ export default function ChatScreen({ navigation, route }) {
   const [messagesHydrated, setMessagesHydrated] = useState(false);
   const [pendingMenuPreview, setPendingMenuPreview] = useState(null);
   const [loadingPendingMenu, setLoadingPendingMenu] = useState(false);
+  const [myAvatar, setMyAvatar] = useState(null);
+  const [adminAvatar, setAdminAvatar] = useState(null);
   const insets = useSafeAreaInsets();
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const connectionRef = React.useRef(null);
@@ -199,6 +201,10 @@ export default function ChatScreen({ navigation, route }) {
         const raw = await AsyncStorage.getItem('userData');
         const user = raw ? JSON.parse(raw) : null;
         const userId = user?.userId ?? null;
+        const myAvatarRaw =
+          user?.avatar ?? user?.avatarUrl ?? user?.photoURL ?? user?.image ?? null;
+        const normalizedMyAvatar = normalizeMenuImage(myAvatarRaw);
+        if (!cancelled) setMyAvatar(normalizedMyAvatar);
         if (!userId) return;
         if (!cancelled) setCustomerId(userId);
 
@@ -259,6 +265,26 @@ export default function ChatScreen({ navigation, route }) {
         // ignore init errors for now
       } finally {
         if (!cancelled) setInitializingConversation(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/user?UserId=1&page=1&pageSize=1`);
+        const json = await res.json().catch(() => null);
+        const first = Array.isArray(json?.items) ? json.items[0] : null;
+        const avatarRaw =
+          first?.avatar ?? first?.avatarUrl ?? first?.photoURL ?? first?.image ?? null;
+        const normalized = normalizeMenuImage(avatarRaw);
+        if (!cancelled) setAdminAvatar(normalized);
+      } catch (_) {
+        if (!cancelled) setAdminAvatar(null);
       }
     })();
     return () => {
@@ -814,6 +840,23 @@ export default function ChatScreen({ navigation, route }) {
             >
               <View
                 style={[
+                  styles.messageRow,
+                  message.isUser ? styles.messageRowUser : styles.messageRowOther,
+                ]}
+              >
+                {!message.isUser && (
+                  <View style={styles.avatarWrap}>
+                    {adminAvatar ? (
+                      <Image source={{ uri: adminAvatar }} style={styles.avatarImage} />
+                    ) : (
+                      <View style={[styles.avatarImage, styles.avatarPlaceholder]}>
+                        <Ionicons name="person" size={14} color={TEXT_SECONDARY} />
+                      </View>
+                    )}
+                  </View>
+                )}
+              <View
+                style={[
                   styles.messageBubble,
                   message.isUser ? styles.messageBubbleUser : styles.messageBubbleOther,
                 ]}
@@ -898,6 +941,18 @@ export default function ChatScreen({ navigation, route }) {
                   >
                     {message.timestamp}
                   </Text>
+                )}
+              </View>
+                {message.isUser && (
+                  <View style={styles.avatarWrap}>
+                    {myAvatar ? (
+                      <Image source={{ uri: myAvatar }} style={styles.avatarImage} />
+                    ) : (
+                      <View style={[styles.avatarImage, styles.avatarPlaceholder]}>
+                        <Ionicons name="person" size={14} color={TEXT_SECONDARY} />
+                      </View>
+                    )}
+                  </View>
                 )}
               </View>
             </View>
@@ -1038,7 +1093,7 @@ const styles = StyleSheet.create({
   },
   messageWrapper: {
     marginBottom: 12,
-    maxWidth: width * 0.75,
+    maxWidth: width * 0.88,
   },
   messageWrapperUser: {
     alignSelf: 'flex-end',
@@ -1051,14 +1106,40 @@ const styles = StyleSheet.create({
   messageBubble: {
     padding: 12,
     borderRadius: 16,
+    maxWidth: width * 0.72,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageRowUser: {
+    justifyContent: 'flex-end',
+  },
+  messageRowOther: {
+    justifyContent: 'flex-start',
+  },
+  avatarWrap: {
+    width: 28,
+    height: 28,
+    marginHorizontal: 6,
+  },
+  avatarImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#EFEFEF',
+  },
+  avatarPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messageBubbleUser: {
     backgroundColor: '#E8F5E9',
-    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
   },
   messageBubbleOther: {
     backgroundColor: '#FFF9E6',
-    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
   },
   messageText: {
     fontSize: 15,

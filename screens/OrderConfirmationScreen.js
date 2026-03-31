@@ -23,7 +23,7 @@ import { getAccessToken } from '../utils/auth';
 import {
   getMinPartyDateKeyVietnam,
   getMinPartyDateObject,
-  isPartyStartAtLeastTwoDaysFromTodayVietnam,
+  isPartyStartAtLeastThreeDaysFromTodayVietnam,
   toVietnamDateKey,
 } from '../utils/vietnamPartyDate';
 import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
@@ -357,7 +357,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     [eventDate, startTime],
   );
   const partyStartMeetsLeadDays = useMemo(
-    () => isPartyStartAtLeastTwoDaysFromTodayVietnam(partyStartCombined),
+    () => isPartyStartAtLeastThreeDaysFromTodayVietnam(partyStartCombined),
     [partyStartCombined],
   );
 
