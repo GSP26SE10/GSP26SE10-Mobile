@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,11 +33,6 @@ const resolveImageUri = (img) => {
   return `${API_URL}${img}`;
 };
 
-const getServiceDetailMeta = () => ({
-  rating: 4.8,
-  reviewCount: '1.2k',
-});
-
 /** Chuẩn hóa service từ route: API shape (serviceId, serviceName, basePrice, description, image/img) */
 const normalizeService = (serviceFromRoute) => {
   const s = serviceFromRoute || {};
@@ -49,6 +44,8 @@ const normalizeService = (serviceFromRoute) => {
     description: s.description ?? 'Nội dung chi tiết sẽ được tư vấn thêm khi đặt dịch vụ.',
     image: s.image ?? resolveImageUri(s.img),
     aisServiceSummary: s.aisServiceSummary,
+    averageRating: s.averageRating ?? null,
+    totalReviews: s.totalReviews ?? null,
   };
 };
 
@@ -64,7 +61,6 @@ export default function ServiceDetailScreen({ navigation, route }) {
   const [otherServices, setOtherServices] = useState([]);
   const [loadingOther, setLoadingOther] = useState(false);
 
-  const meta = useMemo(() => getServiceDetailMeta(), []);
   const aiSummaryText =
     typeof service?.aisServiceSummary === 'string' ? service.aisServiceSummary.trim() : '';
   const hasAiSummary = aiSummaryText.length > 0;
@@ -109,6 +105,8 @@ export default function ServiceDetailScreen({ navigation, route }) {
           status: item.status,
           image: resolveImageUri(item.img),
           aisServiceSummary: item.aisServiceSummary,
+          averageRating: item.averageRating ?? null,
+          totalReviews: item.totalReviews ?? null,
         }));
         otherServicesCache = { fetched: true, items: mapped };
         setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));
@@ -174,11 +172,17 @@ export default function ServiceDetailScreen({ navigation, route }) {
         {/* Rating + AI summary */}
         <View style={styles.ratingSection}>
           <View style={styles.ratingRow}>
-            <View style={styles.ratingLeft}>
-              <Ionicons name="star" size={20} color="#FFD700" />
-              <Text style={styles.ratingText}>{meta.rating}</Text>
-              <Text style={styles.reviewCount}>{meta.reviewCount} đánh giá</Text>
-            </View>
+            {service.averageRating != null && service.totalReviews != null ? (
+              <View style={styles.ratingLeft}>
+                <Ionicons name="star" size={20} color="#FFD700" />
+                <Text style={styles.ratingText}>{Number(service.averageRating).toFixed(1)}</Text>
+                <Text style={styles.reviewCount}>
+                  {String(service.totalReviews)} lượt đánh giá
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.noReviewText}>Chưa có đánh giá nào</Text>
+            )}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={() => navigation.navigate('Feedback', { serviceId: service?.serviceId })}
@@ -369,6 +373,11 @@ const styles = StyleSheet.create({
   reviewCount: {
     fontSize: 13,
     color: TEXT_SECONDARY,
+  },
+  noReviewText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   aiSummaryTitle: {
     fontSize: 14,

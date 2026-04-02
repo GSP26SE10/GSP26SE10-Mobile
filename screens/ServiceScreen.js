@@ -100,6 +100,8 @@ export default function ServiceScreen({ navigation }) {
         basePrice: item.basePrice,
         status: item.status,
         image: resolveImageUri(item.img),
+        averageRating: item.averageRating ?? null,
+        totalReviews: item.totalReviews ?? null,
       }));
       setServices(mapped);
       serviceDataCache = { services: mapped, fetched: true };

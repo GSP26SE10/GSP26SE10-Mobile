@@ -816,6 +816,8 @@ export default function OrderDetail({ navigation, route }) {
                                 basePrice: s.basePrice,
                                 image: serviceImg || null,
                                 description: s.description || '',
+                                averageRating: s.averageRating ?? null,
+                                totalReviews: s.totalReviews ?? null,
                               },
                               readOnly: true,
                             })

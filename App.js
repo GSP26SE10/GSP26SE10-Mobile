@@ -42,6 +42,7 @@ import OrderDetail from "./screens/OrderDetail";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import StaffNotificationScreen from "./screens/StaffNotificationScreen";
 import LeaderNotificationScreen from "./screens/LeaderNotificationScreen";
+import CustomerNotificationScreen from "./screens/CustomerNotificationScreen";
 import FeedbackScreen from "./screens/FeedbackScreen";
 import DishDetailScreen from "./screens/DishDetailScreen";
 import ProfileScreen from "./screens/ProfileScreen";
@@ -198,6 +199,8 @@ export default function App() {
         return <StaffHomeScreen navigation={navigation} />;
       case "StaffNotification":
         return <StaffNotificationScreen navigation={navigation} route={{ params: screenParams }} />;
+      case "CustomerNotification":
+        return <CustomerNotificationScreen navigation={navigation} route={{ params: screenParams }} />;
       case "StaffOrderHistory":
         return <StaffOrderHistoryScreen navigation={navigation} />;
       case "StaffCalendar":

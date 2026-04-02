@@ -338,6 +338,8 @@ export default function OrdersScreen({ navigation, route }) {
           serviceName: item.name,
           basePrice: item.basePrice,
           image: item.image,
+          averageRating: item.averageRating ?? null,
+          totalReviews: item.totalReviews ?? null,
         },
       });
     }

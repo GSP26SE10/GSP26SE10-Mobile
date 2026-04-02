@@ -24,7 +24,7 @@ export function isChatPushNotificationData(data) {
   if (t === 'chat' || t === 'message' || screen === 'chat' || channel === 'chat' || channel === 'message') {
     return true;
   }
-  if (!t && !screen && !channel) return true;
+  if (!t && !screen && !channel) return false;
   return false;
 }
 
@@ -32,6 +32,7 @@ export function isChatPushNotificationData(data) {
  * Tap push → mở đúng màn theo role.
  * - STAFF → StaffNotification
  * - GROUP_LEADER → LeaderNotification
+ * - USER → CustomerNotification
  * - USER (khách): chỉ khi payload coi là chat → Chat
  */
 async function openScreenFromPushNotificationAsync(getNavigation, data) {
@@ -53,9 +54,12 @@ async function openScreenFromPushNotificationAsync(getNavigation, data) {
       nav.navigate('LeaderNotification', { fromPushNotification: true });
       return;
     }
-    if (!isChatPushNotificationData(data)) return;
-    await resetChatUnreadCount();
-    nav.navigate('Chat', { fromPushNotification: true });
+    if (isChatPushNotificationData(data)) {
+      await resetChatUnreadCount();
+      nav.navigate('Chat', { fromPushNotification: true });
+      return;
+    }
+    nav.navigate('CustomerNotification', { fromPushNotification: true });
   } catch (_) {}
 }
 

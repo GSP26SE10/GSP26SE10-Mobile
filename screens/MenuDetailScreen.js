@@ -33,9 +33,18 @@ const getMenuDetail = () => {
 
   return {
     images: [baseImageUrl, baseImageUrl, baseImageUrl],
-    rating: 4.9,
-    reviewCount: '1.8k',
   };
+};
+
+const formatRating = (rating) => {
+  if (rating == null) return '';
+  const numericRating = Number(rating);
+  return Number.isFinite(numericRating) ? numericRating.toFixed(1) : String(rating);
+};
+
+const formatReviewCount = (count) => {
+  if (count == null) return '';
+  return String(count);
 };
 
 export default function MenuDetailScreen({ navigation, route }) {
@@ -71,6 +80,8 @@ export default function MenuDetailScreen({ navigation, route }) {
       : menuInfo?.imgUrl
         ? [menuInfo.imgUrl]
         : baseDetail.images,
+    averageRating: menuInfo?.averageRating ?? null,
+    totalReviews: menuInfo?.totalReviews ?? null,
   };
   const aiSummaryText =
     typeof menuInfo?.aisMenuSummary === 'string' ? menuInfo.aisMenuSummary.trim() : '';
@@ -380,11 +391,17 @@ export default function MenuDetailScreen({ navigation, route }) {
         {/* Rating Section */}
         <View style={styles.ratingSection}>
           <View style={styles.ratingRow}>
-            <View style={styles.ratingLeft}>
-              <Ionicons name="star" size={20} color="#FFD700" />
-              <Text style={styles.ratingText}>{menuDetail.rating}</Text>
-              <Text style={styles.reviewCount}>{menuDetail.reviewCount} đánh giá</Text>
-            </View>
+            {menuDetail.averageRating != null && menuDetail.totalReviews != null ? (
+              <View style={styles.ratingLeft}>
+                <Ionicons name="star" size={20} color="#FFD700" />
+                <Text style={styles.ratingText}>{formatRating(menuDetail.averageRating)}</Text>
+                <Text style={styles.reviewCount}>
+                  {formatReviewCount(menuDetail.totalReviews)} lượt đánh giá
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.noReviewText}>Chưa có đánh giá nào</Text>
+            )}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={() => navigation.navigate('Feedback', { menuId })}
@@ -691,6 +708,11 @@ const styles = StyleSheet.create({
   reviewCount: {
     fontSize: 14,
     color: TEXT_SECONDARY,
+  },
+  noReviewText: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   aiSummaryTitle: {
     fontSize: 18,

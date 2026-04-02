@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import Toast from '../components/Toast';
 import API_URL from '../constants/api';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
+import { fetchUnreadNotificationsCount } from '../utils/notificationsApi';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
@@ -36,8 +37,19 @@ export default function HomeScreen({ navigation, route }) {
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+
+  const refreshUnreadBadge = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      const count = await fetchUnreadNotificationsCount(token);
+      setUnreadNotifications(count);
+    } catch {
+      setUnreadNotifications(0);
+    }
+  }, []);
 
   const fetchData = async (forceRefresh = false) => {
     try {
@@ -96,6 +108,10 @@ export default function HomeScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    refreshUnreadBadge();
+  }, [refreshUnreadBadge]);
+
+  useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
       setGreetingText(buildGreeting(fullName));
@@ -137,6 +153,10 @@ export default function HomeScreen({ navigation, route }) {
     navigation.navigate('AiSuggestion');
   };
 
+  const handleNotificationPress = () => {
+    navigation.navigate('CustomerNotification');
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Toast
@@ -161,6 +181,25 @@ export default function HomeScreen({ navigation, route }) {
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <Text style={styles.greeting}>{greetingText}</Text>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.bellButton}
+                onPress={handleNotificationPress}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="notifications-outline" size={22} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+              {unreadNotifications > 0 ? (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>
+                    {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <View style={styles.headerBottomRow}>
+            <Text style={styles.tagline}>Thưởng thức buffet đa dạng tại Bookfet!</Text>
             <TouchableOpacity
               style={styles.aiButton}
               onPress={handleAiSuggestionPress}
@@ -170,7 +209,6 @@ export default function HomeScreen({ navigation, route }) {
               <Text style={styles.aiButtonText}>AI</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.tagline}>Thưởng thức buffet đa dạng tại Bookfet!</Text>
         </View>
 
         {isLoading &&
@@ -288,6 +326,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  headerActions: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   greeting: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -309,8 +352,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  bellButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  bellBadgeText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  headerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   tagline: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 14,
     color: TEXT_PRIMARY,
     fontStyle: 'italic',
   },
