@@ -172,6 +172,21 @@ export default function AiSuggestionScreen({ navigation }) {
 		setIsSubmitting(false);
 	};
 
+	const clearFormFields = () => {
+		setNumberOfGuests('');
+		setBudget('');
+		setEventDate(new Date());
+		setFavoriteDishes('');
+		setAllergyDishes('');
+		setShowCategoryOptions(false);
+		setShowDatePicker(false);
+		if (partyCategories.length > 0) {
+			setSelectedCategoryId(partyCategories[0].partyCategoryId);
+		} else {
+			setSelectedCategoryId(null);
+		}
+	};
+
 	const handleViewMenuDetail = () => {
 		if (!suggestionData?.menuId) {
 			setToastMessage('Không có menu để xem chi tiết');
@@ -310,6 +325,7 @@ export default function AiSuggestionScreen({ navigation }) {
 			}
 			setScreenState('form');
 			setIsResultModalVisible(true);
+			clearFormFields();
 		} catch (error) {
 			console.log('[AI Suggestion] API error:', error?.message || error);
 			setScreenState('error');

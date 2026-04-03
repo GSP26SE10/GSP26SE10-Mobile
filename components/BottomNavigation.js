@@ -6,9 +6,11 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
 import { getOrderParties, subscribeOrderPartiesChange } from '../utils/cartStorage';
 import { getChatUnreadCount, subscribeChatUnreadChange } from '../utils/chatUnread';
@@ -50,6 +52,7 @@ const calculateActiveTabWidth = (label, navBarWidth) => {
 const INACTIVE_TAB_WIDTH = 50;
 
 export default function BottomNavigation({ activeTab, onTabPress }) {
+  const insets = useSafeAreaInsets();
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
@@ -138,8 +141,11 @@ export default function BottomNavigation({ activeTab, onTabPress }) {
     ]).start();
   }, [activeTab, navBarWidth]);
 
+  const containerPaddingBottom =
+    Platform.OS === 'android' ? Math.max(20, insets.bottom + 8) : 20;
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: containerPaddingBottom }]}>
       <BlurView intensity={20} tint="light" style={styles.blurContainer}>
         <View style={styles.navBar} onLayout={handleNavBarLayout}>
           <Animated.View

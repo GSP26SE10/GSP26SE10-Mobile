@@ -44,6 +44,7 @@ import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview'
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache:v2';
 const LEADER_OVERVIEW_API = '/api/staff-group/leader/orders-overview';
+const TASK_TEMPLATE_API = '/api/task-template?page=1&pageSize=10';
 
 const formatTimeRangeFromOrder = (order) => {
   if (!order?.startTime) return '—';
@@ -133,6 +134,17 @@ const getFileNameFromUri = (uri, fallback = '') => {
   return fallback || `extra-charge-${Date.now()}.jpg`;
 };
 
+const getTaskTemplateName = (item) => {
+  if (!item || typeof item !== 'object') return '';
+  const raw =
+    item.taskTemplateName ??
+    item.taskName ??
+    item.title ??
+    item.name ??
+    '';
+  return String(raw).trim();
+};
+
 export default function LeaderOrderDetailScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
   const [refreshedOrder, setRefreshedOrder] = useState(null);
@@ -193,6 +205,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [createVisible, setCreateVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [taskTemplates, setTaskTemplates] = useState([]);
+  const [loadingTaskTemplates, setLoadingTaskTemplates] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [newDateTime, setNewDateTime] = useState(new Date());
   const [newEndDateTime, setNewEndDateTime] = useState(() => {
@@ -377,6 +391,39 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       : [];
     setTasks(orderTasks);
   }, [orderFromParams?.orderDetailId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!createVisible) return;
+      try {
+        setLoadingTaskTemplates(true);
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}${TASK_TEMPLATE_API}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.items)
+            ? json.items
+            : Array.isArray(json?.data?.items)
+              ? json.data.items
+              : [];
+        const names = Array.from(
+          new Set(list.map(getTaskTemplateName).filter(Boolean))
+        );
+        if (!cancelled) setTaskTemplates(names);
+      } catch (_) {
+        if (!cancelled) setTaskTemplates([]);
+      } finally {
+        if (!cancelled) setLoadingTaskTemplates(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [createVisible]);
 
   const refreshTasksForOrder = async () => {
     const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
@@ -1329,6 +1376,44 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     onChangeText={setNewTitle}
                     returnKeyType="next"
                   />
+                  <Text style={styles.taskTemplateLabel}>Gợi ý thường dùng</Text>
+                  {loadingTaskTemplates ? (
+                    <Text style={styles.taskTemplateHint}>Đang tải gợi ý...</Text>
+                  ) : taskTemplates.length === 0 ? (
+                    <Text style={styles.taskTemplateHint}>Chưa có gợi ý. Bạn vẫn có thể nhập tay.</Text>
+                  ) : (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.taskTemplateList}
+                      contentContainerStyle={styles.taskTemplateListContent}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {taskTemplates.map((name, idx) => {
+                        const isActive = newTitle.trim() === name;
+                        return (
+                          <TouchableOpacity
+                            key={`${name}-${idx}`}
+                            style={[
+                              styles.taskTemplateChip,
+                              isActive && styles.taskTemplateChipActive,
+                            ]}
+                            activeOpacity={0.8}
+                            onPress={() => setNewTitle(name)}
+                          >
+                            <Text
+                              style={[
+                                styles.taskTemplateChipText,
+                                isActive && styles.taskTemplateChipTextActive,
+                              ]}
+                            >
+                              {name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
 
                   <Text style={styles.fieldLabel}>Nhân viên</Text>
                   <TouchableOpacity
@@ -2343,6 +2428,44 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     marginTop: 8,
     marginBottom: 4,
+  },
+  taskTemplateLabel: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  taskTemplateHint: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  taskTemplateList: {
+    marginBottom: 2,
+  },
+  taskTemplateListContent: {
+    paddingRight: 8,
+  },
+  taskTemplateChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: BACKGROUND_WHITE,
+    marginRight: 8,
+  },
+  taskTemplateChipActive: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: 'rgba(232, 113, 46, 0.08)',
+  },
+  taskTemplateChipText: {
+    fontSize: 12,
+    color: TEXT_PRIMARY,
+    fontWeight: '600',
+  },
+  taskTemplateChipTextActive: {
+    color: PRIMARY_COLOR,
   },
   textInput: {
     borderRadius: 10,
