@@ -12,8 +12,48 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '.
 import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
-const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
+const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache:v2';
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 phút
+
+const resolveImageUri = (img) => {
+  if (!img || typeof img !== 'string') return '';
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${API_URL}${img}`;
+};
+
+const pickFirstImage = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const first = value.find((v) => typeof v === 'string' && v.trim().length > 0);
+    return first || '';
+  }
+  return '';
+};
+
+const getMenuImageFromOrder = (order) => {
+  if (!order || typeof order !== 'object') return '';
+
+  const direct =
+    order.menuImage ||
+    order.image ||
+    order.menu?.image ||
+    pickFirstImage(order.menuSnapshot?.imgUrl) ||
+    pickFirstImage(order.imgUrl);
+  if (direct) return direct;
+
+  const firstDetail = Array.isArray(order.orderDetails) ? order.orderDetails[0] : null;
+  if (!firstDetail || typeof firstDetail !== 'object') return '';
+
+  return (
+    firstDetail.menuImage ||
+    firstDetail.image ||
+    firstDetail.menu?.image ||
+    pickFirstImage(firstDetail.menuSnapshot?.imgUrl) ||
+    pickFirstImage(firstDetail.imgUrl) ||
+    ''
+  );
+};
 
 const formatTimeRange = (startIso, endIso) => {
   if (!startIso) return '—';
@@ -194,14 +234,20 @@ export default function LeaderHomeScreen({ navigation }) {
             <Text style={styles.emptyText}>Chưa có đơn nào</Text>
           </View>
         ) : (
-          orders.map((order) => (
+          orders.map((order, index) => {
+            const menuImageUri = resolveImageUri(getMenuImageFromOrder(order));
+            const safeOrderDetailId =
+              order.orderDetailId ??
+              (Array.isArray(order.orderDetails) ? order.orderDetails?.[0]?.orderDetailId : null);
+            const cardKey = safeOrderDetailId ?? `${order.orderId ?? 'order'}-${index}`;
+            return (
             <TouchableOpacity
-              key={order.orderDetailId}
+              key={cardKey}
               style={styles.partyCard}
               activeOpacity={0.8}
               onPress={() =>
                 navigation.navigate('LeaderOrderDetail', {
-                  orderDetailId: order.orderDetailId,
+                  orderDetailId: safeOrderDetailId,
                   orderId: order.orderId,
                   order,
                   status: null,
@@ -209,9 +255,9 @@ export default function LeaderHomeScreen({ navigation }) {
               }
             >
               <View style={styles.partyImageWrap}>
-                {order.menuImage ? (
+                {menuImageUri ? (
                   <Image
-                    source={{ uri: order.menuImage }}
+                    source={{ uri: menuImageUri }}
                     style={styles.partyImage}
                     resizeMode="cover"
                   />
@@ -234,7 +280,8 @@ export default function LeaderHomeScreen({ navigation }) {
                 </Text>
               </View>
             </TouchableOpacity>
-          ))
+            );
+          })
         )}
       </ScrollView>
       <BottomNavigationStaff activeTab="LeaderHome" onTabPress={(tab) => navigation.navigate(tab)} />

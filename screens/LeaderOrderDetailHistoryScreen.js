@@ -37,7 +37,10 @@ const TASK_STATUS_LABEL = {
   1: 'Chưa bắt đầu',
   2: 'Đang thực hiện',
   3: 'Hoàn thành',
+  5: 'Trễ deadline',
 };
+
+const getTaskStatusNumber = (task) => Number(task?.taskStatus ?? task?.status ?? 1);
 
 const formatTaskDeadline = (startIso, endIso) => {
   if (!startIso) return '';
@@ -49,6 +52,7 @@ const formatTaskDeadline = (startIso, endIso) => {
 };
 
 const mapApiTaskToDisplay = (t) => {
+  const statusNum = getTaskStatusNumber(t);
   const dateLabel = t.startTime
     ? `${String(new Date(t.startTime).getDate()).padStart(2, '0')}/${String(new Date(t.startTime).getMonth() + 1).padStart(2, '0')}/${new Date(t.startTime).getFullYear()}`
     : '';
@@ -58,11 +62,12 @@ const mapApiTaskToDisplay = (t) => {
   return {
     id: t.taskId,
     title: t.taskName || '—',
+    taskStatus: statusNum,
     dateLabel,
     timeLabel,
     assignee: t.assigneeName || t.assignee || '—',
     note: t.note || '',
-    status: TASK_STATUS_LABEL[t.status] ?? TASK_STATUS_LABEL[String(t.status)] ?? 'Chưa bắt đầu',
+    status: TASK_STATUS_LABEL[statusNum] ?? TASK_STATUS_LABEL[String(statusNum)] ?? 'Chưa bắt đầu',
     startTime: t.startTime,
     endTime: t.endTime,
   };
@@ -430,21 +435,33 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
                 <Text style={styles.taskMeta}>Nhân viên: {task.assignee}</Text>
               )}
             </View>
+            {(() => {
+              const statusNum = getTaskStatusNumber(task);
+              const isDone = statusNum === 3;
+              const isInProgress = statusNum === 2;
+              const isOverdue = statusNum === 5;
+              return (
             <View
               style={[
                 styles.taskStatusBadge,
-                task.status === 'Hoàn thành' && styles.taskStatusBadgeDone,
+                isDone && styles.taskStatusBadgeDone,
+                isInProgress && styles.taskStatusBadgeInProgress,
+                isOverdue && styles.taskStatusBadgeOverdue,
               ]}
             >
               <Text
                 style={[
                   styles.taskStatusText,
-                  task.status === 'Hoàn thành' && styles.taskStatusTextDone,
+                  isDone && styles.taskStatusTextDone,
+                  isInProgress && styles.taskStatusTextInProgress,
+                  isOverdue && styles.taskStatusTextOverdue,
                 ]}
               >
                 {task.status}
               </Text>
             </View>
+              );
+            })()}
           </View>
         ))
       )}
@@ -821,6 +838,14 @@ const styles = StyleSheet.create({
     borderColor: PRIMARY_COLOR,
     backgroundColor: 'rgba(232, 113, 46, 0.08)',
   },
+  taskStatusBadgeInProgress: {
+    borderColor: '#1D4ED8',
+    backgroundColor: 'rgba(29, 78, 216, 0.08)',
+  },
+  taskStatusBadgeOverdue: {
+    borderColor: '#DC2626',
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+  },
   taskStatusText: {
     fontSize: 11,
     color: TEXT_SECONDARY,
@@ -828,5 +853,13 @@ const styles = StyleSheet.create({
   taskStatusTextDone: {
     color: PRIMARY_COLOR,
     fontWeight: '600',
+  },
+  taskStatusTextInProgress: {
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  taskStatusTextOverdue: {
+    color: '#DC2626',
+    fontWeight: '700',
   },
 });

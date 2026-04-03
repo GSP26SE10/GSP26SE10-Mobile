@@ -18,6 +18,61 @@ function normalizeTasksArray(tasks) {
   });
 }
 
+function pickImageUrl(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const firstValid = value
+      .map((v) => {
+        if (typeof v === 'string') return v;
+        if (v && typeof v === 'object') return v.url || v.uri || v.image || null;
+        return null;
+      })
+      .find((v) => typeof v === 'string' && v.trim().length > 0);
+    return firstValid || null;
+  }
+  if (value && typeof value === 'object') {
+    return value.url || value.uri || value.image || null;
+  }
+  return null;
+}
+
+function flattenFromOrderDetails(order, orderDetail) {
+  const detail = orderDetail || {};
+  const menuSnapshot = detail.menuSnapshot || {};
+  const detailMenu = detail.menu || {};
+
+  return {
+    ...order,
+    ...detail,
+    orderId: detail.orderId != null ? detail.orderId : order.orderId,
+    orderDetailId: detail.orderDetailId,
+    orderStatus: order.status != null ? order.status : detail.orderStatus,
+    orderDetailStatus: detail.status != null ? detail.status : order.orderDetailStatus,
+    totalPrice: detail.totalPrice != null ? detail.totalPrice : order.totalPrice,
+    depositAmount: order.depositAmount != null ? order.depositAmount : detail.depositAmount,
+    remainingAmount: order.remainingAmount != null ? order.remainingAmount : detail.remainingAmount,
+    extraChargeTotal: detail.extraChargeCost != null ? detail.extraChargeCost : order.extraChargeTotal,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    menuName:
+      detail.menuName != null
+        ? detail.menuName
+        : (menuSnapshot.menuName != null ? menuSnapshot.menuName : detailMenu.name),
+    menuImage:
+      detail.menuImage != null
+        ? detail.menuImage
+        : (pickImageUrl(menuSnapshot.imgUrl) || detailMenu.image || null),
+    menuId: detail.menuId,
+    partyCategory: detail.partyCategory != null ? detail.partyCategory : detail.partyCategoryName,
+    numberOfGuests: detail.numberOfGuests,
+    startTime: detail.startTime,
+    endTime: detail.endTime,
+    address: detail.address,
+    tasks: normalizeTasksArray(detail.tasks || order.tasks),
+  };
+}
+
 function flattenLeaderOrder(o) {
   if (!o || typeof o !== 'object') return o;
 
@@ -39,6 +94,7 @@ function flattenLeaderOrder(o) {
   const menu = o.menu || {};
   const party = o.party || {};
   const schedule = o.schedule || {};
+  const menuSnapshot = o.menuSnapshot || {};
 
   return {
     ...o,
@@ -52,8 +108,11 @@ function flattenLeaderOrder(o) {
     extraChargeTotal: pricing.extraChargeTotal != null ? pricing.extraChargeTotal : o.extraChargeTotal,
     customerName: customer.name != null ? customer.name : o.customerName,
     customerPhone: customer.phone != null ? customer.phone : o.customerPhone,
-    menuName: menu.name != null ? menu.name : o.menuName,
-    menuImage: menu.image != null ? menu.image : o.menuImage,
+    menuName: menu.name != null ? menu.name : (o.menuName != null ? o.menuName : menuSnapshot.menuName),
+    menuImage:
+      menu.image != null
+        ? menu.image
+        : (o.menuImage != null ? o.menuImage : pickImageUrl(menuSnapshot.imgUrl)),
     menuId: menu.menuId != null ? menu.menuId : o.menuId,
     partyCategory: party.category != null ? party.category : o.partyCategory,
     numberOfGuests: party.numberOfGuests != null ? party.numberOfGuests : o.numberOfGuests,
@@ -93,7 +152,13 @@ export function normalizeLeaderOrdersOverviewApi(data) {
       ? data.members
       : [];
 
-  const orders = ordersRaw.map((o) => flattenLeaderOrder(o));
+  const orders = ordersRaw.flatMap((o) => {
+    const details = Array.isArray(o?.orderDetails) ? o.orderDetails : null;
+    if (details && details.length > 0) {
+      return details.map((detail) => flattenFromOrderDetails(o, detail));
+    }
+    return [flattenLeaderOrder(o)];
+  });
 
   return {
     staffGroupId,

@@ -23,7 +23,7 @@ const initialDate = new Date();
 const BASE_YEAR = initialDate.getFullYear();
 const YEAR_RANGE = 10;
 
-const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
+const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache:v2';
 
 const CALENDAR_SCREEN_HEADER = 168;
 const BOTTOM_NAV_FLOATING_CLEARANCE = 204;

@@ -34,7 +34,10 @@ const TASK_STATUS_MAP = {
   1: 'Chưa bắt đầu',   // PENDING
   2: 'Đang thực hiện',  // IN_PROGRESS
   3: 'Hoàn thành',      // COMPLETED
+  5: 'Trễ deadline',     // OVERDUE
 };
+
+const getTaskStatusNumber = (task) => Number(task?.taskStatus ?? task?.status ?? 1);
 
 /** Trạng thái tiếp theo: chỉ 1→2, 2→3. 3 → null (không đổi). */
 const getNextTaskStatus = (current) =>
@@ -132,10 +135,11 @@ function buildPartyDetailFromOrderDetail(od) {
 }
 
 function mapApiTaskToDisplay(t) {
-  const statusNum = t.taskStatus;
+  const statusNum = getTaskStatusNumber(t);
   const done = statusNum === 3;
   return {
     ...t,
+    taskStatus: statusNum,
     id: t.taskId,
     title: t.taskName || '—',
     statusLabel: TASK_STATUS_MAP[statusNum] || 'Chưa bắt đầu',
@@ -290,6 +294,14 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const refreshFnRef = useRef(null);
 
   const allTasksDisplay = fromApi ? tasks : tasks.map((t) => ({ ...t, statusLabel: t.done ? 'Đã xong' : 'Chưa xong' }));
+
+  const getTaskBadgeVariant = (task) => {
+    const statusNum = getTaskStatusNumber(task);
+    if (statusNum === 3) return 'done';
+    if (statusNum === 5) return 'overdue';
+    if (statusNum === 2) return 'inProgress';
+    return 'default';
+  };
 
   const refreshTasksForOrder = async () => {
     if (!fromApi) return;
@@ -643,8 +655,10 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           ))
         ) : (
         list.map((task) => {
+          const statusNum = getTaskStatusNumber(task);
+          const badgeVariant = getTaskBadgeVariant(task);
           const canChangeStatusBase = fromApi
-            ? task.taskStatus !== 3 && getNextTaskStatus(task.taskStatus) != null
+            ? statusNum !== 3 && getNextTaskStatus(statusNum) != null
             : !task.done;
           const canChangeStatus = canChangeStatusBase && allowTaskConfirmByOrder;
           return (
@@ -678,15 +692,17 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
               <View
                 style={[
                   styles.taskStatusBadge,
-                  (task.done || task.statusLabel === 'Hoàn thành') &&
-                    styles.taskStatusBadgeDone,
+                  badgeVariant === 'done' && styles.taskStatusBadgeDone,
+                  badgeVariant === 'inProgress' && styles.taskStatusBadgeInProgress,
+                  badgeVariant === 'overdue' && styles.taskStatusBadgeOverdue,
                 ]}
               >
                 <Text
                   style={[
                     styles.taskStatusText,
-                    (task.done || task.statusLabel === 'Hoàn thành') &&
-                      styles.taskStatusTextDone,
+                    badgeVariant === 'done' && styles.taskStatusTextDone,
+                    badgeVariant === 'inProgress' && styles.taskStatusTextInProgress,
+                    badgeVariant === 'overdue' && styles.taskStatusTextOverdue,
                   ]}
                 >
                   {task.statusLabel || (task.done ? 'Đã xong' : 'Chưa xong')}
@@ -1054,6 +1070,14 @@ const styles = StyleSheet.create({
     borderColor: PRIMARY_COLOR,
     backgroundColor: 'rgba(232, 113, 46, 0.08)',
   },
+  taskStatusBadgeInProgress: {
+    borderColor: '#1D4ED8',
+    backgroundColor: 'rgba(29, 78, 216, 0.08)',
+  },
+  taskStatusBadgeOverdue: {
+    borderColor: '#DC2626',
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+  },
   taskStatusText: {
     fontSize: 11,
     color: TEXT_SECONDARY,
@@ -1061,6 +1085,14 @@ const styles = StyleSheet.create({
   taskStatusTextDone: {
     color: PRIMARY_COLOR,
     fontWeight: '600',
+  },
+  taskStatusTextInProgress: {
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  taskStatusTextOverdue: {
+    color: '#DC2626',
+    fontWeight: '700',
   },
   sliderContainer: {
     marginTop: 20,

@@ -25,7 +25,9 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${date(start)}`;
 };
 
-const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 'Hoàn thành' };
+const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 'Hoàn thành', 5: 'Trễ deadline' };
+
+const getTaskStatusNumber = (task) => Number(task?.taskStatus ?? task?.status ?? 1);
 
 const resolveImageUri = (img) => {
   if (!img || typeof img !== 'string') return null;
@@ -50,11 +52,14 @@ function buildPartyDetailFromOrderDetail(od) {
 }
 
 function mapTaskToDisplay(t) {
+  const statusNum = getTaskStatusNumber(t);
   return {
+    ...t,
     id: t.taskId,
     title: t.taskName || '—',
-    statusLabel: TASK_STATUS_MAP[t.taskStatus] || 'Chưa bắt đầu',
-    done: t.taskStatus === 3,
+    taskStatus: statusNum,
+    statusLabel: TASK_STATUS_MAP[statusNum] || 'Chưa bắt đầu',
+    done: statusNum === 3,
   };
 }
 
@@ -181,26 +186,36 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.emptyTasksText}>Không có công việc</Text>
         </View>
       ) : (
-        tasks.map((task) => (
-          <View key={task.id} style={styles.taskRow}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <View
-              style={[
-                styles.taskStatusBadge,
-                task.done && styles.taskStatusBadgeDone,
-              ]}
-            >
-              <Text
+        tasks.map((task) => {
+          const statusNum = getTaskStatusNumber(task);
+          const isDone = statusNum === 3;
+          const isInProgress = statusNum === 2;
+          const isOverdue = statusNum === 5;
+          return (
+            <View key={task.id} style={styles.taskRow}>
+              <Text style={styles.taskTitle}>{task.title}</Text>
+              <View
                 style={[
-                  styles.taskStatusText,
-                  task.done && styles.taskStatusTextDone,
+                  styles.taskStatusBadge,
+                  isDone && styles.taskStatusBadgeDone,
+                  isInProgress && styles.taskStatusBadgeInProgress,
+                  isOverdue && styles.taskStatusBadgeOverdue,
                 ]}
               >
-                {task.statusLabel}
-              </Text>
+                <Text
+                  style={[
+                    styles.taskStatusText,
+                    isDone && styles.taskStatusTextDone,
+                    isInProgress && styles.taskStatusTextInProgress,
+                    isOverdue && styles.taskStatusTextOverdue,
+                  ]}
+                >
+                  {task.statusLabel}
+                </Text>
+              </View>
             </View>
-          </View>
-        ))
+          );
+        })
       )}
     </ScrollView>
   );
@@ -507,6 +522,14 @@ const styles = StyleSheet.create({
     borderColor: PRIMARY_COLOR,
     backgroundColor: 'rgba(232, 113, 46, 0.08)',
   },
+  taskStatusBadgeInProgress: {
+    borderColor: '#1D4ED8',
+    backgroundColor: 'rgba(29, 78, 216, 0.08)',
+  },
+  taskStatusBadgeOverdue: {
+    borderColor: '#DC2626',
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+  },
   taskStatusText: {
     fontSize: 11,
     color: TEXT_SECONDARY,
@@ -514,6 +537,14 @@ const styles = StyleSheet.create({
   taskStatusTextDone: {
     color: PRIMARY_COLOR,
     fontWeight: '600',
+  },
+  taskStatusTextInProgress: {
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  taskStatusTextOverdue: {
+    color: '#DC2626',
+    fontWeight: '700',
   },
 });
 

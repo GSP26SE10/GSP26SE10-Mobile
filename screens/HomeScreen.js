@@ -153,7 +153,13 @@ export default function HomeScreen({ navigation, route }) {
     navigation.navigate('AiSuggestion');
   };
 
-  const handleNotificationPress = () => {
+  const handleNotificationPress = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMessage('Vui lòng đăng nhập để xem thông báo');
+      setToastVisible(true);
+      return;
+    }
     navigation.navigate('CustomerNotification');
   };
 

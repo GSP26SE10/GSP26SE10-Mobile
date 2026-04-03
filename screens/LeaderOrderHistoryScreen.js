@@ -11,7 +11,7 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '.
 import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
-const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache';
+const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache:v2';
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 phút
 
 const formatTimeRange = (startIso, endIso) => {
