@@ -7,6 +7,7 @@ import {
   FlatList,
   TouchableOpacity,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -261,6 +262,30 @@ export default function OrdersScreen({ navigation, route }) {
     setToastVisible(true);
   };
 
+  const navigateToSearchTab = async (partyIndex, tabIndex) => {
+    await setActivePartyByIndex(partyIndex);
+    navigation.navigate('Search', { initialTab: tabIndex });
+  };
+
+  const handleAddPartyPress = () => {
+    Alert.alert(
+      'Thêm tiệc mới',
+      'Từ giờ, menu/ dịch vụ/ món lẻ bạn thêm tiếp theo sẽ được đưa vào tiệc mới.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Đã hiểu',
+          onPress: async () => {
+            await addParty();
+            const parties = await getOrderParties();
+            setOrderParties(parties);
+            navigation.navigate('Home');
+          },
+        },
+      ],
+    );
+  };
+
   const handleQuantityChange = async (partyIndex, item, delta) => {
     if (!item) return;
     const party = (orderParties || [])[partyIndex];
@@ -369,6 +394,12 @@ export default function OrdersScreen({ navigation, route }) {
         >
           {partiesWithItems.map((party, partyIndex) => (
             <View key={party.partyId || String(partyIndex)} style={styles.partySection}>
+              <View style={styles.partyHeader}>
+                <View style={styles.partyBadge}>
+                  <Text style={styles.partyBadgeText}>Tiệc {partyIndex + 1}</Text>
+                </View>
+                <Text style={styles.partyHeaderHint}>{(party.items || []).length} mục</Text>
+              </View>
               {(party.items || []).map((item) => (
                 <View key={item.id} style={styles.orderCard}>
                   <TouchableOpacity
@@ -441,9 +472,34 @@ export default function OrdersScreen({ navigation, route }) {
                       </>
                     )}
                   </View>
+
+                  {item.type === 'menu' ? (
+                    <View style={styles.menuSuggestionRow}>
+                      <TouchableOpacity
+                        style={styles.menuSuggestionBtn}
+                        activeOpacity={0.8}
+                        onPress={() => navigateToSearchTab(partyIndex, 0)}
+                      >
+                        <Text style={styles.menuSuggestionBtnText}>Thêm dịch vụ</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.menuSuggestionBtn}
+                        activeOpacity={0.8}
+                        onPress={() => navigateToSearchTab(partyIndex, 1)}
+                      >
+                        <Text style={styles.menuSuggestionBtnText}>Thêm món lẻ</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                 </View>
               ))}
-              {partyIndex !== partiesWithItems.length - 1 && <View style={styles.partyDivider} />}
+              {partyIndex !== partiesWithItems.length - 1 && (
+                <View style={styles.partyDividerWrap}>
+                  <View style={styles.partyDividerLine} />
+                  <Text style={styles.partyDividerText}>Tiệc tiếp theo</Text>
+                  <View style={styles.partyDividerLine} />
+                </View>
+              )}
             </View>
           ))}
         </ScrollView>
@@ -453,12 +509,7 @@ export default function OrdersScreen({ navigation, route }) {
           <TouchableOpacity
             style={styles.addPartyButton}
             activeOpacity={0.7}
-            onPress={async () => {
-              await addParty(); // tạo party mới ngay sau party hiện tại và set active
-              const parties = await getOrderParties();
-              setOrderParties(parties);
-              navigation.navigate('Home'); // về Home để chọn menu cho tiệc mới
-            }}
+            onPress={handleAddPartyPress}
           >
             <Text style={styles.addPartyText}>Thêm tiệc</Text>
           </TouchableOpacity>
@@ -829,6 +880,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  menuSuggestionRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 8,
+  },
+  menuSuggestionBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: PRIMARY_COLOR,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#FFF6EF',
+  },
+  menuSuggestionBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: PRIMARY_COLOR,
+  },
   actionButtons: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -864,14 +934,48 @@ const styles = StyleSheet.create({
     color: BACKGROUND_WHITE,
   },
   partySection: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  partyDivider: {
-    height: 2,
-    backgroundColor: '#E6E0EB',
-    marginTop: 12,
+  partyHeader: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  partyBadge: {
+    backgroundColor: PRIMARY_COLOR,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  partyBadgeText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  partyHeaderHint: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  partyDividerWrap: {
+    marginHorizontal: 20,
+    marginTop: 2,
     marginBottom: 4,
-    borderRadius: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  partyDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#D9D9D9',
+  },
+  partyDividerText: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   emptyContainer: {
     flex: 1,

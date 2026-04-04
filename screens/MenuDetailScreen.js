@@ -391,7 +391,15 @@ export default function MenuDetailScreen({ navigation, route }) {
         {/* Rating Section */}
         <View style={styles.ratingSection}>
           <View style={styles.ratingRow}>
-            {menuDetail.averageRating != null && menuDetail.totalReviews != null ? (
+            {isLoadingMenuInfo ? (
+              <View style={styles.ratingLeft}>
+                <SkeletonBox style={{ width: 20, height: 20, borderRadius: 10 }} />
+                <View style={{ width: 8 }} />
+                <SkeletonBox style={{ width: 40, height: 18, borderRadius: 4 }} />
+                <View style={{ width: 8 }} />
+                <SkeletonBox style={{ width: 120, height: 14, borderRadius: 4 }} />
+              </View>
+            ) : menuDetail.averageRating != null && menuDetail.totalReviews != null ? (
               <View style={styles.ratingLeft}>
                 <Ionicons name="star" size={20} color="#FFD700" />
                 <Text style={styles.ratingText}>{formatRating(menuDetail.averageRating)}</Text>

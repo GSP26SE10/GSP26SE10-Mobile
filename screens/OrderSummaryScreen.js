@@ -43,7 +43,6 @@ export default function OrderSummaryScreen({ navigation, route }) {
   const [orderParties, setOrderParties] = useState([]);
   const [partyDrafts, setPartyDrafts] = useState({});
   const [termsChecked, setTermsChecked] = useState(false);
-  const [termsVisible, setTermsVisible] = useState(false);
   const [calendarPromptVisible, setCalendarPromptVisible] = useState(false);
   const [mapsPromptVisible, setMapsPromptVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHOD_BANK);
@@ -133,6 +132,14 @@ export default function OrderSummaryScreen({ navigation, route }) {
 
   const locationText = [params.addressLine, params.ward, params.city].filter(Boolean).join(', ');
   const timeText = formatTimeRange(params.startTime, params.endTime);
+
+  const openPolicyLink = async () => {
+    try {
+      await Linking.openURL('https://bookfet.vercel.app/policy');
+    } catch (e) {
+      Alert.alert('Không thể mở liên kết', 'Vui lòng thử lại sau.');
+    }
+  };
 
   const saveQrToLibrary = async () => {
     try {
@@ -713,7 +720,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
             Tôi đồng ý với các{' '}
             <Text
               style={styles.termsLink}
-              onPress={() => setTermsVisible(true)}
+              onPress={openPolicyLink}
             >
               điều khoản đặt tiệc
             </Text>
@@ -845,32 +852,6 @@ export default function OrderSummaryScreen({ navigation, route }) {
               }}
             >
               <Text style={styles.successButtonText}>Xem đơn hàng</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={termsVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTermsVisible(false)}
-      >
-        <View style={styles.termsOverlay}>
-          <View style={styles.termsCard}>
-            <Text style={styles.termsTitle}>Điều khoản đặt tiệc</Text>
-            <Text style={styles.termsBody}>
-              Sau khi thanh toán tiền cọc, đơn đặt tiệc được xác nhận. Nếu hủy tiệc trước 1 ngày,
-              tiền cọc sẽ không được hoàn lại. Trường hợp đổi ngày sớm hơn thời hạn trên có thể được
-              hỗ trợ tùy tình trạng sẵn sàng.
-              {'\n\n'}Tôi đã đọc và chấp nhận các quy định.
-            </Text>
-            <TouchableOpacity
-              style={styles.termsAgree}
-              onPress={() => setTermsVisible(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.termsAgreeText}>Đồng ý</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1090,18 +1071,6 @@ const styles = StyleSheet.create({
     backgroundColor: BORDER_LIGHT,
     marginVertical: 8,
   },
-  termsOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', paddingHorizontal: 16 },
-  termsCard: { backgroundColor: '#FFF7EC', borderRadius: 16, padding: 18 },
-  termsTitle: { fontSize: 18, fontWeight: '900', color: TEXT_PRIMARY, textAlign: 'center', marginBottom: 10 },
-  termsBody: { fontSize: 13, color: TEXT_SECONDARY, lineHeight: 18, marginBottom: 14 },
-  termsAgree: {
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: PRIMARY_COLOR,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  termsAgreeText: { color: BACKGROUND_WHITE, fontWeight: '900' },
   promptOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', paddingHorizontal: 16 },
   promptCard: { backgroundColor: BACKGROUND_WHITE, borderRadius: 16, padding: 16 },
   promptTitle: { fontSize: 16, fontWeight: '900', color: TEXT_PRIMARY, marginBottom: 8, textAlign: 'center' },

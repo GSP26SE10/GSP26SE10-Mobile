@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
 	ActivityIndicator,
 	KeyboardAvoidingView,
@@ -41,6 +41,20 @@ export default function ChangePasswordScreen({ navigation }) {
 
 	const [toastVisible, setToastVisible] = useState(false);
 	const [toastMessage, setToastMessage] = useState('');
+
+	const canSendOtp = useMemo(() => {
+		const oldPwd = String(oldPassword || '').trim();
+		const newPwd = String(newPassword || '').trim();
+		const confirmPwd = String(confirmNewPassword || '').trim();
+		return (
+			oldPwd.length > 0 &&
+			newPwd.length >= 6 &&
+			confirmPwd.length > 0 &&
+			newPwd === confirmPwd &&
+			newPwd !== oldPwd
+		);
+	}, [oldPassword, newPassword, confirmNewPassword]);
+	const canVerifyOtp = useMemo(() => String(otpCode || '').trim().length > 0, [otpCode]);
 
 	const showToast = (message) => {
 		setToastMessage(message);
@@ -185,7 +199,7 @@ export default function ChangePasswordScreen({ navigation }) {
 				<ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 					{!otpStep ? (
 						<>
-							<Text style={styles.sectionHint}>Nhập mật khẩu cũ và mật khẩu mới để nhận mã OTP</Text>
+							<Text style={styles.sectionHint}>Nhập mật khẩu cũ và mật khẩu mới để nhận mã OTP. Mật khẩu phải có ít nhất 6 ký tự</Text>
 
 							<View style={styles.formGroup}>
 								<Text style={styles.label}>Mật khẩu cũ</Text>
@@ -251,10 +265,13 @@ export default function ChangePasswordScreen({ navigation }) {
 							</View>
 
 							<TouchableOpacity
-								style={[styles.primaryButton, sendingOtp && styles.primaryButtonDisabled]}
+								style={[
+									styles.primaryButton,
+									(!canSendOtp || sendingOtp) && styles.primaryButtonDisabled,
+								]}
 								onPress={handleSendOtp}
 								activeOpacity={0.8}
-								disabled={sendingOtp}
+								disabled={!canSendOtp || sendingOtp}
 							>
 								{sendingOtp ? (
 									<ActivityIndicator color={BACKGROUND_WHITE} />
@@ -280,10 +297,13 @@ export default function ChangePasswordScreen({ navigation }) {
 							</View>
 
 							<TouchableOpacity
-								style={[styles.primaryButton, verifyingOtp && styles.primaryButtonDisabled]}
+								style={[
+									styles.primaryButton,
+									(!canVerifyOtp || verifyingOtp) && styles.primaryButtonDisabled,
+								]}
 								onPress={handleVerifyOtp}
 								activeOpacity={0.8}
-								disabled={verifyingOtp}
+								disabled={!canVerifyOtp || verifyingOtp}
 							>
 								{verifyingOtp ? (
 									<ActivityIndicator color={BACKGROUND_WHITE} />

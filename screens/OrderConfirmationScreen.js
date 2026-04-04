@@ -364,15 +364,25 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const canContinue =
     addressLine.trim().length > 0 && partyCategoryId != null && partyStartMeetsLeadDays;
   const isMultiParty = orderParties.length > 1;
+  const canGoPreviousParty = isMultiParty && partyIndex > 0;
   const isLastParty = partyIndex >= orderParties.length - 1;
   const continueLabel = isMultiParty && !isLastParty ? 'Tiếp theo' : 'Tiếp tục';
+
+  const handleBackPress = async () => {
+    await saveDraftNow();
+    if (canGoPreviousParty) {
+      setPartyIndex((p) => Math.max(0, p - 1));
+      return;
+    }
+    navigation.goBack();
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={handleBackPress}
           activeOpacity={0.7}
         >
           <Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />

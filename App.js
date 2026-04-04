@@ -170,7 +170,7 @@ export default function App() {
       case "Home":
         return <HomeScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Search":
-        return <ServiceScreen navigation={navigation} />;
+        return <ServiceScreen navigation={navigation} route={{ params: screenParams }} />;
       case "Orders":
         return <OrdersScreen navigation={navigation} route={{ params: screenParams }} />;
       case "OrderConfirmation":

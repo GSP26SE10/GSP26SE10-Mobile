@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	ActivityIndicator,
+	Animated,
 	KeyboardAvoidingView,
 	Modal,
 	Platform,
+	PanResponder,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -65,7 +67,102 @@ const startOfDay = (date) => {
 
 const AI_SUGGESTION_HISTORY_KEY = 'aiSuggestionHistory';
 const AI_SUGGESTION_HISTORY_LIMIT = 10;
+const HISTORY_SWIPE_DELETE_WIDTH = 92;
 let aiSuggestionHistoryCache = null;
+
+function SwipeableHistoryCard({ item, index, onPress, onDelete }) {
+	const translateX = useRef(new Animated.Value(0)).current;
+	const isDeletedRef = useRef(false);
+
+	const animateBack = () => {
+		Animated.spring(translateX, {
+			toValue: 0,
+			useNativeDriver: true,
+			bounciness: 0,
+		}).start();
+	};
+
+	const animateAndDelete = () => {
+		if (isDeletedRef.current) return;
+		isDeletedRef.current = true;
+		Animated.timing(translateX, {
+			toValue: -HISTORY_SWIPE_DELETE_WIDTH,
+			duration: 160,
+			useNativeDriver: true,
+		}).start(() => {
+			onDelete?.(item);
+		});
+	};
+
+	const panResponder = useRef(
+		PanResponder.create({
+			onMoveShouldSetPanResponder: (_, gestureState) => {
+				if (isDeletedRef.current) return false;
+				return Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dy) < 12 && gestureState.dx < 0;
+			},
+			onPanResponderMove: (_, gestureState) => {
+				if (isDeletedRef.current) return;
+				const nextX = Math.max(-HISTORY_SWIPE_DELETE_WIDTH, Math.min(0, gestureState.dx));
+				translateX.setValue(nextX);
+			},
+			onPanResponderRelease: (_, gestureState) => {
+				if (isDeletedRef.current) return;
+				if (gestureState.dx < -72) {
+					animateAndDelete();
+					return;
+				}
+				animateBack();
+			},
+			onPanResponderTerminate: () => {
+				if (!isDeletedRef.current) {
+					animateBack();
+				}
+			},
+		}),
+	).current;
+
+	return (
+		<View style={styles.historySwipeWrap}>
+			<View style={styles.historySwipeDeleteArea}>
+				<TouchableOpacity
+					style={styles.historyDeleteButton}
+					activeOpacity={0.8}
+					onPress={() => animateAndDelete()}
+				>
+					<Ionicons name="trash-outline" size={18} color={BACKGROUND_WHITE} />
+					<Text style={styles.historyDeleteText}>Xóa</Text>
+				</TouchableOpacity>
+			</View>
+			<Animated.View style={[styles.historySwipeCard, { transform: [{ translateX }] }]} {...panResponder.panHandlers}>
+				<TouchableOpacity activeOpacity={0.85} onPress={onPress}>
+					<View style={styles.historyCard}>
+						{!!item.imgUrl ? (
+							<Image
+								source={{ uri: item.imgUrl }}
+								style={styles.historyImage}
+								contentFit="cover"
+								cachePolicy="disk"
+							/>
+						) : (
+							<View style={[styles.historyImage, styles.historyImagePlaceholder]}>
+								<Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
+							</View>
+						)}
+						<View style={styles.historyInfo}>
+							<Text style={styles.historyMenuName} numberOfLines={1}>
+								{item.menuName || item.title || 'Menu đề xuất'}
+							</Text>
+							<Text style={styles.historyPrice}>{formatVnd(item.basePrice)}</Text>
+							<Text style={styles.historyReason} numberOfLines={2}>
+								{item.reason || 'Không có lý do chi tiết'}
+							</Text>
+						</View>
+					</View>
+				</TouchableOpacity>
+			</Animated.View>
+		</View>
+	);
+}
 
 export default function AiSuggestionScreen({ navigation }) {
 	const [numberOfGuests, setNumberOfGuests] = useState('');
@@ -210,6 +307,34 @@ export default function AiSuggestionScreen({ navigation }) {
 			await AsyncStorage.setItem(AI_SUGGESTION_HISTORY_KEY, JSON.stringify(nextHistory));
 		} catch (error) {
 			console.log('[AI Suggestion] Save history error:', error?.message || error);
+		}
+	};
+
+	const handleDeleteHistoryItem = async (item) => {
+		const nextHistory = suggestionHistory.filter((historyItem) => {
+			return !(
+				Number(historyItem?.menuId) === Number(item?.menuId) &&
+				String(historyItem?.reason || '') === String(item?.reason || '') &&
+				String(historyItem?.createdAt || '') === String(item?.createdAt || '')
+			);
+		});
+		await saveHistory(nextHistory);
+		setToastMessage('Đã xóa gợi ý');
+		setToastVisible(true);
+		if (suggestionData && String(suggestionData?.createdAt || '') === String(item?.createdAt || '')) {
+			setIsResultModalVisible(false);
+			setSuggestionData(null);
+		}
+	};
+
+	const handleClearAllHistory = async () => {
+		if (suggestionHistory.length === 0) return;
+		await saveHistory([]);
+		setToastMessage('Đã xóa toàn bộ lịch sử gợi ý');
+		setToastVisible(true);
+		if (suggestionData) {
+			setIsResultModalVisible(false);
+			setSuggestionData(null);
 		}
 	};
 
@@ -495,39 +620,29 @@ export default function AiSuggestionScreen({ navigation }) {
 						</TouchableOpacity>
 
 						<View style={styles.historySection}>
-							<Text style={styles.historyTitle}>Lịch sử gợi ý</Text>
+							<View style={styles.historySectionHeader}>
+								<Text style={styles.historyTitle}>Lịch sử gợi ý</Text>
+								{suggestionHistory.length > 0 ? (
+									<TouchableOpacity
+										style={styles.clearHistoryButton}
+										activeOpacity={0.8}
+										onPress={handleClearAllHistory}
+									>
+										<Ionicons name="trash-bin-outline" size={18} color={PRIMARY_COLOR} />
+									</TouchableOpacity>
+								) : null}
+							</View>
 							{suggestionHistory.length === 0 ? (
 								<Text style={styles.historyEmptyText}>Chưa có lịch sử gợi ý nào</Text>
 							) : (
 								suggestionHistory.map((item, index) => (
-									<TouchableOpacity
+									<SwipeableHistoryCard
 										key={`${item.menuId || 'menu'}-${item.createdAt || index}`}
-										style={styles.historyCard}
-										activeOpacity={0.85}
+										item={item}
+										index={index}
 										onPress={() => handleOpenHistoryDetail(item)}
-									>
-										{!!item.imgUrl ? (
-											<Image
-												source={{ uri: item.imgUrl }}
-												style={styles.historyImage}
-												contentFit="cover"
-												cachePolicy="disk"
-											/>
-										) : (
-											<View style={[styles.historyImage, styles.historyImagePlaceholder]}>
-												<Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
-											</View>
-										)}
-										<View style={styles.historyInfo}>
-											<Text style={styles.historyMenuName} numberOfLines={1}>
-												{item.menuName || item.title || 'Menu đề xuất'}
-											</Text>
-											<Text style={styles.historyPrice}>{formatVnd(item.basePrice)}</Text>
-											<Text style={styles.historyReason} numberOfLines={2}>
-												{item.reason || 'Không có lý do chi tiết'}
-											</Text>
-										</View>
-									</TouchableOpacity>
+										onDelete={handleDeleteHistoryItem}
+									/>
 								))
 							)}
 						</View>
@@ -768,6 +883,22 @@ const styles = StyleSheet.create({
 	historySection: {
 		marginTop: 18,
 	},
+	clearHistoryButton: {
+		alignItems: 'center',
+		justifyContent: 'center',
+		width: 34,
+		height: 34,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: PRIMARY_COLOR,
+		backgroundColor: '#FFF6EF',
+	},
+	historySectionHeader: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'space-between',
+		marginBottom: 10,
+	},
 	historyTitle: {
 		fontSize: 16,
 		fontWeight: '800',
@@ -785,7 +916,34 @@ const styles = StyleSheet.create({
 		borderColor: BORDER_LIGHT,
 		borderRadius: 12,
 		padding: 10,
+		marginBottom: 0,
+		backgroundColor: BACKGROUND_WHITE,
+	},
+	historySwipeWrap: {
 		marginBottom: 10,
+		position: 'relative',
+		overflow: 'hidden',
+		borderRadius: 12,
+	},
+	historySwipeDeleteArea: {
+		...StyleSheet.absoluteFillObject,
+		backgroundColor: '#D23A3A',
+		justifyContent: 'center',
+		alignItems: 'flex-end',
+		paddingRight: 16,
+	},
+	historyDeleteButton: {
+		width: 72,
+		alignItems: 'center',
+		justifyContent: 'center',
+		gap: 4,
+	},
+	historyDeleteText: {
+		fontSize: 12,
+		fontWeight: '700',
+		color: BACKGROUND_WHITE,
+	},
+	historySwipeCard: {
 		backgroundColor: BACKGROUND_WHITE,
 	},
 	historyImage: {

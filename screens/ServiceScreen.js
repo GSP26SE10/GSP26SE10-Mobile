@@ -47,7 +47,7 @@ const resolveImageUri = (img) => {
   return `${API_URL}${img}`;
 };
 
-export default function ServiceScreen({ navigation }) {
+export default function ServiceScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState(lastActiveTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [services, setServices] = useState([]);
@@ -75,6 +75,14 @@ export default function ServiceScreen({ navigation }) {
       friction: 10,
     }).start();
   }, [activeTab]);
+
+  useEffect(() => {
+    const requestedTab = Number(route?.params?.initialTab);
+    if (requestedTab === 0 || requestedTab === 1) {
+      setActiveTab(requestedTab);
+      lastActiveTab = requestedTab;
+    }
+  }, [route?.params?.initialTab]);
 
   useEffect(() => {
     if (activeTab !== 1) return;
@@ -368,9 +376,9 @@ export default function ServiceScreen({ navigation }) {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-          <TouchableOpacity style={styles.filterButton} activeOpacity={0.7}>
+          {/* <TouchableOpacity style={styles.filterButton} activeOpacity={0.7}>
             <Ionicons name="options" size={20} color={TEXT_PRIMARY} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </View>
 

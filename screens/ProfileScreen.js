@@ -131,6 +131,28 @@ export default function ProfileScreen({ navigation }) {
 		};
 	};
 
+	const normalizedOriginalForm = useMemo(
+		() => buildFormFromUser(originalUser),
+		[originalUser],
+	);
+	const hasProfileChanges = useMemo(() => {
+		return (
+			normalizeValue(form.fullName) !== normalizeValue(normalizedOriginalForm.fullName) ||
+			normalizeValue(form.phone) !== normalizeValue(normalizedOriginalForm.phone) ||
+			normalizeValue(form.houseAddress) !== normalizeValue(normalizedOriginalForm.houseAddress) ||
+			normalizeValue(form.cityCode) !== normalizeValue(normalizedOriginalForm.cityCode) ||
+			normalizeValue(form.wardCode) !== normalizeValue(normalizedOriginalForm.wardCode)
+		);
+	}, [form, normalizedOriginalForm]);
+	const isProfileSaveEnabled = useMemo(() => {
+		const fullName = normalizeValue(form.fullName);
+		const phone = normalizeValue(form.phone);
+		const houseAddress = normalizeValue(form.houseAddress);
+		const hasAddressInputs = form.cityCode || form.wardCode || houseAddress;
+		const addressIsComplete = !hasAddressInputs || (form.cityCode && form.wardCode && houseAddress);
+		return isEditing && hasProfileChanges && !!fullName && !!phone && addressIsComplete;
+	}, [form, hasProfileChanges, isEditing, normalizedOriginalForm]);
+
 	useEffect(() => {
 		const loadUser = async () => {
 			try {
@@ -228,6 +250,11 @@ export default function ProfileScreen({ navigation }) {
 
 		if ((form.cityCode || form.wardCode || houseAddress) && (!form.cityCode || !form.wardCode || !houseAddress)) {
 			showToast('Địa chỉ cần đủ số nhà, phường/xã và tỉnh/thành');
+			return;
+		}
+
+		if (!hasProfileChanges) {
+			showToast('Chưa có thay đổi để cập nhật');
 			return;
 		}
 
@@ -430,10 +457,13 @@ export default function ProfileScreen({ navigation }) {
 
 				{isEditing ? (
 					<TouchableOpacity
-						style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+						style={[
+							styles.saveButton,
+							(!isProfileSaveEnabled || saving) && styles.saveButtonDisabled,
+						]}
 						onPress={handleSave}
 						activeOpacity={0.8}
-						disabled={saving}
+						disabled={!isProfileSaveEnabled || saving}
 					>
 						{saving ? (
 							<ActivityIndicator color={BACKGROUND_WHITE} />
