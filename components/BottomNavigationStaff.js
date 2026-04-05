@@ -4,20 +4,30 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Animated,
   Dimensions,
   Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PRIMARY_COLOR, TEXT_PRIMARY, BUTTON_TEXT_WHITE } from '../constants/colors';
+import Animated, {
+  Easing,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { BUTTON_TEXT_WHITE } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
-const NAV_BAR_PADDING = 16 * 2;
-const NAV_BAR_INNER_PADDING = 8 * 2;
-const NAV_BAR_WIDTH = width - NAV_BAR_PADDING;
-const TAB_WIDTH = NAV_BAR_WIDTH / 4;
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
+const EDGE_GAP = 6;
+const ACTIVE_SIDE_PADDING = 16;
+const MIN_INACTIVE_WIDTH = 42;
+const MAX_INACTIVE_WIDTH = 56;
+const ACTIVE_MIN_WIDTH = 96;
+const CURVE = Easing.bezier(0.22, 1, 0.36, 1);
 
 const staffTabs = [
   { key: 'StaffHome', label: 'Trang chủ', icon: 'home-outline', iconActive: 'home' },
@@ -33,123 +43,198 @@ const leaderTabs = [
   { key: 'LeaderAccount', label: 'Tài khoản', icon: 'person-outline', iconActive: 'person' },
 ];
 
-const calculateActiveTabWidth = (label, navBarWidth) => {
-  const textWidth = label ? label.length * 7.5 : 70; // Tăng từ 7.2 lên 7.5 để đủ chỗ cho text dài
+const calculateActiveTabWidth = (label) => {
+  const textWidth = label ? label.length * 6.8 : 64;
   const iconWidth = 24;
   const marginBetween = 5;
-  const paddingHorizontal = 18; // Tăng từ 16 lên 18 để có thêm padding
-  const activeTabWidth = iconWidth + marginBetween + textWidth + (paddingHorizontal * 2);
-  const minWidth = 50;
-  const maxWidth = navBarWidth * 0.45; // Tăng từ 0.4 lên 0.45 để cho phép tab rộng hơn
-  return Math.max(minWidth, Math.min(activeTabWidth, maxWidth));
+  const activeTabWidth = iconWidth + marginBetween + textWidth + (ACTIVE_SIDE_PADDING * 2);
+  return Math.max(ACTIVE_MIN_WIDTH, activeTabWidth);
 };
 
-const INACTIVE_TAB_WIDTH = 50;
+const buildTabLayout = (activeIndex, activeLabel, navBarWidth, totalTabs) => {
+  if (navBarWidth <= 0 || activeIndex < 0 || totalTabs <= 1) {
+    return null;
+  }
+
+  const desiredActiveWidth = calculateActiveTabWidth(activeLabel);
+  const maxActiveWidth = navBarWidth - (MIN_INACTIVE_WIDTH * (totalTabs - 1));
+  const minActiveWidth = navBarWidth - (MAX_INACTIVE_WIDTH * (totalTabs - 1));
+
+  let activeWidth = Math.min(desiredActiveWidth, maxActiveWidth);
+  activeWidth = Math.max(ACTIVE_MIN_WIDTH, Math.max(minActiveWidth, activeWidth));
+
+  let inactiveWidth = (navBarWidth - activeWidth) / (totalTabs - 1);
+  inactiveWidth = Math.max(MIN_INACTIVE_WIDTH, Math.min(MAX_INACTIVE_WIDTH, inactiveWidth));
+  activeWidth = navBarWidth - (inactiveWidth * (totalTabs - 1));
+
+  const widths = Array(totalTabs).fill(inactiveWidth);
+  widths[activeIndex] = activeWidth;
+
+  const leftOffset = widths.slice(0, activeIndex).reduce((sum, item) => sum + item, 0) + EDGE_GAP;
+  const indicatorWidth = Math.max(0, activeWidth - (EDGE_GAP * 2));
+
+  return {
+    widths,
+    leftOffset,
+    indicatorWidth,
+  };
+};
+
+function TabButton({ tab, isActive, widthValue, onPress }) {
+  const progress = useSharedValue(isActive ? 1 : 0);
+
+  React.useEffect(() => {
+    progress.value = withTiming(isActive ? 1 : 0, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [isActive, progress]);
+
+  const inactiveIconOpacityStyle = useAnimatedStyle(() => ({
+    opacity: 1 - progress.value,
+  }));
+
+  const activeIconOpacityStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+  }));
+
+  const iconMoveStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: 1 + (progress.value * 0.06) },
+      { translateY: -progress.value },
+    ],
+  }));
+
+  const labelStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    maxWidth: 150 * progress.value,
+    transform: [{ translateX: -4 * (1 - progress.value) }],
+  }));
+
+  return (
+    <AnimatedTouchableOpacity
+      layout={LinearTransition.duration(260).easing(CURVE)}
+      style={[styles.tab, { width: widthValue }]}
+      onPress={() => onPress(tab.key)}
+      activeOpacity={0.75}
+    >
+      <Animated.View style={iconMoveStyle}>
+        <View style={styles.iconStack}>
+          <Animated.View style={[styles.iconLayer, inactiveIconOpacityStyle]}>
+            <Ionicons
+              name={tab.icon}
+              size={24}
+              style={styles.icon}
+            />
+          </Animated.View>
+          <Animated.View style={[styles.iconLayer, activeIconOpacityStyle]}>
+            <Ionicons
+              name={tab.iconActive}
+              size={24}
+              style={[styles.icon, styles.iconActive]}
+            />
+          </Animated.View>
+        </View>
+      </Animated.View>
+
+      <Animated.Text
+        style={[styles.label, labelStyle]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        allowFontScaling={false}
+      >
+        {tab.label}
+      </Animated.Text>
+    </AnimatedTouchableOpacity>
+  );
+}
 
 export default function BottomNavigationStaff({ activeTab, onTabPress }) {
   const insets = useSafeAreaInsets();
-  const slideAnim = React.useRef(new Animated.Value(0)).current;
-  const widthAnim = React.useRef(new Animated.Value(INACTIVE_TAB_WIDTH)).current;
   const [navBarWidth, setNavBarWidth] = React.useState(0);
+
+  const indicatorLeft = useSharedValue(0);
+  const indicatorWidth = useSharedValue(70);
   const initializedRef = React.useRef(false);
 
-  // Determine which tabs to use based on activeTab
   const tabs = activeTab.startsWith('Leader') ? leaderTabs : staffTabs;
 
   const handleNavBarLayout = (event) => {
-    const { width } = event.nativeEvent.layout;
-    if (width > 0) {
-      setNavBarWidth(width);
+    const { width: nextWidth } = event.nativeEvent.layout;
+    if (nextWidth > 0) {
+      setNavBarWidth(nextWidth);
     }
   };
 
+  const activeIndex = React.useMemo(
+    () => tabs.findIndex((tab) => tab.key === activeTab),
+    [tabs, activeTab]
+  );
+
+  const tabLayout = React.useMemo(
+    () => buildTabLayout(activeIndex, tabs[activeIndex]?.label, navBarWidth, tabs.length),
+    [activeIndex, navBarWidth, tabs]
+  );
+
+  const tabWidths = React.useMemo(() => {
+    if (tabLayout) {
+      return tabLayout.widths;
+    }
+
+    if (navBarWidth > 0) {
+      return tabs.map(() => navBarWidth / tabs.length);
+    }
+
+    return tabs.map(() => 0);
+  }, [tabLayout, navBarWidth, tabs]);
+
   React.useEffect(() => {
-    const activeIndex = tabs.findIndex((tab) => tab.key === activeTab);
-    if (activeIndex === -1 || navBarWidth === 0) return;
-
-    const activeTabWidth = calculateActiveTabWidth(
-      tabs[activeIndex].label,
-      navBarWidth
-    );
-
-    const totalInactiveWidth = INACTIVE_TAB_WIDTH * (tabs.length - 1);
-    const totalActiveWidth = activeTabWidth;
-    const totalWidth = totalInactiveWidth + totalActiveWidth;
-    const availableSpace = navBarWidth - totalWidth;
-    const spacing = availableSpace / (tabs.length - 1);
-
-    let position = 0;
-    for (let i = 0; i < activeIndex; i++) {
-      position += INACTIVE_TAB_WIDTH + spacing;
-    }
-    if (tabs[activeIndex].label.length > 10) {
-      position = Math.max(0, position - 4);
-    }
-
-    const targetX = position;
+    if (!tabLayout) return;
 
     if (!initializedRef.current) {
-      slideAnim.setValue(targetX);
-      widthAnim.setValue(activeTabWidth);
+      indicatorLeft.value = tabLayout.leftOffset;
+      indicatorWidth.value = tabLayout.indicatorWidth;
       initializedRef.current = true;
       return;
     }
 
-    Animated.parallel([
-      Animated.spring(slideAnim, {
-        toValue: targetX,
-        useNativeDriver: false,
-        tension: 100,
-        friction: 8,
-      }),
-      Animated.spring(widthAnim, {
-        toValue: activeTabWidth,
-        useNativeDriver: false,
-        tension: 100,
-        friction: 8,
-      }),
-    ]).start();
-  }, [activeTab, navBarWidth]);
+    indicatorLeft.value = withTiming(tabLayout.leftOffset, {
+      duration: 260,
+      easing: CURVE,
+    });
+
+    indicatorWidth.value = withTiming(tabLayout.indicatorWidth, {
+      duration: 260,
+      easing: CURVE,
+    });
+  }, [tabLayout, indicatorLeft, indicatorWidth]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    left: indicatorLeft.value,
+    width: indicatorWidth.value,
+  }));
 
   const containerPaddingBottom =
     Platform.OS === 'android' ? Math.max(20, insets.bottom + 8) : 20;
 
   return (
     <View style={[styles.container, { paddingBottom: containerPaddingBottom }]}>
-      <BlurView intensity={20} tint="light" style={styles.blurContainer}>
+      <BlurView intensity={16} tint="light" style={styles.blurContainer}>
         <View
           style={styles.navBar}
           onLayout={handleNavBarLayout}
         >
-          <Animated.View
-            style={[
-              styles.activeBackground,
-              {
-                left: slideAnim,
-                width: widthAnim,
-              },
-            ]}
-          />
-          {tabs.map((tab) => {
-            const isActive = tab.key === activeTab;
-            return (
-              <TouchableOpacity
-                key={tab.key}
-                style={styles.tab}
-                onPress={() => onTabPress(tab.key)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={isActive ? tab.iconActive : tab.icon}
-                  size={24}
-                  color={isActive ? BUTTON_TEXT_WHITE : TEXT_PRIMARY}
-                />
-                {isActive && (
-                  <Text style={styles.label}>{tab.label}</Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+          <Animated.View style={[styles.activeBackground, indicatorStyle]} />
+
+          {tabs.map((tab, tabIndex) => (
+            <TabButton
+              key={tab.key}
+              tab={tab}
+              isActive={tab.key === activeTab}
+              widthValue={tabWidths[tabIndex]}
+              onPress={onTabPress}
+            />
+          ))}
         </View>
       </BlurView>
     </View>
@@ -167,7 +252,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   blurContainer: {
-    borderRadius: 30,
+    borderRadius: 32,
     overflow: 'hidden',
     width: '100%',
     maxWidth: width - 32,
@@ -176,39 +261,84 @@ const styles = StyleSheet.create({
       width: 0,
       height: -2,
     },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
     elevation: 10,
   },
   navBar: {
     flexDirection: 'row',
-    backgroundColor: 'transparent',
-    borderRadius: 25,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    backgroundColor: 'rgba(49, 55, 67, 0.42)',
+    borderRadius: 26,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     position: 'relative',
     width: '100%',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    overflow: 'hidden',
   },
   activeBackground: {
     position: 'absolute',
-    top: 8,
-    bottom: 8,
-    backgroundColor: '#000000',
-    borderRadius: 20,
+    top: 6,
+    bottom: 6,
+    backgroundColor: 'rgba(255,255,255,0.32)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    shadowColor: '#FFFFFF',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
   },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 12,
-    minWidth: INACTIVE_TAB_WIDTH,
+    overflow: 'hidden',
+  },
+  iconStack: {
+    width: 24,
+    height: 24,
+  },
+  iconLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  icon: {
+    color: 'rgba(255,255,255,0.92)',
+  },
+  iconActive: {
+    color: BUTTON_TEXT_WHITE,
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 3,
   },
   label: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: BUTTON_TEXT_WHITE,
     marginLeft: 5,
+    flexShrink: 1,
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 3,
   },
 });
