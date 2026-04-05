@@ -23,6 +23,23 @@ const { width, height } = Dimensions.get('window');
 
 let similarMenusCacheByCategory = {};
 
+const getApiItems = (json) => {
+  if (Array.isArray(json?.items)) return json.items;
+  if (Array.isArray(json?.data)) return json.data;
+  if (Array.isArray(json?.menus)) return json.menus;
+  return [];
+};
+
+const getSimilarCacheKey = (menuCategoryId, menuCategoryName) => {
+  if (menuCategoryId != null && menuCategoryId !== '') {
+    return `id:${menuCategoryId}`;
+  }
+  if (menuCategoryName) {
+    return `name:${menuCategoryName}`;
+  }
+  return null;
+};
+
 const SkeletonBox = ({ style }) => (
   <View style={[{ backgroundColor: '#E5E5E5' }, style]} />
 );
@@ -86,6 +103,8 @@ export default function MenuDetailScreen({ navigation, route }) {
   const aiSummaryText =
     typeof menuInfo?.aisMenuSummary === 'string' ? menuInfo.aisMenuSummary.trim() : '';
   const hasAiSummary = aiSummaryText.length > 0;
+  const resolvedMenuCategoryName = menuInfo?.menuCategoryName || buffetType || null;
+  const resolvedSimilarCacheKey = getSimilarCacheKey(menuCategoryId, resolvedMenuCategoryName);
   const flatListRef = useRef(null);
   const fullscreenFlatListRef = useRef(null);
   const swipeBack = useSwipeBack(() => navigation.goBack());
@@ -217,12 +236,13 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     const fetchSimilarMenus = async (force = false) => {
-      if (!menuCategoryId) {
+      const cacheKey = resolvedSimilarCacheKey;
+      if (!cacheKey) {
         setSimilarMenus([]);
         return;
       }
 
-      const cached = similarMenusCacheByCategory[menuCategoryId];
+      const cached = similarMenusCacheByCategory[cacheKey];
       if (!force && cached?.fetched && Array.isArray(cached.items)) {
         setSimilarMenus(cached.items.filter((m) => m?.menuId !== menuId));
         return;
@@ -230,13 +250,19 @@ export default function MenuDetailScreen({ navigation, route }) {
 
       try {
         setIsLoadingSimilar(true);
-        const res = await fetch(
-          `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=20`,
-        );
+        const endpoint = menuCategoryId
+          ? `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=20`
+          : `${API_URL}/api/menu?page=1&pageSize=100`;
+
+        const res = await fetch(endpoint);
         const json = await res.json();
-        const items = Array.isArray(json?.items) ? json.items : [];
-        similarMenusCacheByCategory[menuCategoryId] = { items, fetched: true };
-        setSimilarMenus(items.filter((m) => m?.menuId !== menuId));
+        const items = getApiItems(json);
+        const filteredItems = menuCategoryId
+          ? items.filter((m) => m?.menuCategoryId === menuCategoryId || m?.menuCategoryName === resolvedMenuCategoryName)
+          : items.filter((m) => m?.menuCategoryName === resolvedMenuCategoryName);
+
+        similarMenusCacheByCategory[cacheKey] = { items: filteredItems, fetched: true };
+        setSimilarMenus(filteredItems.filter((m) => m?.menuId !== menuId));
       } catch (e) {
         setSimilarMenus([]);
       } finally {
@@ -245,7 +271,7 @@ export default function MenuDetailScreen({ navigation, route }) {
     };
 
     fetchSimilarMenus(false);
-  }, [menuCategoryId, menuId]);
+  }, [menuCategoryId, menuId, resolvedMenuCategoryName, resolvedSimilarCacheKey]);
 
   // Render dishes in 2 columns
   const renderDishes = () => {
@@ -438,7 +464,7 @@ export default function MenuDetailScreen({ navigation, route }) {
         </View>
 
         {/* Similar Menus */}
-        {false && !!menuCategoryId && (
+        {!!resolvedSimilarCacheKey && (
           <View style={styles.similarSection}>
             <Text style={styles.similarTitle}>Menu tương tự</Text>
             {isLoadingSimilar ? (
