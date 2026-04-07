@@ -134,6 +134,29 @@ const getFileNameFromUri = (uri, fallback = '') => {
   return fallback || `extra-charge-${Date.now()}.jpg`;
 };
 
+const buildQrImageFromText = (text) => {
+  const raw = String(text ?? '').trim();
+  if (!raw) return '';
+  return `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(raw)}`;
+};
+
+const getPaymentQrImageUrl = (paymentData) => {
+  if (!paymentData || typeof paymentData !== 'object') return '';
+  const directQr = [
+    paymentData.qrUrl,
+    paymentData.qrImageUrl,
+    paymentData.qrCodeUrl,
+  ].find((v) => typeof v === 'string' && v.trim());
+  if (directQr) return String(directQr).trim();
+
+  const zaloOrderUrl = [
+    paymentData.orderUrl,
+    paymentData.paymentUrl,
+    paymentData.checkoutUrl,
+  ].find((v) => typeof v === 'string' && v.trim());
+  return zaloOrderUrl ? buildQrImageFromText(zaloOrderUrl) : '';
+};
+
 const getTaskTemplateName = (item) => {
   if (!item || typeof item !== 'object') return '';
   const raw =
@@ -239,6 +262,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     () => Number(orderFromParams?.extraChargeCost ?? orderFromParams?.extraChargeTotal ?? 0) || 0
   );
   const [paymentMethod, setPaymentMethod] = useState(null);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrData, setQrData] = useState(null);
   const [paymentSuccessVisible, setPaymentSuccessVisible] = useState(false);
@@ -309,6 +333,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     setPaymentMethod(null);
+    setIsSubmittingPayment(false);
   }, [orderFromParams?.orderDetailId]);
 
   const stopPaymentPolling = () => {
@@ -896,6 +921,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   const createFullQr = async (methodValue) => {
+    if (isSubmittingPayment) return;
     if (!paymentOrderId) {
       Alert.alert(
         'Lỗi',
@@ -904,6 +930,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      setIsSubmittingPayment(true);
       const paymentMethodValue = Number(methodValue);
       if (![2, 3].includes(paymentMethodValue)) {
         Alert.alert('Lỗi', 'Phương thức thanh toán không hợp lệ.');
@@ -925,16 +952,22 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       }
       if (!res.ok) throw new Error(json?.message || 'Không thể tạo QR thanh toán.');
       const data = json?.data ?? json;
-      setQrData(data);
+      setQrData({
+        ...data,
+        qrUrl: getPaymentQrImageUrl(data),
+      });
       setQrVisible(true);
       await startPaymentPolling();
     } catch (e) {
       paymentAwaitingConfirmationRef.current = false;
       Alert.alert('Lỗi', e?.message || 'Không thể tạo QR thanh toán.');
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
   const createFullCash = async () => {
+    if (isSubmittingPayment) return;
     if (!paymentOrderId) {
       Alert.alert(
         'Lỗi',
@@ -943,6 +976,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      setIsSubmittingPayment(true);
       paymentAwaitingConfirmationRef.current = false;
       const token = await getAccessToken();
       const res = await fetch(`${API_URL}/api/payment/create-full-cash/${paymentOrderId}`, {
@@ -966,6 +1000,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       ]);
     } catch (e) {
       Alert.alert('Lỗi', e?.message || 'Không thể xác nhận thanh toán tiền mặt.');
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
@@ -1153,17 +1189,21 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
             {(paymentMethod === 'cash' || paymentMethod === 'bank' || paymentMethod === 'zalopay') && (
               <TouchableOpacity
-                style={styles.finishButton}
+                style={[styles.finishButton, isSubmittingPayment && { opacity: 0.7 }]}
                 activeOpacity={0.85}
                 onPress={() => {
+                  if (isSubmittingPayment) return;
                   if (paymentMethod === 'cash') createFullCash();
                   else createFullQr(paymentMethod === 'zalopay' ? 3 : 2);
                 }}
+                disabled={isSubmittingPayment}
               >
                 <Text style={styles.finishButtonText}>
-                  {paymentMethod === 'cash'
-                    ? 'Xác nhận tiền mặt'
-                    : 'Tạo QR thanh toán'}
+                  {isSubmittingPayment
+                    ? 'Đang xử lý...'
+                    : paymentMethod === 'cash'
+                      ? 'Xác nhận tiền mặt'
+                      : 'Tạo QR thanh toán'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -1783,9 +1823,16 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       </Modal>
 
       {/* QR modal */}
-      <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => {}}>
+      <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => setQrVisible(false)}>
         <View style={styles.qrOverlay}>
           <View style={styles.qrCard}>
+            <TouchableOpacity
+              style={styles.qrCloseBtn}
+              activeOpacity={0.8}
+              onPress={() => setQrVisible(false)}
+            >
+              <Text style={styles.qrCloseText}>X</Text>
+            </TouchableOpacity>
             <Text style={styles.qrTitle}>Quét mã để thanh toán</Text>
             {qrData?.qrUrl ? (
               <ExpoImage source={{ uri: qrData.qrUrl }} style={styles.qrImage} contentFit="contain" />
@@ -2620,6 +2667,20 @@ const styles = StyleSheet.create({
     backgroundColor: BACKGROUND_WHITE,
     borderRadius: 16,
     padding: 16,
+    position: 'relative',
+  },
+  qrCloseBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    zIndex: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  qrCloseText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_SECONDARY,
   },
   qrTitle: {
     fontSize: 18,

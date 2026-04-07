@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import {
 	BACKGROUND_WHITE,
 	BORDER_LIGHT,
@@ -53,6 +54,23 @@ function normalizeAvatarUri(rawAvatar) {
 		return uri;
 	}
 	return null;
+}
+
+function guessMimeTypeFromUri(uri) {
+	const lower = String(uri ?? '').toLowerCase();
+	if (lower.endsWith('.png')) return 'image/png';
+	if (lower.endsWith('.webp')) return 'image/webp';
+	if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+	if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+	return 'image/jpeg';
+}
+
+function getFileNameFromUri(uri, fallback = '') {
+	const raw = String(uri ?? '');
+	const cleaned = raw.split('?')[0];
+	const last = cleaned.split('/').filter(Boolean).pop();
+	if (last) return last;
+	return fallback || `avatar-${Date.now()}.jpg`;
 }
 
 function splitAddress(rawAddress) {
@@ -98,6 +116,7 @@ export default function ProfileScreen({ navigation }) {
 
 	const [toastVisible, setToastVisible] = useState(false);
 	const [toastMessage, setToastMessage] = useState('');
+	const [avatarUpload, setAvatarUpload] = useState(null);
 
 	const cityOptions = cities;
 	const selectedCity = useMemo(
@@ -109,10 +128,10 @@ export default function ProfileScreen({ navigation }) {
 		() => wardOptions.find((ward) => ward.code === form.wardCode) ?? null,
 		[wardOptions, form.wardCode],
 	);
-	const avatarUri = useMemo(
-		() => normalizeAvatarUri(user?.avatar ?? user?.avatarUrl ?? user?.image),
-		[user],
-	);
+	const avatarUri = useMemo(() => {
+		if (avatarUpload?.uri) return avatarUpload.uri;
+		return normalizeAvatarUri(user?.avatar ?? user?.avatarUrl ?? user?.image);
+	}, [user, avatarUpload]);
 
 	const showToast = (message) => {
 		setToastMessage(message);
@@ -141,9 +160,10 @@ export default function ProfileScreen({ navigation }) {
 			normalizeValue(form.phone) !== normalizeValue(normalizedOriginalForm.phone) ||
 			normalizeValue(form.houseAddress) !== normalizeValue(normalizedOriginalForm.houseAddress) ||
 			normalizeValue(form.cityCode) !== normalizeValue(normalizedOriginalForm.cityCode) ||
-			normalizeValue(form.wardCode) !== normalizeValue(normalizedOriginalForm.wardCode)
+			normalizeValue(form.wardCode) !== normalizeValue(normalizedOriginalForm.wardCode) ||
+			!!avatarUpload?.uri
 		);
-	}, [form, normalizedOriginalForm]);
+	}, [form, normalizedOriginalForm, avatarUpload]);
 	const isProfileSaveEnabled = useMemo(() => {
 		const fullName = normalizeValue(form.fullName);
 		const phone = normalizeValue(form.phone);
@@ -192,6 +212,36 @@ export default function ProfileScreen({ navigation }) {
 		setPickerVisible(true);
 	};
 
+	const handlePickAvatar = async () => {
+		if (!isEditing || saving) return;
+		try {
+			const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+			if (!permission?.granted) {
+				showToast('Vui lòng cấp quyền truy cập ảnh để đổi avatar');
+				return;
+			}
+
+			const result = await ImagePicker.launchImageLibraryAsync({
+				mediaTypes: ImagePicker.MediaTypeOptions.Images,
+				allowsMultipleSelection: false,
+				quality: 0.8,
+			});
+
+			if (result?.canceled) return;
+			const asset = Array.isArray(result?.assets) ? result.assets[0] : null;
+			if (!asset?.uri) return;
+
+			setAvatarUpload({
+				uri: asset.uri,
+				type: asset.mimeType || guessMimeTypeFromUri(asset.uri),
+				name: asset.fileName || getFileNameFromUri(asset.uri),
+			});
+		} catch (error) {
+			console.error('Failed to pick avatar', error);
+			showToast('Không thể chọn ảnh avatar');
+		}
+	};
+
 	const handleSelectOption = (option) => {
 		if (pickerType === 'city') {
 			const nextCityCode = option?.code ?? '';
@@ -236,12 +286,6 @@ export default function ProfileScreen({ navigation }) {
 			return;
 		}
 
-		const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		if (email && !emailPattern.test(email)) {
-			showToast('Email không hợp lệ');
-			return;
-		}
-
 		const phonePattern = /^0\d{9,10}$/;
 		if (!phonePattern.test(phone)) {
 			showToast('Số điện thoại không hợp lệ (bắt đầu bằng 0, 10-11 số)');
@@ -259,41 +303,42 @@ export default function ProfileScreen({ navigation }) {
 		}
 
 		const nextAddress = normalizeValue(composedAddress);
-		const payload = {};
-
-		if (fullName !== normalizeValue(originalUser?.fullName)) {
-			payload.fullName = fullName;
+		const formData = new FormData();
+		formData.append('FullName', fullName);
+		formData.append('Email', email);
+		formData.append('Address', nextAddress);
+		formData.append('Phone', phone);
+		formData.append('Status', '1');
+		if (avatarUpload?.uri) {
+			formData.append('AvatarFile', {
+				uri: avatarUpload.uri,
+				type: avatarUpload.type || guessMimeTypeFromUri(avatarUpload.uri),
+				name: avatarUpload.name || getFileNameFromUri(avatarUpload.uri),
+			});
 		}
-		if (phone !== normalizeValue(originalUser?.phone)) {
-			payload.phone = phone;
-		}
-		if (nextAddress !== normalizeValue(originalUser?.address)) {
-			payload.address = nextAddress;
-		}
-
-		if (Object.keys(payload).length === 0) {
-			showToast('Không có thay đổi để cập nhật');
-			return;
-		}
-
-		payload.status = 1;
 
 		setSaving(true);
 		try {
 			const token = await getAccessToken();
-			const patchUrl = `${API_URL}/api/user/${user.userId}`;
-			console.log('[Profile] PATCH request', {
-				url: patchUrl,
-				payload,
+			const putUrl = `${API_URL}/api/user/${user.userId}`;
+			console.log('[Profile] PUT request', {
+				url: putUrl,
+				payload: {
+					FullName: fullName,
+					Email: email,
+					Address: nextAddress,
+					Phone: phone,
+					Status: 1,
+					hasAvatarFile: !!avatarUpload?.uri,
+				},
 			});
 
-			const res = await fetch(patchUrl, {
-				method: 'PATCH',
+			const res = await fetch(putUrl, {
+				method: 'PUT',
 				headers: {
-					'Content-Type': 'application/json',
 					...(token ? { Authorization: `Bearer ${token}` } : {}),
 				},
-				body: JSON.stringify(payload),
+				body: formData,
 			});
 
 			const text = await res.text();
@@ -304,7 +349,7 @@ export default function ProfileScreen({ navigation }) {
 				json = null;
 			}
 
-			console.log('[Profile] PATCH response', {
+			console.log('[Profile] PUT response', {
 				status: res.status,
 				ok: res.ok,
 				data: json ?? text,
@@ -316,9 +361,28 @@ export default function ProfileScreen({ navigation }) {
 				return;
 			}
 
-			const nextUser = { ...user, ...payload };
+			const serverUser =
+				(json && typeof json === 'object' && (json.data || json.item || json.user)) ||
+				null;
+			const nextUser = {
+				...user,
+				fullName,
+				email,
+				phone,
+				address: nextAddress,
+				status: 1,
+				...(avatarUpload?.uri
+					? {
+						avatar: avatarUpload.uri,
+						avatarUrl: avatarUpload.uri,
+						image: avatarUpload.uri,
+					}
+					: {}),
+				...(serverUser && typeof serverUser === 'object' ? serverUser : {}),
+			};
 			setUser(nextUser);
 			setOriginalUser(nextUser);
+			setAvatarUpload(null);
 			setIsEditing(false);
 			await AsyncStorage.setItem('userData', JSON.stringify(nextUser));
 			showToast('Cập nhật thông tin thành công');
@@ -333,6 +397,7 @@ export default function ProfileScreen({ navigation }) {
 	const handleToggleEdit = () => {
 		if (isEditing) {
 			setForm(buildFormFromUser(originalUser));
+			setAvatarUpload(null);
 			setIsEditing(false);
 			return;
 		}
@@ -378,6 +443,12 @@ export default function ProfileScreen({ navigation }) {
 							<Ionicons name="person" size={42} color={TEXT_SECONDARY} />
 						)}
 					</View>
+					{isEditing ? (
+						<TouchableOpacity style={styles.changeAvatarButton} onPress={handlePickAvatar} activeOpacity={0.8}>
+							<Ionicons name="camera-outline" size={14} color={PRIMARY_COLOR} />
+							<Text style={styles.changeAvatarButtonText}>Đổi ảnh</Text>
+						</TouchableOpacity>
+					) : null}
 					<Text style={styles.avatarName}>{normalizeValue(user?.fullName) || 'Khách hàng'}</Text>
 				</View>
 
@@ -585,6 +656,23 @@ const styles = StyleSheet.create({
 		fontSize: 18,
 		fontWeight: '700',
 		color: TEXT_PRIMARY,
+	},
+	changeAvatarButton: {
+		marginBottom: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: PRIMARY_COLOR,
+		backgroundColor: '#FFF7F1',
+		flexDirection: 'row',
+		alignItems: 'center',
+		columnGap: 6,
+	},
+	changeAvatarButtonText: {
+		fontSize: 13,
+		fontWeight: '700',
+		color: PRIMARY_COLOR,
 	},
 	formGroup: {
 		marginBottom: 14,

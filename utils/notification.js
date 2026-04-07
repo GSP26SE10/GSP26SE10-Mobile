@@ -143,11 +143,17 @@ const getOrCreateDeviceId = async () => {
   return newId;
 };
 
-const registerDeviceOnBackend = async (expoPushToken) => {
+const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
   try {
-    const accessToken = await AsyncStorage.getItem('accessToken');
+    const providedToken = typeof options?.accessToken === 'string' ? options.accessToken : null;
+    const providedUser = options?.userData && typeof options.userData === 'object' ? options.userData : null;
+
+    const storedToken = await AsyncStorage.getItem('accessToken');
     const rawUser = await AsyncStorage.getItem('userData');
-    const user = rawUser ? JSON.parse(rawUser) : null;
+    const storedUser = rawUser ? JSON.parse(rawUser) : null;
+
+    const accessToken = String(providedToken || storedToken || '').trim();
+    const user = providedUser || storedUser;
     const userId = user?.userId ?? null;
     if (!accessToken || !userId || !expoPushToken) {
       console.log('[devices/register] skip — thiếu dữ liệu', {
@@ -176,6 +182,7 @@ const registerDeviceOnBackend = async (expoPushToken) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        accept: '*/*',
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
@@ -240,7 +247,7 @@ export const deactivateCurrentDeviceAsync = async () => {
   }
 };
 
-export const registerForPushNotificationsAsync = async () => {
+export const registerForPushNotificationsAsync = async (options = {}) => {
   try {
     const before = await Notifications.getPermissionsAsync();
     console.log('[notification] permission before', before?.status);
@@ -275,7 +282,7 @@ export const registerForPushNotificationsAsync = async () => {
     console.log('[notification] expoPushToken', token || null);
     if (token) {
       await AsyncStorage.setItem(EXPO_PUSH_TOKEN_KEY, token);
-      await registerDeviceOnBackend(token);
+      await registerDeviceOnBackend(token, options);
     }
     await logAccessTokenNow();
   } catch (e) {
