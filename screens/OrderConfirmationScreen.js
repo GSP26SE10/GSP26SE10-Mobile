@@ -325,8 +325,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         });
         const json = await res.json().catch(() => null);
         const items = Array.isArray(json?.items) ? json.items : [];
-        const activeOnly = items.filter((it) => Number(it?.status) === 1);
-        if (!cancelled) setPartyCategories(activeOnly);
+        if (!cancelled) setPartyCategories(items);
       } catch (_) {
         if (!cancelled) setPartyCategories([]);
       } finally {
@@ -346,6 +345,18 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     [partyCategories, partyCategoryId]
   );
 
+  const selectedPartyCategoryMinGuests = Number(selectedPartyCategory?.numberOfGuests ?? 0);
+  const selectedPartyCategoryHasMinGuests =
+    Number.isFinite(selectedPartyCategoryMinGuests) && selectedPartyCategoryMinGuests > 0;
+  const selectedPartyCategoryMeetsGuests =
+    !selectedPartyCategoryHasMinGuests || menuCount >= selectedPartyCategoryMinGuests;
+
+  useEffect(() => {
+    if (!partyCategoryId || !selectedPartyCategoryHasMinGuests) return;
+    if (selectedPartyCategoryMeetsGuests) return;
+    setPartyCategoryId(null);
+  }, [partyCategoryId, selectedPartyCategoryHasMinGuests, selectedPartyCategoryMeetsGuests]);
+
   const resolveCategoryImageUri = (imageUrl) => {
     if (!imageUrl || typeof imageUrl !== 'string') return null;
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
@@ -362,7 +373,10 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   );
 
   const canContinue =
-    addressLine.trim().length > 0 && partyCategoryId != null && partyStartMeetsLeadDays;
+    addressLine.trim().length > 0 &&
+    partyCategoryId != null &&
+    partyStartMeetsLeadDays &&
+    selectedPartyCategoryMeetsGuests;
   const isMultiParty = orderParties.length > 1;
   const canGoPreviousParty = isMultiParty && partyIndex > 0;
   const isLastParty = partyIndex >= orderParties.length - 1;
@@ -819,55 +833,93 @@ export default function OrderConfirmationScreen({ navigation, route }) {
             ) : partyCategories.length === 0 ? (
               <Text style={styles.partyCategoryHint}>Không có loại tiệc khả dụng.</Text>
             ) : (
-              <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
-                {partyCategories.map((item) => {
-                  const id = Number(item?.partyCategoryId);
-                  const isSelected = Number(partyCategoryId) === id;
-                  const imageUri = resolveCategoryImageUri(item?.imageUrl);
-                  const imageError = partyCategoryImageErrorMap[id] === true;
-                  return (
-                    <TouchableOpacity
-                      key={String(id)}
-                      style={[styles.partyCategoryRow, isSelected && styles.optionRowActive]}
-                      activeOpacity={0.75}
-                      onPress={() => {
-                        setPartyCategoryId(id);
-                        setPartyCategoryModalVisible(false);
-                      }}
-                    >
-                      <View style={styles.partyCategoryImageWrap}>
-                        {imageUri && !imageError ? (
-                          <Image
-                            source={{ uri: imageUri }}
-                            style={styles.partyCategoryImage}
-                            contentFit="cover"
-                            onError={() =>
-                              setPartyCategoryImageErrorMap((prev) => ({ ...prev, [id]: true }))
-                            }
-                          />
+              <View>
+               
+                <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+                  {partyCategories.map((item) => {
+                    const id = Number(item?.partyCategoryId);
+                    const isSelected = Number(partyCategoryId) === id;
+                    const minGuests = Number(item?.numberOfGuests ?? 0);
+                    const hasMinGuests = Number.isFinite(minGuests) && minGuests > 0;
+                    const isActive = Number(item?.status) === 1;
+                    const canSelect = isActive && (!hasMinGuests || menuCount >= minGuests);
+                    const guestsMissing = hasMinGuests ? Math.max(minGuests - menuCount, 0) : 0;
+                    const imageUri = resolveCategoryImageUri(item?.imageUrl);
+                    const imageError = partyCategoryImageErrorMap[id] === true;
+                    return (
+                      <TouchableOpacity
+                        key={String(id)}
+                        style={[
+                          styles.partyCategoryRow,
+                          isSelected && styles.optionRowActive,
+                          !canSelect && styles.partyCategoryRowDisabled,
+                        ]}
+                        activeOpacity={0.75}
+                        disabled={!canSelect}
+                        onPress={() => {
+                          if (!canSelect) return;
+                          setPartyCategoryId(id);
+                          setPartyCategoryModalVisible(false);
+                        }}
+                      >
+                        <View style={styles.partyCategoryImageWrap}>
+                          {imageUri && !imageError ? (
+                            <Image
+                              source={{ uri: imageUri }}
+                              style={styles.partyCategoryImage}
+                              contentFit="cover"
+                              onError={() =>
+                                setPartyCategoryImageErrorMap((prev) => ({ ...prev, [id]: true }))
+                              }
+                            />
+                          ) : (
+                            <View style={[styles.partyCategoryImage, styles.imagePlaceholder]}>
+                              <Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
+                            </View>
+                          )}
+                        </View>
+                        <View style={styles.partyCategoryInfo}>
+                          <Text style={styles.partyCategoryName} numberOfLines={1}>
+                            {item?.partyCategoryName || '—'}
+                          </Text>
+                          <Text style={styles.partyCategoryDesc} numberOfLines={2}>
+                            {item?.description || '—'}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.partyCategoryRequirement,
+                              !canSelect && styles.partyCategoryRequirementDisabled,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {hasMinGuests ? `Tối thiểu ${minGuests} khách` : 'Không giới hạn số khách'}
+                          </Text>
+                          {!isActive && (
+                            <Text style={styles.partyCategoryStatusText} numberOfLines={1}>
+                              Đang tạm khóa
+                            </Text>
+                          )}
+                          {isActive && hasMinGuests && !canSelect && (
+                            <Text style={styles.partyCategoryStatusText} numberOfLines={1}>
+                              Cần thêm {guestsMissing} khách nữa
+                            </Text>
+                          )}
+                          {isActive && !hasMinGuests && (
+                            <Text style={styles.partyCategoryStatusText} numberOfLines={1}>
+                              Có thể chọn ngay
+                            </Text>
+                          )}
+                        </View>
+                        {isSelected ? (
+                          <Ionicons name="checkmark-circle" size={20} color={PRIMARY_COLOR} />
                         ) : (
-                          <View style={[styles.partyCategoryImage, styles.imagePlaceholder]}>
-                            <Ionicons name="image-outline" size={18} color={TEXT_SECONDARY} />
-                          </View>
+                          <Ionicons name="ellipse-outline" size={20} color={TEXT_SECONDARY} />
                         )}
-                      </View>
-                      <View style={styles.partyCategoryInfo}>
-                        <Text style={styles.partyCategoryName} numberOfLines={1}>
-                          {item?.partyCategoryName || '—'}
-                        </Text>
-                        <Text style={styles.partyCategoryDesc} numberOfLines={2}>
-                          {item?.description || '—'}
-                        </Text>
-                      </View>
-                      {isSelected ? (
-                        <Ionicons name="checkmark-circle" size={20} color={PRIMARY_COLOR} />
-                      ) : (
-                        <Ionicons name="ellipse-outline" size={20} color={TEXT_SECONDARY} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
           </View>
         </View>
@@ -1225,6 +1277,24 @@ const styles = StyleSheet.create({
   partyCategoryDesc: {
     fontSize: 12,
     color: TEXT_SECONDARY,
+  },
+  partyCategoryRequirement: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+  },
+  partyCategoryRequirementDisabled: {
+    color: '#B45309',
+  },
+  partyCategoryStatusText: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: TEXT_SECONDARY,
+  },
+  partyCategoryRowDisabled: {
+    opacity: 0.5,
   },
   bottomSafe: {
     position: 'absolute',
