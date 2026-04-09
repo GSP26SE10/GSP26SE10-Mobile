@@ -8,6 +8,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
@@ -17,20 +18,39 @@ import { clearChatUnreadOnLogout } from '../utils/chatUnread';
 export default function LeaderAccountScreen({ navigation }) {
   const [user, setUser] = useState(null);
 
+  const avatarUri =
+    typeof user?.avatar === 'string' && user.avatar.trim().length > 0
+      ? user.avatar.trim()
+      : null;
+
   useEffect(() => {
+    let mounted = true;
     const loadUser = async () => {
       try {
         const stored = await AsyncStorage.getItem('userData');
+        if (!mounted) return;
         if (stored) {
           setUser(JSON.parse(stored));
+        } else {
+          setUser(null);
         }
       } catch (error) {
+        if (mounted) setUser(null);
         console.error('Failed to load user data', error);
       }
     };
 
     loadUser();
-  }, []);
+    const unsubscribe =
+      typeof navigation?.addListener === 'function'
+        ? navigation.addListener('focus', loadUser)
+        : null;
+
+    return () => {
+      mounted = false;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [navigation]);
 
   const handleLogout = async () => {
     try {
@@ -58,39 +78,41 @@ export default function LeaderAccountScreen({ navigation }) {
         {/* User Profile Section */}
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>
-            <Image
-              source={{
-                uri: 'https://scontent.fsgn16-1.fna.fbcdn.net/v/t39.30808-6/548570477_1189728099855961_5240077253445441952_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_ohc=Lqp7XKTpjhEQ7kNvwGmL7JP&_nc_oc=AdlFm094dgSxWykFEBHlV5urvU6TtYvqvBW6vGbcWA82Mvri8OXfcl2mq02l7coDg9n7jaq7KjGdKQ3oAFYMnzGc&_nc_zt=23&_nc_ht=scontent.fsgn16-1.fna&_nc_gid=QckBobUcEcuU-15xcs2WdA&oh=00_AfuoPMLP6B9c7ArmiRL3hG_mzjPAZa_aRe3Yl5zro9aGxw&oe=698954C8',
-              }}
-              style={styles.profileImage}
-              resizeMode="cover"
-            />
+            {avatarUri ? (
+              <Image
+                source={{ uri: avatarUri }}
+                style={styles.profileImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.profileImageFallback}>
+                <Ionicons name="person" size={44} color={TEXT_SECONDARY} />
+              </View>
+            )}
           </View>
           <Text style={styles.userName}>{user?.fullName || 'Leader'}</Text>
-          <Text style={styles.userEmail}>{user?.email || ''}</Text>
+          <Text style={styles.userEmail}>{user?.email || 'Chưa có email'}</Text>
           <Text style={styles.userPhone}>{user?.phone || ''}</Text>
         </View>
 
-        {/* Simple Menu Options */}
+        {/* Menu Options */}
         <View style={styles.menuSection}>
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => {
-              console.log('Leader settings');
-            }}
+            onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuText}>Cài đặt</Text>
+            <Text style={styles.menuText}>Thông tin cá nhân</Text>
+            <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <View style={styles.menuDivider} />
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => {
-              console.log('Leader team management');
-            }}
+            onPress={() => navigation.navigate('ChangePassword')}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuText}>Quản lý nhóm</Text>
+            <Text style={styles.menuText}>Đổi mật khẩu</Text>
+            <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
           </TouchableOpacity>
         </View>
 
@@ -146,6 +168,13 @@ const styles = StyleSheet.create({
   profileImage: {
     width: '100%',
     height: '100%',
+  },
+  profileImageFallback: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E8E8E8',
   },
   userName: {
     fontSize: 20,
