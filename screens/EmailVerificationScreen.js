@@ -60,6 +60,46 @@ export default function EmailVerificationScreen({ navigation, route }) {
     setToastVisible(true);
   };
 
+  const translateApiMessage = (rawMessage) => {
+    const message = String(rawMessage || '').trim();
+    if (!message) return '';
+
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes('code has expired') || normalized.includes('does not exist')) {
+      return 'Mã xác thực đã hết hạn hoặc không tồn tại. Vui lòng đăng ký lại hoặc yêu cầu mã mới.';
+    }
+    if (normalized.includes('invalid code') || normalized.includes('wrong code')) {
+      return 'Mã xác nhận không đúng, vui lòng thử lại.';
+    }
+    if (normalized.includes('email is already') || normalized.includes('already verified')) {
+      return 'Email này đã được xác thực trước đó.';
+    }
+    if (normalized.includes('user not found')) {
+      return 'Không tìm thấy tài khoản tương ứng với email này.';
+    }
+    if (normalized.includes('too many requests')) {
+      return 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.';
+    }
+    if (normalized.includes('failed to send') || normalized.includes('send email')) {
+      return 'Không thể gửi email xác nhận lúc này. Vui lòng thử lại sau.';
+    }
+
+    return message;
+  };
+
+  const getApiErrorMessage = (json, fallback) => {
+    const rawMessage =
+      (typeof json?.message === 'string' && json.message.trim()) ||
+      (typeof json?.Message === 'string' && json.Message.trim()) ||
+      (typeof json?.error === 'string' && json.error.trim()) ||
+      (typeof json?.Error === 'string' && json.Error.trim()) ||
+      '';
+
+    const translated = translateApiMessage(rawMessage);
+    return translated || fallback;
+  };
+
   const handleVerify = async () => {
     if (!email || !code || submitting) return;
     setSubmitting(true);
@@ -81,12 +121,14 @@ export default function EmailVerificationScreen({ navigation, route }) {
         json = { raw: text };
       }
 
-      if (!res.ok || json?.success === false) {
-        const msg =
-          json?.message ||
-          (res.status >= 400 && res.status < 500
+      const isSuccess = json?.success ?? json?.Success;
+      if (!res.ok || isSuccess === false) {
+        const msg = getApiErrorMessage(
+          json,
+          res.status >= 400 && res.status < 500
             ? 'Mã xác nhận không đúng, vui lòng thử lại'
-            : 'Có lỗi xảy ra, vui lòng thử lại');
+            : 'Có lỗi xảy ra, vui lòng thử lại',
+        );
         showToast(msg);
         return;
       }
@@ -124,10 +166,9 @@ export default function EmailVerificationScreen({ navigation, route }) {
         json = { raw: text };
       }
 
-      if (!res.ok || json?.success === false) {
-        const msg =
-          json?.message ||
-          'Không thể gửi lại mã, vui lòng thử lại';
+      const isSuccess = json?.success ?? json?.Success;
+      if (!res.ok || isSuccess === false) {
+        const msg = getApiErrorMessage(json, 'Không thể gửi lại mã, vui lòng thử lại');
         showToast(msg);
         return;
       }

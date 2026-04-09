@@ -86,10 +86,10 @@ export default function RegisterScreen({ navigation }) {
   }, [pickerType, pickerSearch, wardOptions]);
 
   const isFormValid =
-    fullName.length > 0 &&
-    userName.length > 0 &&
-    email.length > 0 &&
-    phone.length > 0 &&
+    normalizeValue(fullName).length > 0 &&
+    normalizeValue(userName).length > 0 &&
+    normalizeValue(email).length > 0 &&
+    normalizeValue(phone).length > 0 &&
     normalizeValue(houseAddress).length > 0 &&
     cityCode.length > 0 &&
     wardCode.length > 0 &&
@@ -98,13 +98,25 @@ export default function RegisterScreen({ navigation }) {
 
   const registerSchema = z
     .object({
-      fullName: z.string().min(1, 'Họ và tên không được để trống'),
-      userName: z.string().min(3, 'Tên đăng nhập tối thiểu 3 ký tự'),
-      email: z.string().email('Email không hợp lệ'),
-      phone: z
+      fullName: z
         .string()
-        .min(9, 'Số điện thoại không hợp lệ')
-        .max(20, 'Số điện thoại không hợp lệ'),
+        .trim()
+        .refine((value) => value.split(/\s+/).filter(Boolean).length >= 2, {
+          message: 'Họ và tên phải có ít nhất 2 chữ',
+        }),
+      userName: z
+        .string()
+        .trim()
+        .min(3, 'Tên đăng nhập tối thiểu 3 ký tự')
+        .regex(/^\S+$/, 'Tên đăng nhập không được chứa khoảng trắng'),
+      email: z
+        .string()
+        .trim()
+        .email('Email không hợp lệ')
+        .refine((value) => value.includes('@'), {
+          message: 'Email phải chứa ký tự @',
+        }),
+      phone: z.string().trim().regex(/^0\d{9}$/, 'Số điện thoại phải gồm 10 số và bắt đầu bằng 0'),
       address: z.string().min(5, 'Địa chỉ quá ngắn'),
       password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
       confirmPassword: z.string(),
@@ -170,11 +182,16 @@ export default function RegisterScreen({ navigation }) {
     }
 
     const finalAddress = normalizeValue(composedAddress);
+    const normalizedFullName = normalizeValue(fullName);
+    const normalizedUserName = normalizeValue(userName);
+    const normalizedEmail = normalizeValue(email);
+    const normalizedPhone = normalizeValue(phone);
+
     const result = registerSchema.safeParse({
-      fullName,
-      userName,
-      email,
-      phone,
+      fullName: normalizedFullName,
+      userName: normalizedUserName,
+      email: normalizedEmail,
+      phone: normalizedPhone,
       address: finalAddress,
       password,
       confirmPassword,
@@ -197,11 +214,11 @@ export default function RegisterScreen({ navigation }) {
     setSubmitting(true);
     try {
       const payload = {
-        userName,
+        userName: normalizedUserName,
         password,
-        fullName,
-        email,
-        phone,
+        fullName: normalizedFullName,
+        email: normalizedEmail,
+        phone: normalizedPhone,
         address: finalAddress,
       };
 
