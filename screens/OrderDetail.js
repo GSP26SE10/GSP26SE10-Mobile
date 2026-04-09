@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Alert,
   Platform,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -143,6 +144,7 @@ export default function OrderDetail({ navigation, route }) {
   const [existingMenuFeedbacks, setExistingMenuFeedbacks] = useState([]);
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
   const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
+  const feedbackSubmitLockRef = useRef(false);
   const toggleDishes = (idx) => {
     setExpandedDishesSet((prev) => {
       const next = new Set(prev);
@@ -489,9 +491,10 @@ export default function OrderDetail({ navigation, route }) {
   };
 
   const handleSubmitFeedback = async () => {
-    if (submittingFeedback) return;
+    if (submittingFeedback || feedbackSubmitLockRef.current) return;
     const target = feedbackTargets[currentFeedbackIndex];
     if (!target || !orderId) return;
+    feedbackSubmitLockRef.current = true;
     setSubmittingFeedback(true);
     try {
       let customerId = null;
@@ -547,7 +550,7 @@ export default function OrderDetail({ navigation, route }) {
       await fetch(url, {
         method: 'POST',
         body: formData,
-      }).catch(() => { });
+      });
 
       const nextIndex = currentFeedbackIndex + 1;
       if (nextIndex < feedbackTargets.length) {
@@ -585,6 +588,7 @@ export default function OrderDetail({ navigation, route }) {
       // bỏ qua lỗi, có thể bổ sung toast sau
     } finally {
       setSubmittingFeedback(false);
+      feedbackSubmitLockRef.current = false;
     }
   };
 
@@ -1334,9 +1338,13 @@ export default function OrderDetail({ navigation, route }) {
                     contentContainerStyle={{ paddingBottom: 10 }}
                   >
                     <TouchableOpacity
-                      style={styles.feedbackCloseButton}
+                      style={[
+                        styles.feedbackCloseButton,
+                        submittingFeedback && styles.feedbackActionBtnDisabled,
+                      ]}
                       onPress={() => !submittingFeedback && setFeedbackVisible(false)}
                       activeOpacity={0.7}
+                      disabled={submittingFeedback}
                     >
                     </TouchableOpacity>
 
@@ -1433,19 +1441,28 @@ export default function OrderDetail({ navigation, route }) {
                         style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
                         activeOpacity={0.8}
                         disabled={submittingFeedback}
-                        onPress={() => setFeedbackVisible(false)}
+                        onPress={() => !submittingFeedback && setFeedbackVisible(false)}
                       >
                         <Text style={styles.feedbackCancelText}>Đóng</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
+                        style={[
+                          styles.feedbackActionBtn,
+                          styles.feedbackSubmitBtn,
+                          submittingFeedback && styles.feedbackActionBtnDisabled,
+                        ]}
                         activeOpacity={0.8}
                         disabled={submittingFeedback}
                         onPress={handleSubmitFeedback}
                       >
-                        <Text style={styles.feedbackSubmitText}>
-                          {submittingFeedback ? 'Đang gửi...' : 'Gửi đánh giá'}
-                        </Text>
+                        {submittingFeedback ? (
+                          <View style={styles.feedbackSubmitLoadingRow}>
+                            <ActivityIndicator size="small" color={BACKGROUND_WHITE} />
+                            <Text style={styles.feedbackSubmitText}>Đang gửi...</Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.feedbackSubmitText}>Gửi đánh giá</Text>
+                        )}
                       </TouchableOpacity>
                     </View>
                   </ScrollView>
@@ -2256,6 +2273,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  feedbackActionBtnDisabled: {
+    opacity: 0.6,
+  },
   feedbackCancelBtn: {
     backgroundColor: BACKGROUND_WHITE,
     borderWidth: 1,
@@ -2273,6 +2293,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BACKGROUND_WHITE,
     fontWeight: '700',
+  },
+  feedbackSubmitLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
   },
   feedbackSectionTitle: {
     fontSize: 14,
