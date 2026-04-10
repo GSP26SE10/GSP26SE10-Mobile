@@ -31,8 +31,9 @@ import { BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_L
 const CITIES = require('../constants/city.json');
 
 const formatMoney = (priceFormatted, basePrice, count = 1) => {
-  if (priceFormatted) return priceFormatted;
-  const val = Number(basePrice ?? 0) * Number(count ?? 1);
+  const normalizedCount = Number(count ?? 1);
+  if (priceFormatted && normalizedCount === 1) return priceFormatted;
+  const val = Number(basePrice ?? 0) * normalizedCount;
   try {
     return new Intl.NumberFormat('vi-VN', {
       style: 'currency',
@@ -434,7 +435,9 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
           {/* Cart preview */}
           <View style={styles.section}>
-            {cartItems.map((item) => (
+            {cartItems.map((item) => {
+              const displayCount = item.type === 'dish' ? Math.max(menuCount, 1) : Number(item.count ?? 1);
+              return (
               <View key={item.id} style={styles.cartRow}>
                 <View style={styles.cartImageWrap}>
                   {item.image ? (
@@ -454,7 +457,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 <View style={styles.cartInfo}>
                   <Text style={styles.cartName} numberOfLines={2}>{item.name}</Text>
                   <Text style={styles.cartMeta}>{item.type === 'menu' ? 'Menu' : item.type === 'dish' ? 'Món lẻ' : 'Dịch vụ'}</Text>
-                  <Text style={styles.cartPrice}>{formatMoney(item.priceFormatted, item.basePrice, item.count)}</Text>
+                  <Text style={styles.cartPrice}>{formatMoney(item.priceFormatted, item.basePrice, displayCount)}</Text>
                 </View>
                   {item.type === 'service' && (
                   <View style={styles.serviceQtyWrap}>
@@ -463,11 +466,12 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 )}
                   {item.type === 'dish' && (
                     <View style={styles.serviceQtyWrap}>
-                      <Text style={styles.serviceQtyText}>Món lẻ</Text>
+                      <Text style={styles.serviceQtyText}>x{Math.max(menuCount, 1)}</Text>
                     </View>
                   )}
               </View>
-            ))}
+            );
+            })}
           </View>
 
           {/* Event time */}

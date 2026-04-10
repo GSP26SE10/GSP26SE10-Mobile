@@ -108,7 +108,9 @@ export default function OrderSummaryScreen({ navigation, route }) {
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
         0
       );
-      const dishSum = dishItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
+      // Món lẻ tính theo đơn giá * số lượng khách (khi party có menu)
+      const dishUnitSum = dishItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
+      const dishSum = dishUnitSum * effectiveGuestCount;
       const subTotal = menuBaseSum * effectiveGuestCount + serviceSum + dishSum;
       const hasOrderableItems = hasMenu;
       return {
@@ -121,6 +123,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
         hasMenu,
         hasOrderableItems,
         menuCount,
+        effectiveGuestCount,
         menuBaseSum,
         serviceSum,
         dishSum,
@@ -327,7 +330,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
     const poll = async () => {
       try {
         const res = await fetch(
-          `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=1`,
+          `${API_URL}/api/payment/my-payment?OrderId=${orderId}&page=1&pageSize=1`,
           { headers },
         );
         const json = await res.json();
@@ -602,7 +605,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
                     <View key={d.id} style={styles.summaryRow}>
                       <Text style={styles.summaryPrefix}>＋</Text>
                       <Text style={styles.summaryText} numberOfLines={2}>
-                        <Text style={styles.summaryBold}>Món lẻ:</Text> {d.name}
+                        <Text style={styles.summaryBold}>Món lẻ:</Text> {d.name} x{p.effectiveGuestCount}
                       </Text>
                     </View>
                   ))}

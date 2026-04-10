@@ -199,8 +199,14 @@ export default function OrderDetail({ navigation, route }) {
 
         if (fullOrder) {
           try {
+            const accessToken = await AsyncStorage.getItem('accessToken');
             const payRes = await fetch(
-              `${API_URL}/api/payment?OrderId=${orderId}&page=1&pageSize=10`,
+              `${API_URL}/api/payment/my-payment?OrderId=${orderId}&page=1&pageSize=10`,
+              {
+                headers: {
+                  ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                },
+              },
             );
             const payJson = await payRes.json();
             const list = Array.isArray(payJson?.items) ? payJson.items : [];
@@ -886,7 +892,7 @@ export default function OrderDetail({ navigation, route }) {
                           <View style={styles.serviceInfo}>
                             <Text style={styles.serviceName}>{d?.dishName || 'Món lẻ'}</Text>
                             <Text style={styles.serviceMeta}>
-                              Giá: {formatVnd(unit)}
+                              Giá: {formatVnd(unit)} x {od.numberOfGuests}
                             </Text>
                           </View>
                         </TouchableOpacity>
