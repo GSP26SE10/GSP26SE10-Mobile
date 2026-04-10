@@ -708,6 +708,14 @@ export default function OrderDetail({ navigation, route }) {
             const customDishes = Array.isArray(customDishSnapshot.customDishes)
               ? customDishSnapshot.customDishes
               : [];
+            const uniqueCustomDishes = [];
+            const seenCustomDishIds = new Set();
+            customDishes.forEach((dish) => {
+              const dishId = Number(dish?.dishId ?? 0);
+              if (!dishId || seenCustomDishIds.has(dishId)) return;
+              seenCustomDishIds.add(dishId);
+              uniqueCustomDishes.push(dish);
+            });
             const imgUri = getDetailImageUri(od);
             const isDishesExpanded = expandedDishesSet.has(idx);
             const mid = Math.ceil(dishes.length / 2);
@@ -839,13 +847,12 @@ export default function OrderDetail({ navigation, route }) {
                     })}
                   </View>
                 )}
-                {customDishes.length > 0 && (
+                {uniqueCustomDishes.length > 0 && (
                   <View style={styles.snapshotSection}>
                     <Text style={styles.snapshotLabel}>Món lẻ</Text>
-                    {customDishes.map((d, i) => {
+                    {uniqueCustomDishes.map((d, i) => {
                       const dishImg = d?.img ?? (Array.isArray(d?.imgUrl) ? d.imgUrl[0] : d?.imgUrl);
-                      const total = Number(d?.totalAmount ?? d?.unitPrice ?? 0);
-                      const unit = Number(d?.unitPrice ?? total ?? 0);
+                      const unit = Number(d?.unitPrice ?? d?.totalAmount ?? 0);
                       return (
                         <TouchableOpacity
                           key={`${d?.dishId ?? 'custom-dish'}-${i}`}
@@ -875,7 +882,7 @@ export default function OrderDetail({ navigation, route }) {
                           <View style={styles.serviceInfo}>
                             <Text style={styles.serviceName}>{d?.dishName || 'Món lẻ'}</Text>
                             <Text style={styles.serviceMeta}>
-                              Đơn giá: {formatVnd(unit)} · Thành tiền: {formatVnd(total)}
+                              Giá: {formatVnd(unit)}
                             </Text>
                           </View>
                         </TouchableOpacity>

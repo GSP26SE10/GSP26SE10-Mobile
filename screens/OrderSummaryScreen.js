@@ -38,6 +38,16 @@ const formatTimeRange = (startIso, endIso) => {
   return `${time(start)} – ${time(end)} ${date(start)}`;
 };
 
+const uniqueDishesById = (items) => {
+  const seen = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const dishId = Number(item?.dishId ?? 0);
+    if (!dishId || seen.has(dishId)) return;
+    seen.set(dishId, item);
+  });
+  return Array.from(seen.values());
+};
+
 export default function OrderSummaryScreen({ navigation, route }) {
   const params = route?.params || {};
   const [orderParties, setOrderParties] = useState([]);
@@ -87,7 +97,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const items = p.items || [];
       const menuItems = items.filter((i) => i.type === 'menu');
       const serviceItems = items.filter((i) => i.type === 'service');
-      const dishItems = items.filter((i) => i.type === 'dish');
+      const dishItems = uniqueDishesById(items.filter((i) => i.type === 'dish'));
       // 1 party có thể có nhiều menu -> số lượng khách lấy theo MAX, không phải SUM
       const menuCount = Math.max(...menuItems.map((i) => Number(i.count ?? 0)), 1);
       const hasMenu = menuItems.some((m) => Number(m.menuId) > 0);
@@ -98,10 +108,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
         (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
         0
       );
-      const dishSum = dishItems.reduce(
-        (sum, i) => sum + Number(i.basePrice ?? 0) * Number(i.count ?? 0),
-        0
-      );
+      const dishSum = dishItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
       const subTotal = menuBaseSum * effectiveGuestCount + serviceSum + dishSum;
       const hasOrderableItems = hasMenu;
       return {
@@ -386,14 +393,11 @@ export default function OrderSummaryScreen({ navigation, route }) {
         const partyItems = p.items || [];
         const menu = partyItems.find((i) => i.type === 'menu' && Number(i.menuId) > 0);
         const menuId = Number(menu?.menuId ?? 0);
-        const customDishes = partyItems
-          .filter((i) => i.type === 'dish')
-          .flatMap((d) => {
-            const dishId = Number(d?.dishId ?? 0);
-            const quantity = Math.max(1, Number(d?.count ?? 1));
-            if (!dishId) return [];
-            return Array.from({ length: quantity }, () => ({ dishId }));
-          });
+        const customDishes = uniqueDishesById(partyItems.filter((i) => i.type === 'dish'))
+          .map((d) => ({
+            dishId: Number(d?.dishId ?? 0),
+          }))
+          .filter((d) => d.dishId > 0);
         const hasOrderableItems = menuId > 0 || customDishes.length > 0;
         if (!hasOrderableItems) continue; // bỏ qua party chưa chọn món
         if (menuId <= 0) continue; // bắt buộc có menu, không cho đặt riêng món lẻ
@@ -598,7 +602,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
                     <View key={d.id} style={styles.summaryRow}>
                       <Text style={styles.summaryPrefix}>＋</Text>
                       <Text style={styles.summaryText} numberOfLines={2}>
-                        <Text style={styles.summaryBold}>Món lẻ:</Text> {d.name} x{d.count}
+                        <Text style={styles.summaryBold}>Món lẻ:</Text> {d.name}
                       </Text>
                     </View>
                   ))}

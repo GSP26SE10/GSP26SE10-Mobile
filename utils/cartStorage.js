@@ -61,6 +61,26 @@ const formatPrice = (price) => {
   }
 };
 
+function normalizePartyItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) =>
+    item?.type === 'dish'
+      ? {
+          ...item,
+          count: 1,
+        }
+      : item,
+  );
+}
+
+function normalizeParty(party) {
+  if (!party || typeof party !== 'object') return party;
+  return {
+    ...party,
+    items: normalizePartyItems(party.items),
+  };
+}
+
 async function migrateLegacyCartIfNeeded() {
   // Nếu trước đây app lưu theo key cart:<userId> hoặc 'cart', migrate sang parties (1 party).
   try {
@@ -75,7 +95,7 @@ async function migrateLegacyCartIfNeeded() {
     const legacyItems = JSON.parse(legacyRaw);
     const items = Array.isArray(legacyItems) ? legacyItems : [];
     const partyId = makePartyId();
-    const parties = [{ partyId, items }];
+    const parties = [{ partyId, items: normalizePartyItems(items) }];
     await AsyncStorage.setItem(partiesKey, JSON.stringify(parties));
     await AsyncStorage.setItem(await getActivePartyKey(), partyId);
   } catch {
@@ -90,7 +110,7 @@ export async function getOrderParties() {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map(normalizeParty) : [];
   } catch {
     return [];
   }
@@ -127,7 +147,8 @@ export async function clearCartOnLogout() {
 export async function setOrderParties(parties) {
   try {
     const key = await getPartiesKey();
-    await AsyncStorage.setItem(key, JSON.stringify(Array.isArray(parties) ? parties : []));
+    const normalized = Array.isArray(parties) ? parties.map(normalizeParty) : [];
+    await AsyncStorage.setItem(key, JSON.stringify(normalized));
     notifyOrderPartiesChange();
   } catch (e) {
     console.error('Failed to save order parties', e);
@@ -172,7 +193,7 @@ async function ensureActiveParty(parties) {
 }
 
 async function normalizePartiesAndActive(parties, activePartyId) {
-  const list = (Array.isArray(parties) ? parties : []).filter(
+  const list = (Array.isArray(parties) ? parties : []).map(normalizeParty).filter(
     (p) => Array.isArray(p?.items) && p.items.length > 0
   );
   if (!list.length) {
@@ -208,8 +229,9 @@ export async function getCart() {
 export async function setCart(items) {
   const parties = await getOrderParties();
   const ensured = await ensureActiveParty(parties);
+  const normalizedItems = normalizePartyItems(items);
   const next = ensured.parties.map((p) =>
-    p.partyId === ensured.activePartyId ? { ...p, items: Array.isArray(items) ? items : [] } : p
+    p.partyId === ensured.activePartyId ? { ...p, items: normalizedItems } : p
   );
   await normalizePartiesAndActive(next, ensured.activePartyId);
 }
@@ -288,7 +310,7 @@ export async function addServiceToCart(service) {
 
 /**
  * Thêm món lẻ vào giỏ. Yêu cầu tiệc đã có menu.
- * Số lượng món lẻ tự đồng bộ theo số lượng menu.
+ * Món lẻ không có số lượng riêng, nên luôn lưu thành một item duy nhất.
  * @param {object} dish - { dishId, dishName, price, image, description, note, dishCategoryName }
  * @returns {Promise<{ success: boolean, reason?: string, items: Array }>}
  */
@@ -307,7 +329,7 @@ export async function addDishToCart(dish) {
   const image = dish.image || dish.img || '';
 
   if (existing) {
-    existing.count = menuCount;
+    existing.count = 1;
   } else {
     items.push({
       id,
@@ -317,7 +339,7 @@ export async function addDishToCart(dish) {
       basePrice: dish.price ?? 0,
       priceFormatted,
       image,
-      count: menuCount,
+      count: 1,
     });
   }
   await setCart(items);
@@ -334,6 +356,11 @@ export async function updateCartItemQuantity(itemId, delta) {
   const items = await getCart();
   const index = items.findIndex((i) => i.id === itemId);
   if (index === -1) return items;
+  if (items[index]?.type === 'dish') {
+    items[index].count = 1;
+    await setCart(items);
+    return items;
+  }
   items[index].count += delta;
   if (items[index].count <= 0) {
     items.splice(index, 1);

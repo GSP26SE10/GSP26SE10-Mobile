@@ -291,12 +291,11 @@ export default function OrdersScreen({ navigation, route }) {
     const party = (orderParties || [])[partyIndex];
     const partyItems = Array.isArray(party?.items) ? party.items : [];
     const menuItems = partyItems.filter((i) => i.type === 'menu');
-    const dishItems = partyItems.filter((i) => i.type === 'dish');
     const isMenu = item.type === 'menu';
     const isDish = item.type === 'dish';
 
     if (isDish) {
-      showToast('Số lượng món lẻ tự động theo menu');
+      showToast('Món lẻ không có số lượng riêng');
       return;
     }
 
@@ -309,13 +308,6 @@ export default function OrdersScreen({ navigation, route }) {
       await setActivePartyByIndex(partyIndex);
       for (const m of menuItems) {
         await updateCartItemQuantity(m.id, realDelta);
-      }
-      const newMenuCount = target;
-      for (const d of dishItems) {
-        const dishDelta = newMenuCount - Number(d.count ?? 0);
-        if (dishDelta !== 0) {
-          await updateCartItemQuantity(d.id, dishDelta);
-        }
       }
       const parties = await getOrderParties();
       setOrderParties(parties);
@@ -433,45 +425,58 @@ export default function OrdersScreen({ navigation, route }) {
                       </Text>
                     </View>
                   </TouchableOpacity>
-                  <View style={styles.quantityContainer}>
-                    {item.count > 1 ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item, -1)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.quantityButtonText}>-</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.quantityText}>{item.count}</Text>
-                        <TouchableOpacity
-                          style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item, 1)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.quantityButtonText}>+</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <>
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleRemoveItem(partyIndex, item.id)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="trash-outline" size={20} color="#FF0000" />
-                        </TouchableOpacity>
-                        <Text style={styles.quantityText}>{item.count}</Text>
-                        <TouchableOpacity
-                          style={styles.quantityButton}
-                          onPress={() => handleQuantityChange(partyIndex, item, 1)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.quantityButtonText}>+</Text>
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
+                  {item.type === 'dish' ? (
+                    <View style={styles.quantityContainer}>
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleRemoveItem(partyIndex, item.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#FF0000" />
+                      </TouchableOpacity>
+                     
+                    </View>
+                  ) : (
+                    <View style={styles.quantityContainer}>
+                      {item.count > 1 ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.quantityButton}
+                            onPress={() => handleQuantityChange(partyIndex, item, -1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.quantityButtonText}>-</Text>
+                          </TouchableOpacity>
+                          <Text style={styles.quantityText}>{item.count}</Text>
+                          <TouchableOpacity
+                            style={styles.quantityButton}
+                            onPress={() => handleQuantityChange(partyIndex, item, 1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.quantityButtonText}>+</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => handleRemoveItem(partyIndex, item.id)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="trash-outline" size={20} color="#FF0000" />
+                          </TouchableOpacity>
+                          <Text style={styles.quantityText}>{item.count}</Text>
+                          <TouchableOpacity
+                            style={styles.quantityButton}
+                            onPress={() => handleQuantityChange(partyIndex, item, 1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.quantityButtonText}>+</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
+                    </View>
+                  )}
 
                   {item.type === 'menu' ? (
                     <View style={styles.menuSuggestionRow}>
@@ -873,6 +878,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     minWidth: 20,
     textAlign: 'center',
+  },
+  dishNoteText: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    marginLeft: 10,
   },
   deleteButton: {
     width: 28,
