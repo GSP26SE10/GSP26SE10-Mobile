@@ -158,6 +158,7 @@ export default function ChatScreen({ navigation, route }) {
   const customerIdRef = React.useRef(customerId);
   const pendingOptimisticRef = React.useRef(new Map());
   const scrollViewRef = React.useRef(null);
+  const textInputRef = React.useRef(null);
   const shouldAutoScrollRef = React.useRef(true);
   const didInitialScrollRef = React.useRef(false);
 
@@ -759,9 +760,9 @@ export default function ChatScreen({ navigation, route }) {
 
       {/* Chat Messages */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         style={styles.keyboardView}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -1023,11 +1024,19 @@ export default function ChatScreen({ navigation, route }) {
             <Ionicons name="add" size={24} color={TEXT_PRIMARY} />
           </TouchableOpacity>
           <TextInput
+            ref={textInputRef}
             style={styles.textInput}
             placeholder="Nhập tin nhắn..."
             placeholderTextColor={TEXT_SECONDARY}
             value={inputText}
             onChangeText={setInputText}
+            onFocus={() => {
+              if (Platform.OS === 'android') {
+                setTimeout(() => {
+                  scrollViewRef.current?.scrollToEnd?.({ animated: true });
+                }, 100);
+              }
+            }}
             multiline
             maxLength={500}
           />

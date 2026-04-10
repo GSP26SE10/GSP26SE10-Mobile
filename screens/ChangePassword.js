@@ -194,7 +194,7 @@ export default function ChangePasswordScreen({ navigation }) {
 
 			<KeyboardAvoidingView
 				style={styles.keyboardContainer}
-				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+				behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
 			>
 				<ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 					{!otpStep ? (

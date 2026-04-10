@@ -484,7 +484,7 @@ export default function AiSuggestionScreen({ navigation }) {
 			{screenState === 'form' && (
 				<KeyboardAvoidingView
 					style={styles.keyboardWrap}
-					behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+					behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
 				>
 					<ScrollView
 						style={styles.scrollView}

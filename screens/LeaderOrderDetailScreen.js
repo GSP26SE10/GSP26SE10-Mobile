@@ -1395,7 +1395,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       >
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
             style={styles.modalKeyboardWrapper}
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -1640,7 +1640,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       >
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
             style={styles.modalKeyboardWrapper}
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
