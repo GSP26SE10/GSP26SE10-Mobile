@@ -29,6 +29,18 @@ const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 
 
 const getTaskStatusNumber = (task) => Number(task?.taskStatus ?? task?.status ?? 1);
 
+const formatTaskTime = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
 const resolveImageUri = (img) => {
   if (!img || typeof img !== 'string') return null;
   if (img.startsWith('http://') || img.startsWith('https://')) return img;
@@ -93,7 +105,7 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
     const mapped = getOrderStatusProgressStepIndex(
-      orderDetail?.status ?? orderDetail?.orderStatus
+      orderDetail?.orderStatus ?? orderDetail?.status
     );
     const currentIndex = mapped != null ? mapped : 2;
     return (
@@ -193,7 +205,19 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           const isOverdue = statusNum === 5;
           return (
             <View key={task.id} style={styles.taskRow}>
-              <Text style={styles.taskTitle}>{task.title}</Text>
+              <View style={styles.taskInfo}>
+                <Text style={styles.taskTitle}>{task.title}</Text>
+                {(task.taskStartTime != null || task.taskEndTime != null) && (
+                  <Text style={styles.taskTime}>
+                    Deadline: {formatTaskTime(task.taskStartTime)} → {formatTaskTime(task.taskEndTime)}
+                  </Text>
+                )}
+                {task.note != null && task.note !== '' && (
+                  <Text style={styles.taskNote} numberOfLines={2}>
+                    Ghi chú: {task.note}
+                  </Text>
+                )}
+              </View>
               <View
                 style={[
                   styles.taskStatusBadge,
@@ -498,17 +522,31 @@ const styles = StyleSheet.create({
   },
   taskRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: BORDER_LIGHT,
   },
+  taskInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
   taskTitle: {
     fontSize: 14,
     color: TEXT_PRIMARY,
-    flex: 1,
-    marginRight: 12,
+    marginRight: 0,
+  },
+  taskTime: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+  },
+  taskNote: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   taskStatusBadge: {
     paddingHorizontal: 10,

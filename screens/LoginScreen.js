@@ -18,7 +18,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import API_URL from '../constants/api';
 import Toast from '../components/Toast';
-import { registerForPushNotificationsAsync } from '../utils/notification';
+import {
+  getNotificationEnabledSettingAsync,
+  registerForPushNotificationsAsync,
+} from '../utils/notification';
 import {
   PRIMARY_COLOR,
   BACKGROUND_WHITE,
@@ -141,10 +144,13 @@ export default function LoginScreen({ navigation, route }) {
         }
         console.log('[Google Login] userData saved:', JSON.stringify(userData, null, 2));
         await AsyncStorage.setItem('userData', JSON.stringify(userData));
-        await registerForPushNotificationsAsync({
-          accessToken,
-          userData,
-        });
+        const notificationEnabled = await getNotificationEnabledSettingAsync();
+        if (notificationEnabled) {
+          await registerForPushNotificationsAsync({
+            accessToken,
+            userData,
+          });
+        }
         showToast('Đăng nhập thành công');
         const returnScreen = route?.params?.returnScreen;
         const returnParams = route?.params?.returnParams;
@@ -217,20 +223,23 @@ export default function LoginScreen({ navigation, route }) {
             status: userData.status,
             roleName: userData.roleName,
           }));
-          await registerForPushNotificationsAsync({
-            accessToken: userData.accessToken,
-            userData: {
-              userId: userData.userId,
-              userName: userData.userName,
-              fullName: userData.fullName,
-              email: userData.email,
-              phone: userData.phone,
-              avatar: userData.avatar,
-              address: userData.address,
-              status: userData.status,
-              roleName: userData.roleName,
-            },
-          });
+          const notificationEnabled = await getNotificationEnabledSettingAsync();
+          if (notificationEnabled) {
+            await registerForPushNotificationsAsync({
+              accessToken: userData.accessToken,
+              userData: {
+                userId: userData.userId,
+                userName: userData.userName,
+                fullName: userData.fullName,
+                email: userData.email,
+                phone: userData.phone,
+                avatar: userData.avatar,
+                address: userData.address,
+                status: userData.status,
+                roleName: userData.roleName,
+              },
+            });
+          }
         } catch (storageError) {
           console.error('Storage error:', storageError);
           showToast('Lỗi khi lưu thông tin đăng nhập');

@@ -1015,7 +1015,7 @@ export default function ChatScreen({ navigation, route }) {
         )}
 
         {/* Message Input Bar */}
-        <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? insets.bottom : 12 }]}>
+        <View style={[styles.inputContainer, { paddingBottom: insets.bottom || (Platform.OS === 'ios' ? 0 : 12) }]}>
           <TouchableOpacity
             style={styles.attachButton}
             activeOpacity={0.7}

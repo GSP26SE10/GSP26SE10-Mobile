@@ -9,8 +9,9 @@ import {
   Dimensions,
   FlatList,
   Modal,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { requireAuth } from '../utils/auth';
@@ -65,6 +66,7 @@ const formatReviewCount = (count) => {
 };
 
 export default function MenuDetailScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const menuId = route?.params?.menuId || 1;
   const menuCategoryId = route?.params?.menuCategoryId;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
@@ -528,7 +530,7 @@ export default function MenuDetailScreen({ navigation, route }) {
 
       {/* Bottom Action Bar (ẩn với staff) */}
       {!fromStaff && !readOnly && (
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, Platform.OS === 'android' && { paddingBottom: 34 + insets.bottom }]}>
           {isLoadingMenuInfo ? (
             <SkeletonBox style={{ width: 120, height: 24, borderRadius: 6 }} />
           ) : (
@@ -542,7 +544,7 @@ export default function MenuDetailScreen({ navigation, route }) {
               onPress={handleChatMenu}
               activeOpacity={0.8}
             >
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color={PRIMARY_COLOR} />
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={PRIMARY_COLOR} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[

@@ -186,7 +186,7 @@ export default function ChangePasswordScreen({ navigation }) {
 
 			<View style={styles.header}>
 				<TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.7}>
-					<Ionicons name="arrow-back" size={22} color={TEXT_PRIMARY} />
+				<Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
 				</TouchableOpacity>
 				<Text style={styles.headerTitle}>Đổi mật khẩu</Text>
 				<View style={styles.backButton} />

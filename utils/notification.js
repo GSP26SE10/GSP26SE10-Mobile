@@ -129,6 +129,23 @@ export const logAccessTokenNow = async () => {
 
 const DEVICE_ID_KEY = 'deviceId';
 const EXPO_PUSH_TOKEN_KEY = 'expoPushToken';
+const NOTIFICATION_ENABLED_KEY = 'notificationEnabled';
+
+export const getNotificationEnabledSettingAsync = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(NOTIFICATION_ENABLED_KEY);
+    if (raw == null) return true;
+    return raw === 'true';
+  } catch (_) {
+    return true;
+  }
+};
+
+export const setNotificationEnabledSettingAsync = async (enabled) => {
+  try {
+    await AsyncStorage.setItem(NOTIFICATION_ENABLED_KEY, enabled ? 'true' : 'false');
+  } catch (_) {}
+};
 
 const getOrCreateDeviceId = async () => {
   const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -282,5 +299,80 @@ export const registerForPushNotificationsAsync = async (options = {}) => {
     await logAccessTokenNow();
   } catch (e) {
     console.log('[notification] register error', e);
+  }
+};
+
+export const activateCurrentDeviceAsync = async (options = {}) => {
+  try {
+    const providedToken = typeof options?.accessToken === 'string' ? options.accessToken : null;
+    const providedUser = options?.userData && typeof options.userData === 'object' ? options.userData : null;
+
+    const storedToken = await AsyncStorage.getItem('accessToken');
+    const rawUser = await AsyncStorage.getItem('userData');
+    const storedUser = rawUser ? JSON.parse(rawUser) : null;
+
+    const accessToken = String(providedToken || storedToken || '').trim();
+    const user = providedUser || storedUser;
+    const userId = user?.userId ?? null;
+    if (!accessToken || !userId) {
+      console.log('[devices/activate] skip — thiếu accessToken hoặc userId', {
+        hasAccessToken: !!accessToken,
+        userId: userId ?? null,
+      });
+      return false;
+    }
+
+    let expoPushToken = await AsyncStorage.getItem(EXPO_PUSH_TOKEN_KEY);
+    if (!expoPushToken) {
+      await registerForPushNotificationsAsync({ accessToken, userData: user });
+      expoPushToken = await AsyncStorage.getItem(EXPO_PUSH_TOKEN_KEY);
+    }
+    if (!expoPushToken) {
+      console.log('[devices/activate] skip — thiếu expoPushToken');
+      return false;
+    }
+
+    const deviceId = await getOrCreateDeviceId();
+    const payload = {
+      userId: Number(userId),
+      expoPushToken: String(expoPushToken),
+      deviceId: String(deviceId),
+      platform: Platform.OS,
+      isActive: true,
+    };
+    const url = `${API_URL}/api/devices/register`;
+    console.log('[devices/activate] đang gửi', {
+      url,
+      body: { ...payload, expoPushToken: `${String(expoPushToken).slice(0, 24)}…` },
+    });
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        accept: '*/*',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (_) {
+      json = { raw: text };
+    }
+    console.log('[devices/activate] phản hồi', {
+      status: res.status,
+      ok: res.ok,
+      body: json,
+    });
+
+    if (!res.ok) return false;
+    return true;
+  } catch (e) {
+    console.log('[notification] activateCurrentDeviceAsync error', e);
+    return false;
   }
 };

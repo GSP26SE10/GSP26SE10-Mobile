@@ -534,7 +534,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
     const details = encodeURIComponent(
-      `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
+      `${partyDetail.address}`
     );
     let datesParam = '';
     if (order?.startTime) {

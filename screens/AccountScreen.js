@@ -6,19 +6,28 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Switch,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigation from '../components/BottomNavigation';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
-import { deactivateCurrentDeviceAsync } from '../utils/notification';
+import {
+  activateCurrentDeviceAsync,
+  deactivateCurrentDeviceAsync,
+  getNotificationEnabledSettingAsync,
+  setNotificationEnabledSettingAsync,
+} from '../utils/notification';
 import { clearCartOnLogout } from '../utils/cartStorage';
 import { clearChatUnreadOnLogout } from '../utils/chatUnread';
 import { clearNotificationUnreadOnLogout } from '../utils/notificationUnread';
 
 export default function AccountScreen({ navigation }) {
   const [user, setUser] = useState(null);
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [updatingNotificationSetting, setUpdatingNotificationSetting] = useState(false);
 
   const avatarUri =
     typeof user?.avatar === 'string' && user.avatar.trim().length > 0
@@ -29,15 +38,22 @@ export default function AccountScreen({ navigation }) {
     let mounted = true;
     const loadUser = async () => {
       try {
-        const stored = await AsyncStorage.getItem('userData');
+        const [stored, enabled] = await Promise.all([
+          AsyncStorage.getItem('userData'),
+          getNotificationEnabledSettingAsync(),
+        ]);
         if (!mounted) return;
         if (stored) {
           setUser(JSON.parse(stored));
         } else {
           setUser(null);
         }
+        setNotificationEnabled(Boolean(enabled));
       } catch (error) {
-        if (mounted) setUser(null);
+        if (mounted) {
+          setUser(null);
+          setNotificationEnabled(true);
+        }
         console.error('Failed to load user data', error);
       }
     };
@@ -65,6 +81,26 @@ export default function AccountScreen({ navigation }) {
       console.error('Failed to clear auth data', error);
     }
     navigation.navigate('Home', { fromLogout: true });
+  };
+
+  const handleToggleNotification = async (nextValue) => {
+    if (updatingNotificationSetting) return;
+    setUpdatingNotificationSetting(true);
+    setNotificationEnabled(nextValue);
+    try {
+      const ok = nextValue
+        ? await activateCurrentDeviceAsync()
+        : (await deactivateCurrentDeviceAsync(), true);
+      if (!ok) {
+        throw new Error('toggle-notification-failed');
+      }
+      await setNotificationEnabledSettingAsync(nextValue);
+    } catch (_) {
+      setNotificationEnabled(!nextValue);
+      Alert.alert('Lỗi', 'Không thể cập nhật cài đặt thông báo. Vui lòng thử lại.');
+    } finally {
+      setUpdatingNotificationSetting(false);
+    }
   };
 
   return (
@@ -101,6 +137,18 @@ export default function AccountScreen({ navigation }) {
 
         {/* Menu Options */}
         <View style={styles.menuSection}>
+          <View style={styles.menuItem}>
+            <Text style={styles.menuText}>Cài đặt thông báo</Text>
+            <Switch
+              value={notificationEnabled}
+              onValueChange={handleToggleNotification}
+              disabled={updatingNotificationSetting}
+              trackColor={{ false: '#D1D5DB', true: 'rgba(232, 113, 46, 0.35)' }}
+              thumbColor={notificationEnabled ? PRIMARY_COLOR : '#F3F4F6'}
+            />
+          </View>
+          <View style={styles.menuDivider} />
+
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation.navigate('TransactionHistory')}

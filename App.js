@@ -9,6 +9,7 @@ import {
   registerForPushNotificationsAsync,
   attachChatNotificationNavigation,
   attachChatUnreadNotificationCounter,
+  getNotificationEnabledSettingAsync,
 } from "./utils/notification";
 import { refreshChatUnreadCount } from "./utils/chatUnread";
 import { refreshNotificationUnreadCount } from "./utils/notificationUnread";
@@ -69,7 +70,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       logAccessTokenNow();
-      registerForPushNotificationsAsync();
+      const notificationEnabled = await getNotificationEnabledSettingAsync();
+      if (notificationEnabled) {
+        registerForPushNotificationsAsync();
+      }
       refreshChatUnreadCount();
       refreshNotificationUnreadCount();
       try {

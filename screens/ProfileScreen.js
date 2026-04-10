@@ -426,7 +426,7 @@ export default function ProfileScreen({ navigation }) {
 
 			<View style={styles.header}>
 				<TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton} activeOpacity={0.7}>
-					<Ionicons name="arrow-back" size={22} color={TEXT_PRIMARY} />
+						<Ionicons name="chevron-back" size={28} color={TEXT_PRIMARY} />
 				</TouchableOpacity>
 				<Text style={styles.headerTitle}>Thông tin cá nhân</Text>
 				<TouchableOpacity onPress={handleToggleEdit} style={styles.iconButton} activeOpacity={0.7}>

@@ -91,30 +91,30 @@ const mockPartyDetail = {
 
 const mockTasks = [];
 
+const mapOrderStatusToPartyStatus = (orderStatus) => {
+  switch (Number(orderStatus)) {
+    // Sắp tới (1,2,4) -> bước "Đang chuẩn bị"
+    case 1:
+    case 2:
+    case 4:
+      return 'Đang chuẩn bị';
+    // Đang diễn ra (5,6 - 6 chờ thanh toán nốt)
+    case 5:
+    case 6:
+      return 'Đang diễn ra';
+    case 7:
+      return 'Kết thúc tiệc';
+    // Bị hủy
+    case 3:
+    case 8:
+      return '—';
+    default:
+      return '—';
+  }
+};
+
 function buildPartyDetailFromOrderDetail(od) {
   if (!od) return null;
-
-  const mapOrderStatusToPartyStatus = (orderStatus) => {
-    switch (orderStatus) {
-      // Sắp tới (1,2,4) → bước "Đang chuẩn bị"
-      case 1:
-      case 2:
-      case 4:
-        return 'Đang chuẩn bị';
-      // Đang diễn ra (5,6 — 6 chờ thanh toán nốt)
-      case 5:
-      case 6:
-        return 'Đang diễn ra';
-      case 7:
-        return 'Kết thúc tiệc';
-      // Bị hủy
-      case 3:
-      case 8:
-        return '—';
-      default:
-        return '—';
-    }
-  };
 
   return {
     id: od.orderDetailId,
@@ -281,8 +281,17 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const partyDetailFromParams = buildPartyDetailFromOrderDetail(orderDetail);
   const partyDetail = partyDetailFromParams || mockPartyDetail;
   const initialTasksFromApi = (paramsTasks || []).map(mapApiTaskToDisplay);
-  const orderStatusNum = Number(orderDetail?.orderStatus ?? orderDetail?.status ?? 0);
-  const allowTaskConfirmByOrder = !fromApi ? true : [4, 5].includes(orderStatusNum);
+  const initialOrderStatusNum = Number(
+    orderDetail?.orderStatus ?? orderDetail?.status ?? 0
+  );
+  const [resolvedOrderStatusNum, setResolvedOrderStatusNum] = useState(
+    initialOrderStatusNum
+  );
+  const displayPartyStatus =
+    mapOrderStatusToPartyStatus(resolvedOrderStatusNum) || partyDetail.status;
+  const allowTaskConfirmByOrder = !fromApi
+    ? true
+    : [4, 5].includes(resolvedOrderStatusNum);
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'tasks'
   const [tasks, setTasks] = useState(fromApi ? initialTasksFromApi : mockTasks);
@@ -294,6 +303,15 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const refreshFnRef = useRef(null);
 
   const allTasksDisplay = fromApi ? tasks : tasks.map((t) => ({ ...t, statusLabel: t.done ? 'Đã xong' : 'Chưa xong' }));
+
+  useEffect(() => {
+    setResolvedOrderStatusNum(initialOrderStatusNum);
+  }, [
+    initialOrderStatusNum,
+    orderDetail?.orderDetailId,
+    orderDetail?.orderStatus,
+    orderDetail?.status,
+  ]);
 
   const getTaskBadgeVariant = (task) => {
     const statusNum = getTaskStatusNumber(task);
@@ -320,6 +338,17 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
       const forOrder = items.filter(
         (t) => t.orderDetail?.orderDetailId === orderDetailId
       );
+      const latestOrderDetail = forOrder.find(
+        (t) => t?.orderDetail?.orderStatus != null || t?.orderDetail?.status != null
+      )?.orderDetail;
+      if (latestOrderDetail) {
+        const nextOrderStatusNum = Number(
+          latestOrderDetail.orderStatus ?? latestOrderDetail.status
+        );
+        if (!Number.isNaN(nextOrderStatusNum)) {
+          setResolvedOrderStatusNum(nextOrderStatusNum);
+        }
+      }
       setTasks(forOrder.map(mapApiTaskToDisplay));
     } catch (e) {
       // keep current tasks
@@ -401,7 +430,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
     const details = encodeURIComponent(
-      `${partyDetail.guests}, ${partyDetail.address}`
+      `${partyDetail.address}`
     );
     let datesParam = '';
     if (orderDetail?.startTime && orderDetail?.endTime) {
@@ -490,15 +519,13 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const currentIndex = steps.indexOf(partyDetail.status);
-    const dotStepIndex = getOrderStatusProgressStepIndex(
-      orderDetail?.orderStatus ?? orderDetail?.status
-    );
+    const currentIndex = steps.indexOf(displayPartyStatus);
+    const dotStepIndex = getOrderStatusProgressStepIndex(resolvedOrderStatusNum);
     return (
       <View style={styles.statusSteps}>
         {steps.map((step, index) => {
           const isLabelActive =
-            currentIndex >= 0 ? index <= currentIndex : step === partyDetail.status;
+            currentIndex >= 0 ? index <= currentIndex : step === displayPartyStatus;
           const isDotActive =
             dotStepIndex != null
               ? index <= dotStepIndex
