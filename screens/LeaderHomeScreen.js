@@ -6,7 +6,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { buildGreeting, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
-import { fetchUnreadNotificationsCount } from '../utils/notificationsApi';
+import {
+  getNotificationUnreadCount,
+  refreshNotificationUnreadCount,
+  subscribeNotificationUnreadChange,
+} from '../utils/notificationUnread';
 import API_URL from '../constants/api';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '../constants/colors';
 import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
@@ -84,12 +88,32 @@ export default function LeaderHomeScreen({ navigation }) {
 
   const refreshUnreadBadge = useCallback(async () => {
     try {
-      const token = await getAccessToken();
-      const n = await fetchUnreadNotificationsCount(token);
+      const n = await refreshNotificationUnreadCount();
       setUnreadNotifications(n);
     } catch {
       setUnreadNotifications(0);
     }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    getNotificationUnreadCount()
+      .then((count) => {
+        if (mounted) setUnreadNotifications(Number(count) || 0);
+      })
+      .catch(() => {
+        if (mounted) setUnreadNotifications(0);
+      });
+
+    const unsubscribe = subscribeNotificationUnreadChange((nextCount) => {
+      if (!mounted) return;
+      setUnreadNotifications(Number(nextCount) || 0);
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

@@ -11,6 +11,7 @@ import {
   attachChatUnreadNotificationCounter,
 } from "./utils/notification";
 import { refreshChatUnreadCount } from "./utils/chatUnread";
+import { refreshNotificationUnreadCount } from "./utils/notificationUnread";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import EmailVerificationScreen from "./screens/EmailVerificationScreen";
@@ -70,6 +71,7 @@ export default function App() {
       logAccessTokenNow();
       registerForPushNotificationsAsync();
       refreshChatUnreadCount();
+      refreshNotificationUnreadCount();
       try {
         const raw = await AsyncStorage.getItem("userData");
         if (raw) {

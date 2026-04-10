@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import API_URL from '../constants/api';
 import { incrementChatUnreadCount, resetChatUnreadCount } from './chatUnread';
+import { incrementNotificationUnreadCount } from './notificationUnread';
 
 // Hiển thị thông báo cả khi app đang mở (foreground). Không lưu nội dung push vào app — chỉ OS hiển thị một lần.
 Notifications.setNotificationHandler({
@@ -17,6 +18,8 @@ Notifications.setNotificationHandler({
 
 /** Tạm thời chỉ dùng push cho chat; backend có thể gửi data.type / data.screen / data.channel */
 export function isChatPushNotificationData(data) {
+  const type = Number(data?.type ?? data?.Type ?? data?.notificationType ?? data?.NotificationType ?? NaN);
+  if (type === 3) return true;
   if (!data || typeof data !== 'object') return true;
   const t = String(data.type ?? data.Type ?? '').toLowerCase();
   const screen = String(data.screen ?? data.Screen ?? '').toLowerCase();
@@ -29,11 +32,9 @@ export function isChatPushNotificationData(data) {
 }
 
 /**
- * Tap push → mở đúng màn theo role.
- * - STAFF → StaffNotification
- * - GROUP_LEADER → LeaderNotification
- * - USER → CustomerNotification
- * - USER (khách): chỉ khi payload coi là chat → Chat
+ * Tap push:
+ * - type = 3 (Message) -> Chat
+ * - các type còn lại -> CustomerNotification
  */
 async function openScreenFromPushNotificationAsync(getNavigation, data) {
   try {
@@ -41,19 +42,9 @@ async function openScreenFromPushNotificationAsync(getNavigation, data) {
     if (!token) return;
     const raw = await AsyncStorage.getItem('userData');
     if (!raw) return;
-    const user = JSON.parse(raw);
-    const role = String(user?.roleName ?? 'USER').trim();
     const nav = typeof getNavigation === 'function' ? getNavigation() : null;
     if (!nav?.navigate) return;
 
-    if (role === 'STAFF') {
-      nav.navigate('StaffNotification', { fromPushNotification: true });
-      return;
-    }
-    if (role === 'GROUP_LEADER') {
-      nav.navigate('LeaderNotification', { fromPushNotification: true });
-      return;
-    }
     if (isChatPushNotificationData(data)) {
       await resetChatUnreadCount();
       nav.navigate('Chat', { fromPushNotification: true });
@@ -64,18 +55,22 @@ async function openScreenFromPushNotificationAsync(getNavigation, data) {
 }
 
 /**
- * Foreground chat push -> increase unread counter when user is not on Chat screen.
+ * Foreground push -> tăng counter realtime cho chat/bell.
  * @param {() => string} getCurrentScreen
  */
 export function attachChatUnreadNotificationCounter(getCurrentScreen) {
   const onReceived = (notification) => {
     try {
       const data = notification?.request?.content?.data ?? {};
-      if (!isChatPushNotificationData(data)) return;
+      const isChat = isChatPushNotificationData(data);
       const currentScreen =
         typeof getCurrentScreen === 'function' ? String(getCurrentScreen() ?? '') : '';
-      if (currentScreen === 'Chat') return;
-      void incrementChatUnreadCount(1);
+      if (isChat) {
+        if (currentScreen === 'Chat') return;
+        void incrementChatUnreadCount(1);
+        return;
+      }
+      void incrementNotificationUnreadCount(1);
     } catch (_) {}
   };
 

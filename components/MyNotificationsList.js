@@ -14,6 +14,10 @@ import { BACKGROUND_WHITE, BORDER_LIGHT, PRIMARY_COLOR, TEXT_PRIMARY, TEXT_SECON
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { getAccessToken } from '../utils/auth';
 import { fetchMyNotificationsPage, markNotificationRead } from '../utils/notificationsApi';
+import {
+  decrementNotificationUnreadCount,
+  refreshNotificationUnreadCount,
+} from '../utils/notificationUnread';
 
 const PAGE_SIZE = 10;
 
@@ -70,6 +74,7 @@ export default function MyNotificationsList({ navigation }) {
       pageRef.current = 1;
       totalPagesRef.current = 1;
       await loadPage(1, { append: false });
+      await refreshNotificationUnreadCount();
     } finally {
       setRefreshing(false);
     }
@@ -82,6 +87,7 @@ export default function MyNotificationsList({ navigation }) {
       pageRef.current = 1;
       await loadPage(1, { append: false });
       pageRef.current = 1;
+      await refreshNotificationUnreadCount();
       if (!cancelled) setLoading(false);
     })();
     return () => {
@@ -115,7 +121,9 @@ export default function MyNotificationsList({ navigation }) {
     }
     const token = await getAccessToken();
     const ok = await markNotificationRead(token, id);
-    if (!ok && wasUnread) {
+    if (ok && wasUnread) {
+      void decrementNotificationUnreadCount(1);
+    } else if (!ok && wasUnread) {
       setItems((prev) =>
         prev.map((n) =>
           Number(n?.notificationId) === Number(id) ? { ...n, isRead: false } : n,
