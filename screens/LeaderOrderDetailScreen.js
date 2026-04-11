@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -168,6 +168,31 @@ const getTaskTemplateName = (item) => {
   return String(raw).trim();
 };
 
+const pickMenuId = (...candidates) => {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+};
+
+const resolveMenuIdFromOrder = (order) => {
+  if (!order || typeof order !== 'object') return null;
+  const menu = order.menu || {};
+  const menuSnapshot = order.menuSnapshot || {};
+  return pickMenuId(
+    order.menuId,
+    order.menuID,
+    menu.menuId,
+    menu.menuID,
+    menu.id,
+    menuSnapshot.menuId,
+    menuSnapshot.menuID,
+    menuSnapshot.id
+  );
+};
+
 export default function LeaderOrderDetailScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
   const [refreshedOrder, setRefreshedOrder] = useState(null);
@@ -188,6 +213,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         id: order.orderDetailId,
         image: order.menuImage || null,
         name: order.menuName || '—',
+        dishes: order.partyCategory || '—',
         guests: `${order.numberOfGuests ?? 0} NGƯỜI`,
         timeRange: formatTimeRangeFromOrder(order),
         address: order.address || '—',
@@ -198,8 +224,19 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         vat: '—',
         deposit: formatVnd(order.depositAmount),
         remaining: formatVnd(order.remainingAmount),
+        menuId: resolveMenuIdFromOrder(order),
       }
     : emptyPartyDetail;
+
+  const selectedServices = useMemo(() => {
+    const list = order?.serviceSnapshot?.services;
+    return Array.isArray(list) ? list : [];
+  }, [order?.serviceSnapshot?.services]);
+
+  const selectedCustomDishes = useMemo(() => {
+    const list = order?.customDishSnapshot?.customDishes;
+    return Array.isArray(list) ? list : [];
+  }, [order?.customDishSnapshot?.customDishes]);
 
   const mapOrderStatusToPartyStatus = (orderStatus) => {
     switch (orderStatus) {
@@ -1024,10 +1061,12 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           activeOpacity={0.8}
           onPress={() =>
             navigation.navigate('MenuDetail', {
-              menuId: order?.menuId ?? 1,
+              menuId: partyDetail.menuId,
               menuName: partyDetail.name,
               buffetType: partyDetail.dishes,
+              menuImage: partyDetail.image,
               fromStaff: true,
+              readOnly: true,
             })
           }
         >
@@ -1076,6 +1115,34 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
+
+        {selectedServices.length > 0 && (
+          <View style={styles.snapshotSectionCard}>
+            <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
+            {selectedServices.map((service, idx) => (
+              <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
+                <Text style={styles.snapshotRowMeta}>
+                  SL: {service?.quantity ?? 1} · Đơn giá: {formatMoney(service?.basePrice ?? 0)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {selectedCustomDishes.length > 0 && (
+          <View style={styles.snapshotSectionCard}>
+            <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
+            {selectedCustomDishes.map((dish, idx) => (
+              <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
+                <Text style={styles.snapshotRowMeta}>
+                  Đơn giá: {formatMoney(dish?.unitPrice ?? 0)} · Tổng: {formatMoney(dish?.totalAmount ?? 0)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {renderStatusSteps()}
 
@@ -2010,6 +2077,37 @@ const styles = StyleSheet.create({
     marginRight: 10,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  snapshotSectionCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#FAFAFA',
+    padding: 12,
+    marginTop: -10,
+    marginBottom: 16,
+  },
+  snapshotSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+  },
+  snapshotRowItem: {
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EFEFEF',
+  },
+  snapshotRowTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  snapshotRowMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   assigneeRow: {
     flexDirection: 'row',

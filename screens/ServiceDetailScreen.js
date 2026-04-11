@@ -80,7 +80,11 @@ export default function ServiceDetailScreen({ navigation, route }) {
       returnParams: { service: raw },
     });
     if (!ok) return;
-    await addServiceToCart(service);
+    const result = await addServiceToCart(service);
+    if (!result?.success && result?.reason === 'NO_MENU') {
+      showToast('Vui lòng chọn menu trước!');
+      return;
+    }
     showToast('Đã thêm vào giỏ hàng');
   };
 

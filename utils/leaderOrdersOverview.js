@@ -37,6 +37,15 @@ function pickImageUrl(value) {
   return null;
 }
 
+function pickMenuId(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+}
+
 function flattenFromOrderDetails(order, orderDetail) {
   const detail = orderDetail || {};
   const menuSnapshot = detail.menuSnapshot || {};
@@ -63,12 +72,32 @@ function flattenFromOrderDetails(order, orderDetail) {
       detail.menuImage != null
         ? detail.menuImage
         : (pickImageUrl(menuSnapshot.imgUrl) || detailMenu.image || null),
-    menuId: detail.menuId,
+    menuId: pickMenuId(
+      detail.menuId,
+      detail.menuID,
+      detailMenu.menuId,
+      detailMenu.menuID,
+      detailMenu.id,
+      menuSnapshot.menuId,
+      menuSnapshot.menuID,
+      menuSnapshot.id,
+      order.menuId,
+      order.menuID,
+      order.menu?.menuId,
+      order.menu?.id
+    ),
     partyCategory: detail.partyCategory != null ? detail.partyCategory : detail.partyCategoryName,
     numberOfGuests: detail.numberOfGuests,
     startTime: detail.startTime,
     endTime: detail.endTime,
     address: detail.address,
+    serviceSnapshot: detail.serviceSnapshot ?? order.serviceSnapshot ?? null,
+    customDishSnapshot: detail.customDishSnapshot ?? order.customDishSnapshot ?? null,
+    extraCharges: Array.isArray(detail.extraCharges)
+      ? detail.extraCharges
+      : Array.isArray(order.extraCharges)
+        ? order.extraCharges
+        : [],
     tasks: normalizeTasksArray(detail.tasks || order.tasks),
   };
 }
@@ -113,12 +142,27 @@ function flattenLeaderOrder(o) {
       menu.image != null
         ? menu.image
         : (o.menuImage != null ? o.menuImage : pickImageUrl(menuSnapshot.imgUrl)),
-    menuId: menu.menuId != null ? menu.menuId : o.menuId,
+    menuId: pickMenuId(
+      menu.menuId,
+      menu.menuID,
+      menu.id,
+      o.menuId,
+      o.menuID,
+      o.menu?.menuId,
+      o.menu?.menuID,
+      o.menu?.id,
+      menuSnapshot.menuId,
+      menuSnapshot.menuID,
+      menuSnapshot.id
+    ),
     partyCategory: party.category != null ? party.category : o.partyCategory,
     numberOfGuests: party.numberOfGuests != null ? party.numberOfGuests : o.numberOfGuests,
     startTime: schedule.startTime != null ? schedule.startTime : o.startTime,
     endTime: schedule.endTime != null ? schedule.endTime : o.endTime,
     address: schedule.address != null ? schedule.address : o.address,
+    serviceSnapshot: o.serviceSnapshot ?? null,
+    customDishSnapshot: o.customDishSnapshot ?? null,
+    extraCharges: Array.isArray(o.extraCharges) ? o.extraCharges : [],
     tasks: normalizeTasksArray(o.tasks),
   };
 }

@@ -67,6 +67,15 @@ const formatDateTime = (iso) => {
   });
 };
 
+const canCancelBeforeTwoDays = (iso) => {
+  if (!iso) return false;
+  const partyStart = new Date(iso);
+  if (Number.isNaN(partyStart.getTime())) return false;
+  const cutoff = new Date(partyStart);
+  cutoff.setDate(cutoff.getDate() - 2);
+  return new Date().getTime() < cutoff.getTime();
+};
+
 const guessMimeTypeFromUri = (uri) => {
   const lower = String(uri ?? '').toLowerCase();
   if (lower.endsWith('.png')) return 'image/png';
@@ -264,7 +273,14 @@ export default function OrderDetail({ navigation, route }) {
   }, [orderId]);
 
   const orderDetails = order?.orderDetails ?? [];
-  const canCancel = order?.status === 1;
+  const firstPartyStartIso =
+    orderDetails
+      .map((od) => od?.startTime)
+      .filter(Boolean)
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] ||
+    order?.startTime ||
+    null;
+  const canCancel = Number(order?.status) === 1 && canCancelBeforeTwoDays(firstPartyStartIso);
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
   const canSubmitCancel = cancelReason.trim().length > 0 && !cancellingOrder;
   const isCompleted = Number(order?.status) === 7;
@@ -273,6 +289,7 @@ export default function OrderDetail({ navigation, route }) {
   const orderReasonText = String(order?.noteOrder ?? '').trim();
   const hasExistingFeedback =
     (existingMenuFeedbacks?.length ?? 0) > 0 || (existingServiceFeedbacks?.length ?? 0) > 0;
+  const canSubmitFeedback = feedbackComment.trim().length > 0 && !submittingFeedback;
 
   const paidAmount = (payments ?? []).reduce((sum, p) => {
     return Number(p?.paymentStatus) === 2 ? sum + Number(p?.amount ?? 0) : sum;
@@ -498,6 +515,10 @@ export default function OrderDetail({ navigation, route }) {
 
   const handleSubmitFeedback = async () => {
     if (submittingFeedback || feedbackSubmitLockRef.current) return;
+    if (!feedbackComment.trim()) {
+      Alert.alert('Thiếu nội dung', 'Vui lòng nhập nhận xét trước khi gửi đánh giá.');
+      return;
+    }
     const target = feedbackTargets[currentFeedbackIndex];
     if (!target || !orderId) return;
     feedbackSubmitLockRef.current = true;
@@ -1462,10 +1483,10 @@ export default function OrderDetail({ navigation, route }) {
                         style={[
                           styles.feedbackActionBtn,
                           styles.feedbackSubmitBtn,
-                          submittingFeedback && styles.feedbackActionBtnDisabled,
+                          !canSubmitFeedback && styles.feedbackActionBtnDisabled,
                         ]}
                         activeOpacity={0.8}
-                        disabled={submittingFeedback}
+                        disabled={!canSubmitFeedback}
                         onPress={handleSubmitFeedback}
                       >
                         {submittingFeedback ? (

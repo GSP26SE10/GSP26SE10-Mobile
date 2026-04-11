@@ -71,17 +71,45 @@ const ORDER_STATUS_LABEL = {
 const getOrderStatus = (orderDetail) =>
   Number(orderDetail?.orderStatus ?? orderDetail?.status ?? 0);
 
+const pickMenuId = (...candidates) => {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+};
+
+const normalizeOrderDetail = (od) => {
+  if (!od || typeof od !== 'object') return od;
+  const menu = od.menu || {};
+  const menuSnapshot = od.menuSnapshot || {};
+  return {
+    ...od,
+    menuId: pickMenuId(
+      od.menuId,
+      od.menuID,
+      menu.menuId,
+      menu.menuID,
+      menu.id,
+      menuSnapshot.menuId,
+      menuSnapshot.menuID,
+      menuSnapshot.id
+    ),
+  };
+};
+
 /** Từ items (task có orderDetail) gộp theo orderDetailId → [{ orderDetail, tasks }] */
 function buildOrdersFromTaskItems(items) {
   const map = new Map();
   (items || []).forEach((task) => {
-    const od = task.orderDetail;
+    const od = normalizeOrderDetail(task.orderDetail);
     if (!od || od.orderDetailId == null) return;
     const id = od.orderDetailId;
     if (!map.has(id)) {
       map.set(id, { orderDetail: od, tasks: [] });
     }
-    map.get(id).tasks.push(task);
+    map.get(id).tasks.push({ ...task, orderDetail: od });
   });
   return Array.from(map.values());
 }
@@ -328,6 +356,9 @@ export default function StaffHomeScreen({ navigation }) {
             <Text style={styles.partyAddress} numberOfLines={1}>
               {od.address || '—'}
             </Text>
+            <Text style={styles.partySubMeta}>
+              Dịch vụ: {Array.isArray(od?.serviceSnapshot?.services) ? od.serviceSnapshot.services.length : 0} · Món lẻ: {Array.isArray(od?.customDishSnapshot?.customDishes) ? od.customDishSnapshot.customDishes.length : 0}
+            </Text>
             <Text style={styles.partyStatus}>
               {ORDER_STATUS_LABEL[getOrderStatus(od)] ?? '—'}
             </Text>
@@ -540,6 +571,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   partyAddress: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  partySubMeta: {
     fontSize: 12,
     color: TEXT_SECONDARY,
     marginBottom: 4,

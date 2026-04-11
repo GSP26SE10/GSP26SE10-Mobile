@@ -280,11 +280,17 @@ export async function addMenuToCart(menu) {
 
 /**
  * Thêm dịch vụ vào giỏ (hoặc tăng số lượng nếu đã có).
+ * Yêu cầu tiệc đã có menu.
  * @param {object} service - { serviceId, serviceName, basePrice, image }
- * @returns {Promise<Array>} Giỏ hàng sau khi thêm
+ * @returns {Promise<{ success: boolean, reason?: string, items: Array }>}
  */
 export async function addServiceToCart(service) {
   const items = await getCart();
+  const menuItem = items.find((i) => i.type === 'menu');
+  if (!menuItem) {
+    return { success: false, reason: 'NO_MENU', items };
+  }
+
   const id = `service-${service.serviceId}`;
   const existing = items.find((i) => i.id === id);
   const priceFormatted = formatPrice(service.basePrice);
@@ -305,7 +311,7 @@ export async function addServiceToCart(service) {
     });
   }
   await setCart(items);
-  return items;
+  return { success: true, items };
 }
 
 /**

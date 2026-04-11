@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,6 +120,36 @@ export default function LeaderOrderHistoryScreen({ navigation }) {
   const allOrders = overview?.orders ?? [];
   // History: hiển thị các đơn đã hoàn thành (status 7)
   const orders = allOrders.filter((o) => [7].includes(Number(o?.orderStatus)));
+  const groupedOrders = useMemo(() => {
+    const byOrderId = new Map();
+    orders.forEach((o, idx) => {
+      const key = o?.orderId ?? `unknown-${idx}`;
+      const existing = byOrderId.get(key);
+      if (!existing) {
+        byOrderId.set(key, {
+          ...o,
+          primaryOrderDetailId: o?.orderDetailId ?? null,
+          partyCount: 1,
+          numberOfGuests: Number(o?.numberOfGuests ?? 0),
+        });
+        return;
+      }
+
+      const nextGuests = Number(existing?.numberOfGuests ?? 0) + Number(o?.numberOfGuests ?? 0);
+      const existingStart = new Date(existing?.startTime || 0).getTime();
+      const currentStart = new Date(o?.startTime || 0).getTime();
+      const useCurrentAsPrimary = currentStart > 0 && (existingStart <= 0 || currentStart < existingStart);
+
+      byOrderId.set(key, {
+        ...(useCurrentAsPrimary ? o : existing),
+        primaryOrderDetailId:
+          existing?.primaryOrderDetailId ?? o?.orderDetailId ?? existing?.orderDetailId ?? null,
+        partyCount: Number(existing?.partyCount ?? 1) + 1,
+        numberOfGuests: nextGuests,
+      });
+    });
+    return Array.from(byOrderId.values());
+  }, [orders]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -150,19 +180,20 @@ export default function LeaderOrderHistoryScreen({ navigation }) {
               </View>
             ))}
           </>
-        ) : orders.length === 0 ? (
+        ) : groupedOrders.length === 0 ? (
           <View style={styles.loadingWrap}>
             <Text style={styles.emptyText}>Chưa có đơn hoàn thành nào</Text>
           </View>
         ) : (
-          orders.map((order) => (
+          groupedOrders.map((order) => (
             <TouchableOpacity
-              key={order.orderDetailId}
+              key={order.orderId ?? order.primaryOrderDetailId ?? order.orderDetailId}
               style={styles.partyCard}
               activeOpacity={0.8}
               onPress={() =>
                 navigation.navigate('LeaderOrderDetailHistory', {
-                  orderDetailId: order.orderDetailId,
+                  orderDetailId: order.primaryOrderDetailId ?? order.orderDetailId,
+                  orderId: order.orderId,
                   order,
                   status: null,
                 })
@@ -184,10 +215,13 @@ export default function LeaderOrderHistoryScreen({ navigation }) {
               <View style={styles.partyInfo}>
                 <Text style={styles.partyName}>{order.menuName || '—'}</Text>
                 <Text style={styles.partyMeta}>
-                  {order.partyCategory || '—'} · {order.numberOfGuests ?? 0} người · {formatTimeRange(order.startTime, order.endTime)}
+                  {order.partyCount > 1 ? `${order.partyCount} tiệc` : order.partyCategory || '—'} · {order.numberOfGuests ?? 0} người · {formatTimeRange(order.startTime, order.endTime)}
                 </Text>
                 <Text style={styles.partyAddress} numberOfLines={1}>
                   {order.address || '—'}
+                </Text>
+                <Text style={styles.partySubMeta}>
+                  Dịch vụ: {Array.isArray(order?.serviceSnapshot?.services) ? order.serviceSnapshot.services.length : 0} · Món lẻ: {Array.isArray(order?.customDishSnapshot?.customDishes) ? order.customDishSnapshot.customDishes.length : 0}
                 </Text>
                 <Text style={styles.partyStatus}>
                   {ORDER_STATUS_LABEL[order.orderStatus] ?? '—'}
@@ -291,5 +325,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: PRIMARY_COLOR,
     fontWeight: '600',
+  },
+  partySubMeta: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
   },
 });

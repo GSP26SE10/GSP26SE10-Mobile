@@ -88,6 +88,31 @@ const mockPartyDetail = {
   remaining: '—',
 };
 
+const pickMenuId = (...candidates) => {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+};
+
+const resolveMenuIdFromOrder = (order) => {
+  if (!order || typeof order !== 'object') return null;
+  const menu = order.menu || {};
+  const menuSnapshot = order.menuSnapshot || {};
+  return pickMenuId(
+    order.menuId,
+    order.menuID,
+    menu.menuId,
+    menu.menuID,
+    menu.id,
+    menuSnapshot.menuId,
+    menuSnapshot.menuID,
+    menuSnapshot.id
+  );
+};
+
 export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
   const formatVnd = (n) =>
@@ -107,8 +132,24 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
         subtotal: formatVnd(orderFromParams.totalPrice),
         deposit: formatVnd(orderFromParams.depositAmount),
         remaining: formatVnd(orderFromParams.remainingAmount),
+        menuId: resolveMenuIdFromOrder(orderFromParams),
       }
     : mockPartyDetail;
+
+  const selectedServices = useMemo(() => {
+    const list = orderFromParams?.serviceSnapshot?.services;
+    return Array.isArray(list) ? list : [];
+  }, [orderFromParams?.serviceSnapshot?.services]);
+
+  const selectedCustomDishes = useMemo(() => {
+    const list = orderFromParams?.customDishSnapshot?.customDishes;
+    return Array.isArray(list) ? list : [];
+  }, [orderFromParams?.customDishSnapshot?.customDishes]);
+
+  const initialExtraCharges = useMemo(() => {
+    const list = Array.isArray(orderFromParams?.extraCharges) ? orderFromParams.extraCharges : [];
+    return list;
+  }, [orderFromParams?.extraCharges]);
 
   const tasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
     ? orderFromParams.tasks.map(mapApiTaskToDisplay)
@@ -125,7 +166,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
     route?.params?.orderDetailId ??
     null;
 
-  const [extraCharges, setExtraCharges] = useState([]);
+  const [extraCharges, setExtraCharges] = useState(initialExtraCharges);
   const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
 
   useEffect(() => {
@@ -140,9 +181,9 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
         });
         const json = await res.json().catch(() => null);
         const list = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-        if (!cancelled) setExtraCharges(list);
+        if (!cancelled) setExtraCharges(list.length > 0 ? list : initialExtraCharges);
       } catch (_) {
-        if (!cancelled) setExtraCharges([]);
+        if (!cancelled) setExtraCharges(initialExtraCharges);
       } finally {
         if (!cancelled) setLoadingExtraCharges(false);
       }
@@ -150,7 +191,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [orderId, initialExtraCharges]);
 
   const extraChargeTotal = useMemo(() => {
     return (Array.isArray(extraCharges) ? extraCharges : []).reduce(
@@ -274,10 +315,12 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
         activeOpacity={0.8}
         onPress={() =>
           navigation.navigate('MenuDetail', {
-            menuId: orderFromParams?.menuId ?? 1,
+            menuId: partyDetail.menuId,
             menuName: partyDetail.name,
             buffetType: partyDetail.dishes,
+            menuImage: partyDetail.image,
             fromStaff: true,
+            readOnly: true,
           })
         }
       >
@@ -326,6 +369,34 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
         <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
       </TouchableOpacity>
 
+      {selectedServices.length > 0 && (
+        <View style={styles.snapshotSectionCard}>
+          <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
+          {selectedServices.map((service, idx) => (
+            <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
+              <Text style={styles.snapshotRowMeta}>
+                SL: {service?.quantity ?? 1} · Đơn giá: {formatVnd(service?.basePrice ?? 0)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {selectedCustomDishes.length > 0 && (
+        <View style={styles.snapshotSectionCard}>
+          <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
+          {selectedCustomDishes.map((dish, idx) => (
+            <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
+              <Text style={styles.snapshotRowMeta}>
+                Đơn giá: {formatVnd(dish?.unitPrice ?? 0)} · Tổng: {formatVnd(dish?.totalAmount ?? 0)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {renderStatusSteps()}
 
       <View style={styles.summarySection}>
@@ -363,10 +434,14 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.extraChargeHint}>Không có chi phí phát sinh.</Text>
         ) : (
           extraCharges.map((ec, idx) => {
-            const images = Array.isArray(ec?.image) ? ec.image : [];
+            const images = Array.isArray(ec?.images)
+              ? ec.images
+              : Array.isArray(ec?.image)
+                ? ec.image
+                : [];
             return (
               <View
-                key={String(ec?.orderDetailExtraChargeId ?? `${ec?.extraChargeCatalogId ?? 'ec'}-${idx}`)}
+                key={String(ec?.orderDetailExtraChargeId ?? ec?.id ?? `${ec?.extraChargeCatalogId ?? 'ec'}-${idx}`)}
                 style={styles.extraChargeCard}
               >
                 <View style={styles.extraChargeTopRow}>
@@ -381,8 +456,12 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
                   {`${formatVnd(ec?.unitPrice ?? 0)} × ${ec?.quantity ?? 0} ${ec?.unit || ''}`.trim()}
                 </Text>
                 <Text style={styles.extraChargeMeta}>
-                  {ec?.creatorName ? `Người tạo: ${ec.creatorName}` : '—'}
-                  {!!ec?.createdAt ? ` · ${formatDateTime(ec.createdAt)}` : ''}
+                  {(ec?.creatorName || ec?.createdBy?.name)
+                    ? `Người tạo: ${ec?.creatorName || ec?.createdBy?.name}`
+                    : '—'}
+                  {!!(ec?.createdAt || ec?.incurredAt)
+                    ? ` · ${formatDateTime(ec?.createdAt || ec?.incurredAt)}`
+                    : ''}
                 </Text>
                 {!!ec?.note && <Text style={styles.extraChargeNote}>{String(ec.note)}</Text>}
                 {!!images.length && (
@@ -652,6 +731,37 @@ const styles = StyleSheet.create({
     marginRight: 10,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  snapshotSectionCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#FAFAFA',
+    padding: 12,
+    marginTop: -10,
+    marginBottom: 16,
+  },
+  snapshotSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+  },
+  snapshotRowItem: {
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EFEFEF',
+  },
+  snapshotRowTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  snapshotRowMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   statusSteps: {
     flexDirection: 'row',

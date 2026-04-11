@@ -67,12 +67,16 @@ const formatReviewCount = (count) => {
 
 export default function MenuDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const menuId = route?.params?.menuId || 1;
+  const menuId = route?.params?.menuId ?? null;
   const menuCategoryId = route?.params?.menuCategoryId;
   const buffetType = route?.params?.buffetType || 'Buffet Bò';
   const fromStaff = route?.params?.fromStaff || false;
   const readOnly = route?.params?.readOnly === true;
   const menuNameFromParams = route?.params?.menuName;
+  const menuImageFromParams = route?.params?.menuImage || null;
+  const menuImagesFromParams = Array.isArray(route?.params?.menuImages)
+    ? route.params.menuImages.filter((u) => typeof u === 'string' && u.trim())
+    : [];
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState(0);
@@ -98,6 +102,10 @@ export default function MenuDetailScreen({ navigation, route }) {
       ? menuInfo.imgUrl
       : menuInfo?.imgUrl
         ? [menuInfo.imgUrl]
+        : menuImagesFromParams.length > 0
+          ? menuImagesFromParams
+          : menuImageFromParams
+            ? [menuImageFromParams]
         : baseDetail.images,
     averageRating: menuInfo?.averageRating ?? null,
     totalReviews: menuInfo?.totalReviews ?? null,
@@ -195,6 +203,10 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     const fetchDishes = async () => {
+      if (!menuId) {
+        setDishes([]);
+        return;
+      }
       try {
         setIsLoadingDishes(true);
         const res = await fetch(
@@ -214,7 +226,7 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     const fetchMenuInfo = async () => {
-      if (!menuCategoryId) return;
+      if (!menuCategoryId || !menuId) return;
 
       try {
         setIsLoadingMenuInfo(true);
@@ -466,7 +478,7 @@ export default function MenuDetailScreen({ navigation, route }) {
         </View>
 
         {/* Similar Menus */}
-        {!!resolvedSimilarCacheKey && (
+        {!fromStaff && !!resolvedSimilarCacheKey && (
           <View style={styles.similarSection}>
             <Text style={styles.similarTitle}>Menu tương tự</Text>
             {isLoadingSimilar ? (

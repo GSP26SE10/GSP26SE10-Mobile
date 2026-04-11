@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import API_URL from '../constants/api';
 import Toast from '../components/Toast';
 
 const RESEND_SECONDS = 120;
+const OTP_LENGTH = 6;
 
 export default function EmailVerificationScreen({ navigation, route }) {
   const initialEmail = route?.params?.email || '';
@@ -38,6 +39,7 @@ export default function EmailVerificationScreen({ navigation, route }) {
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const otpInputRef = useRef(null);
 
   const [fontsLoaded] = useFonts({
     MadimiOne_400Regular,
@@ -193,7 +195,15 @@ export default function EmailVerificationScreen({ navigation, route }) {
     return null;
   }
 
-  const canVerify = !!code && !!email && !submitting;
+  const handleCodeChange = (value) => {
+    const normalized = String(value ?? '')
+      .replace(/[^0-9a-zA-Z]/g, '')
+      .toUpperCase()
+      .slice(0, OTP_LENGTH);
+    setCode(normalized);
+  };
+
+  const canVerify = code.length === OTP_LENGTH && !!email && !submitting;
   const canResend = secondsLeft === 0 && !resending;
 
   return (
@@ -225,14 +235,37 @@ export default function EmailVerificationScreen({ navigation, route }) {
           />
 
           <Text style={styles.label}>Mã xác nhận</Text>
+          <TouchableOpacity
+            style={styles.otpBoxesRow}
+            activeOpacity={1}
+            onPress={() => otpInputRef.current?.focus?.()}
+          >
+            {Array.from({ length: OTP_LENGTH }).map((_, idx) => {
+              const char = code[idx] || '';
+              const isActive = idx === Math.min(code.length, OTP_LENGTH - 1);
+              return (
+                <View
+                  key={`verify-otp-box-${idx}`}
+                  style={[styles.otpBox, isActive && styles.otpBoxActive]}
+                >
+                  <Text style={styles.otpBoxText}>{char}</Text>
+                </View>
+              );
+            })}
+          </TouchableOpacity>
           <TextInput
-            style={styles.input}
+            ref={otpInputRef}
+            style={styles.hiddenOtpInput}
             placeholder="Nhập mã OTP"
             placeholderTextColor={TEXT_PLACEHOLDER}
             value={code}
-            onChangeText={setCode}
+            onChangeText={handleCodeChange}
             keyboardType="default"
-            autoCapitalize="none"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={OTP_LENGTH}
+            returnKeyType="done"
+            onSubmitEditing={handleVerify}
           />
 
           <TouchableOpacity
@@ -322,6 +355,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_LIGHT,
     marginBottom: 16,
+  },
+  hiddenOtpInput: {
+    position: 'absolute',
+    opacity: 0,
+    width: 1,
+    height: 1,
+  },
+  otpBoxesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  otpBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: INPUT_BACKGROUND,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpBoxActive: {
+    borderColor: PRIMARY_COLOR,
+  },
+  otpBoxText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    textTransform: 'uppercase',
   },
   inputDisabled: {
     color: TEXT_SECONDARY,

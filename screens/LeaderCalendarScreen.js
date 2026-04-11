@@ -29,10 +29,50 @@ const CALENDAR_SCREEN_HEADER = 168;
 const BOTTOM_NAV_FLOATING_CLEARANCE = 204;
 const CALENDAR_MIN_HEIGHT = 300;
 
+const EVENT_COLOR_PALETTE = [
+  '#2563EB',
+  '#059669',
+  '#D97706',
+  '#DC2626',
+  '#7C3AED',
+  '#0891B2',
+  '#65A30D',
+  '#C2410C',
+  '#DB2777',
+  '#4F46E5',
+];
+
 const toDateSafe = (value) => {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const pickEventColorByOrderDetailId = (orderDetailId) => {
+  const numeric = Number(orderDetailId);
+  if (!Number.isFinite(numeric)) return EVENT_COLOR_PALETTE[0];
+  const idx = Math.abs(numeric) % EVENT_COLOR_PALETTE.length;
+  return EVENT_COLOR_PALETTE[idx];
+};
+
+const hashStringToPositiveInt = (value) => {
+  const str = String(value || '');
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const getEventColor = (event) => {
+  const key = event?.orderDetailId ?? event?.id;
+  if (key != null && key !== '') {
+    return pickEventColorByOrderDetailId(key);
+  }
+  const fallbackSeed = `${event?.title || ''}-${event?.start || ''}`;
+  const idx = hashStringToPositiveInt(fallbackSeed) % EVENT_COLOR_PALETTE.length;
+  return EVENT_COLOR_PALETTE[idx];
 };
 
 function buildEventsFromLeaderOrders(orders) {
@@ -42,11 +82,14 @@ function buildEventsFromLeaderOrders(orders) {
       const end = toDateSafe(order?.endTime) || start;
       if (!start) return null;
       return {
+        id: order?.orderDetailId,
         title: order?.menuName
           ? `${order.menuName} (${order?.numberOfGuests ?? 0} khách)`
           : `Tiệc #${order?.orderDetailId ?? ''}`,
         start,
         end,
+        orderDetailId: order?.orderDetailId,
+        color: pickEventColorByOrderDetailId(order?.orderDetailId),
         address: order?.address || '—',
       };
     })
@@ -222,6 +265,12 @@ export default function LeaderCalendarScreen({ navigation }) {
           locale="vi"
           date={currentDate}
           events={events}
+          eventCellStyle={(event) => ({
+            backgroundColor: getEventColor(event),
+            borderRadius: 8,
+            borderWidth: 0,
+          })}
+          eventCellTextColor="#FFFFFF"
           height={calendarHeight}
           hourRowHeight={28}
           minHour={0}

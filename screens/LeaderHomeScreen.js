@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,12 +79,18 @@ const ORDER_STATUS_LABEL = {
   8: 'Bị hủy',
 };
 
+const HOME_TABS = [
+  { key: 'orders', label: 'Đơn hàng' },
+  { key: 'group', label: 'Nhóm' },
+];
+
 export default function LeaderHomeScreen({ navigation }) {
   const [greetingText, setGreetingText] = useState('Xin chào!');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [activeTab, setActiveTab] = useState('orders');
 
   const refreshUnreadBadge = useCallback(async () => {
     try {
@@ -203,6 +209,17 @@ export default function LeaderHomeScreen({ navigation }) {
   const orders = allOrders.filter((o) =>
     [1, 2, 4, 5, 6].includes(Number(o?.orderStatus)),
   );
+  const groupName = overview?.staffGroupName || 'Chưa có tên nhóm';
+  const leaderName = overview?.leaderName || '';
+  const groupMembers = useMemo(() => {
+    const list = Array.isArray(overview?.members) ? overview.members : [];
+    const map = new Map();
+    list.forEach((m, idx) => {
+      const key = m?.staffId ?? `m-${idx}`;
+      if (!map.has(key)) map.set(key, m);
+    });
+    return Array.from(map.values());
+  }, [overview?.members]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -239,7 +256,25 @@ export default function LeaderHomeScreen({ navigation }) {
           </View>
         </View>
 
-        {loading ? (
+        <View style={styles.tabContainer}>
+          <View style={styles.tabBar}>
+            {HOME_TABS.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={styles.tabItem}
+                activeOpacity={0.7}
+                onPress={() => setActiveTab(tab.key)}
+              >
+                <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
+                  {tab.label}
+                </Text>
+                {activeTab === tab.key ? <View style={styles.tabIndicator} /> : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {activeTab === 'orders' && loading ? (
           <>
             {[1, 2, 3].map((i) => (
               <View key={i} style={styles.partyCard}>
@@ -253,11 +288,11 @@ export default function LeaderHomeScreen({ navigation }) {
               </View>
             ))}
           </>
-        ) : orders.length === 0 ? (
+        ) : activeTab === 'orders' && orders.length === 0 ? (
           <View style={styles.loadingWrap}>
             <Text style={styles.emptyText}>Chưa có đơn nào</Text>
           </View>
-        ) : (
+        ) : activeTab === 'orders' ? (
           orders.map((order, index) => {
             const menuImageUri = resolveImageUri(getMenuImageFromOrder(order));
             const safeOrderDetailId =
@@ -299,6 +334,9 @@ export default function LeaderHomeScreen({ navigation }) {
                 <Text style={styles.partyAddress} numberOfLines={1}>
                   {order.address || '—'}
                 </Text>
+                <Text style={styles.partySubMeta}>
+                  Dịch vụ: {Array.isArray(order?.serviceSnapshot?.services) ? order.serviceSnapshot.services.length : 0} · Món lẻ: {Array.isArray(order?.customDishSnapshot?.customDishes) ? order.customDishSnapshot.customDishes.length : 0}
+                </Text>
                 <Text style={styles.partyStatus}>
                   {ORDER_STATUS_LABEL[order.orderStatus] ?? '—'}
                 </Text>
@@ -306,6 +344,31 @@ export default function LeaderHomeScreen({ navigation }) {
             </TouchableOpacity>
             );
           })
+        ) : (
+          <View style={styles.groupSection}>
+            <View style={styles.groupCard}>
+              <Text style={styles.groupName}>{groupName}</Text>
+              {!!leaderName && <Text style={styles.groupLeader}>Leader: {leaderName}</Text>}
+              <Text style={styles.groupCount}>Thành viên: {groupMembers.length}</Text>
+            </View>
+
+            {groupMembers.length === 0 ? (
+              <View style={styles.loadingWrap}>
+                <Text style={styles.emptyText}>Chưa có thành viên trong nhóm</Text>
+              </View>
+            ) : (
+              groupMembers.map((member, idx) => (
+                <View key={String(member?.staffId ?? `member-${idx}`)} style={styles.memberRow}>
+                  <View style={styles.memberAvatar}>
+                    <Ionicons name="person-outline" size={16} color={PRIMARY_COLOR} />
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={styles.memberName}>{member?.staffName || `Nhân viên #${member?.staffId ?? ''}`}</Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
         )}
       </ScrollView>
       <BottomNavigationStaff activeTab="LeaderHome" onTabPress={(tab) => navigation.navigate(tab)} />
@@ -332,6 +395,41 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 16,
+  },
+  tabContainer: {
+    marginBottom: 4,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F2F2',
+    borderRadius: 14,
+    padding: 4,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    position: 'relative',
+  },
+  tabText: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: PRIMARY_COLOR,
+    fontWeight: '800',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 4,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: PRIMARY_COLOR,
   },
   headerRow: {
     flexDirection: 'row',
@@ -437,5 +535,66 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: PRIMARY_COLOR,
     fontWeight: '600',
+  },
+  partySubMeta: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  groupSection: {
+    marginTop: 8,
+  },
+  groupCard: {
+    borderRadius: 14,
+    backgroundColor: '#F7F7F7',
+    padding: 14,
+    marginBottom: 10,
+  },
+  groupName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  groupLeader: {
+    marginTop: 6,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  groupCount: {
+    marginTop: 4,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F7F7F7',
+    marginBottom: 8,
+  },
+  memberAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF3E6',
+    marginRight: 10,
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  memberMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -72,6 +72,31 @@ const resolveImageUri = (img) => {
   return `${API_URL}${img}`;
 };
 
+const pickMenuId = (...candidates) => {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
+};
+
+const resolveMenuIdFromOrderDetail = (od) => {
+  if (!od || typeof od !== 'object') return null;
+  const menu = od.menu || {};
+  const menuSnapshot = od.menuSnapshot || {};
+  return pickMenuId(
+    od.menuId,
+    od.menuID,
+    menu.menuId,
+    menu.menuID,
+    menu.id,
+    menuSnapshot.menuId,
+    menuSnapshot.menuID,
+    menuSnapshot.id
+  );
+};
+
 const mockPartyDetail = {
   id: 0,
   image: null,
@@ -116,11 +141,15 @@ const mapOrderStatusToPartyStatus = (orderStatus) => {
 function buildPartyDetailFromOrderDetail(od) {
   if (!od) return null;
 
+  const services = Array.isArray(od?.serviceSnapshot?.services) ? od.serviceSnapshot.services : [];
+  const customDishes = Array.isArray(od?.customDishSnapshot?.customDishes) ? od.customDishSnapshot.customDishes : [];
+
   return {
     id: od.orderDetailId,
+    menuId: resolveMenuIdFromOrderDetail(od),
     image: resolveImageUri(od.menuImage),
     name: od.menuName || '—',
-    dishes: '—',
+    dishes: od.partyCategory || '—',
     guests: `${od.numberOfGuests ?? 0} người`,
     timeRange: formatTimeRange(od.startTime, od.endTime),
     address: od.address || '—',
@@ -131,6 +160,8 @@ function buildPartyDetailFromOrderDetail(od) {
     vat: '—',
     deposit: '—',
     remaining: '—',
+    services,
+    customDishes,
   };
 }
 
@@ -144,6 +175,8 @@ function mapApiTaskToDisplay(t) {
     title: t.taskName || '—',
     statusLabel: TASK_STATUS_MAP[statusNum] || 'Chưa bắt đầu',
     done,
+    taskStartTime: t.taskStartTime ?? t.startTime ?? null,
+    taskEndTime: t.taskEndTime ?? t.endTime ?? null,
   };
 }
 
@@ -568,10 +601,12 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           activeOpacity={0.8}
           onPress={() =>
             navigation.navigate('MenuDetail', {
-              menuId: orderDetail?.menuId ?? 1,
+              menuId: partyDetail.menuId,
               menuName: partyDetail.name,
               buffetType: orderDetail?.partyCategory ?? partyDetail.dishes ?? 'Buffet Bò',
+              menuImage: partyDetail.image,
               fromStaff: true,
+              readOnly: true,
             })
           }
         >
@@ -621,6 +656,34 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
+
+        {(partyDetail.services || []).length > 0 && (
+          <View style={styles.snapshotSectionCard}>
+            <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
+            {(partyDetail.services || []).map((service, idx) => (
+              <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
+                <Text style={styles.snapshotRowMeta}>
+                  SL: {service?.quantity ?? 1} · Đơn giá: {Number(service?.basePrice ?? 0).toLocaleString('vi-VN')}₫
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {(partyDetail.customDishes || []).length > 0 && (
+          <View style={styles.snapshotSectionCard}>
+            <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
+            {(partyDetail.customDishes || []).map((dish, idx) => (
+              <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
+                <Text style={styles.snapshotRowMeta}>
+                  Đơn giá: {Number(dish?.unitPrice ?? 0).toLocaleString('vi-VN')}₫ · Tổng: {Number(dish?.totalAmount ?? 0).toLocaleString('vi-VN')}₫
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {renderStatusSteps()}
 
@@ -707,7 +770,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
                 </Text>
                 {fromApi && (task.taskStartTime != null || task.taskEndTime != null) && (
                   <Text style={styles.taskTime}>
-                    {formatTaskTime(task.taskStartTime)} → {formatTaskTime(task.taskEndTime)}
+                    {formatTaskTime(task.taskStartTime ?? task.startTime)} → {formatTaskTime(task.taskEndTime ?? task.endTime)}
                   </Text>
                 )}
                 {fromApi && task.note != null && task.note !== '' && (
@@ -939,8 +1002,44 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   partyImagePlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#E0E0E0',
+    marginRight: 10,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  snapshotSectionCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#FAFAFA',
+    padding: 12,
+    marginTop: -8,
+    marginBottom: 16,
+  },
+  snapshotSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+  },
+  snapshotRowItem: {
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EFEFEF',
+  },
+  snapshotRowTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  snapshotRowMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
   },
   partyCardLeft: {
     flex: 1,

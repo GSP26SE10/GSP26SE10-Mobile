@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
 	ActivityIndicator,
 	KeyboardAvoidingView,
@@ -25,6 +25,8 @@ import Toast from '../components/Toast';
 import API_URL from '../constants/api';
 import { getAccessToken } from '../utils/auth';
 
+const OTP_LENGTH = 6;
+
 export default function ChangePasswordScreen({ navigation }) {
 	const [oldPassword, setOldPassword] = useState('');
 	const [newPassword, setNewPassword] = useState('');
@@ -41,6 +43,7 @@ export default function ChangePasswordScreen({ navigation }) {
 
 	const [toastVisible, setToastVisible] = useState(false);
 	const [toastMessage, setToastMessage] = useState('');
+	const otpInputRef = useRef(null);
 
 	const canSendOtp = useMemo(() => {
 		const oldPwd = String(oldPassword || '').trim();
@@ -54,11 +57,22 @@ export default function ChangePasswordScreen({ navigation }) {
 			newPwd !== oldPwd
 		);
 	}, [oldPassword, newPassword, confirmNewPassword]);
-	const canVerifyOtp = useMemo(() => String(otpCode || '').trim().length > 0, [otpCode]);
+	const canVerifyOtp = useMemo(
+		() => String(otpCode || '').trim().length === OTP_LENGTH,
+		[otpCode],
+	);
 
 	const showToast = (message) => {
 		setToastMessage(message);
 		setToastVisible(true);
+	};
+
+	const handleOtpChange = (value) => {
+		const normalized = String(value ?? '')
+			.replace(/[^0-9a-zA-Z]/g, '')
+			.toUpperCase()
+			.slice(0, OTP_LENGTH);
+		setOtpCode(normalized);
 	};
 
 	const handleSendOtp = async () => {
@@ -286,13 +300,38 @@ export default function ChangePasswordScreen({ navigation }) {
 
 							<View style={styles.formGroup}>
 								<Text style={styles.label}>Mã OTP</Text>
+								<TouchableOpacity
+									style={styles.otpBoxesRow}
+									activeOpacity={1}
+									onPress={() => otpInputRef.current?.focus?.()}
+								>
+									{Array.from({ length: OTP_LENGTH }).map((_, idx) => {
+										const char = otpCode[idx] || '';
+										const isActive = idx === Math.min(otpCode.length, OTP_LENGTH - 1);
+										return (
+											<View
+												key={`otp-box-${idx}`}
+												style={[
+													styles.otpBox,
+													isActive && styles.otpBoxActive,
+												]}
+											>
+												<Text style={styles.otpBoxText}>{char}</Text>
+											</View>
+										);
+									})}
+								</TouchableOpacity>
 								<TextInput
-									style={styles.input}
+									ref={otpInputRef}
+									style={styles.hiddenOtpInput}
 									value={otpCode}
-									onChangeText={setOtpCode}
-									placeholder="Nhập mã OTP"
-									placeholderTextColor={TEXT_PLACEHOLDER}
-									keyboardType="number-pad"
+									onChangeText={handleOtpChange}
+									keyboardType="default"
+									maxLength={OTP_LENGTH}
+									autoCapitalize="characters"
+									autoCorrect={false}
+									returnKeyType="done"
+									onSubmitEditing={handleVerifyOtp}
 								/>
 							</View>
 
@@ -374,6 +413,36 @@ const styles = StyleSheet.create({
 		backgroundColor: INPUT_BACKGROUND,
 		color: TEXT_PRIMARY,
 		fontSize: 15,
+	},
+	hiddenOtpInput: {
+		position: 'absolute',
+		opacity: 0,
+		width: 1,
+		height: 1,
+	},
+	otpBoxesRow: {
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		marginBottom: 16,
+	},
+	otpBox: {
+		width: 48,
+		height: 48,
+		borderRadius: 12,
+		backgroundColor: INPUT_BACKGROUND,
+		borderWidth: 1,
+		borderColor: BORDER_LIGHT,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	otpBoxActive: {
+		borderColor: PRIMARY_COLOR,
+	},
+	otpBoxText: {
+		fontSize: 20,
+		fontWeight: '700',
+		color: TEXT_PRIMARY,
+		textTransform: 'uppercase',
 	},
 	passwordRow: {
 		height: 48,

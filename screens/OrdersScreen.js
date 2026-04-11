@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -70,6 +71,7 @@ export default function OrdersScreen({ navigation, route }) {
   const [customerId, setCustomerId] = useState(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [guestCountDraftByParty, setGuestCountDraftByParty] = useState({});
   const flatListRef = useRef(null);
   const tabScrollRef = useRef(null);
   const tabLayouts = useRef({});
@@ -84,6 +86,20 @@ export default function OrdersScreen({ navigation, route }) {
   useEffect(() => {
     loadCart();
   }, [loadCart]);
+
+  useEffect(() => {
+    setGuestCountDraftByParty((prev) => {
+      const next = {};
+      (orderParties || []).forEach((party, idx) => {
+        const key = party?.partyId || String(idx);
+        const menuItems = (party?.items || []).filter((i) => i.type === 'menu');
+        if (!menuItems.length) return;
+        const guests = Math.max(...menuItems.map((i) => Number(i.count ?? 0)), 1);
+        next[key] = prev[key] && String(prev[key]).trim().length > 0 ? prev[key] : String(guests);
+      });
+      return next;
+    });
+  }, [orderParties]);
 
   // Khi quay lại màn Orders (từ MenuDetail/ServiceDetail sau khi thêm), reload giỏ
   useEffect(() => {
@@ -327,6 +343,40 @@ export default function OrdersScreen({ navigation, route }) {
     setOrderParties(parties);
   };
 
+  const handleGuestDraftChange = (partyIndex, text) => {
+    const party = (orderParties || [])[partyIndex];
+    const key = party?.partyId || String(partyIndex);
+    const digitsOnly = String(text ?? '').replace(/[^0-9]/g, '');
+    setGuestCountDraftByParty((prev) => ({
+      ...prev,
+      [key]: digitsOnly,
+    }));
+  };
+
+  const applyGuestCount = async (partyIndex) => {
+    const party = (orderParties || [])[partyIndex];
+    const partyItems = Array.isArray(party?.items) ? party.items : [];
+    const menuItems = partyItems.filter((i) => i.type === 'menu');
+    if (!menuItems.length) return;
+
+    const key = party?.partyId || String(partyIndex);
+    const raw = String(guestCountDraftByParty[key] ?? '').trim();
+    const parsed = Number(raw);
+    const target = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    const currentMax = Math.max(...menuItems.map((m) => Number(m.count ?? 0)), 1);
+    const realDelta = target - currentMax;
+
+    setGuestCountDraftByParty((prev) => ({ ...prev, [key]: String(target) }));
+    if (realDelta === 0) return;
+
+    await setActivePartyByIndex(partyIndex);
+    for (const m of menuItems) {
+      await updateCartItemQuantity(m.id, realDelta);
+    }
+    const parties = await getOrderParties();
+    setOrderParties(parties);
+  };
+
   const openCartItemDetail = (item) => {
     if (!item) return;
     if (item.type === 'menu') {
@@ -425,7 +475,30 @@ export default function OrdersScreen({ navigation, route }) {
                       </Text>
                     </View>
                   </TouchableOpacity>
-                  {item.type === 'dish' ? (
+                  {item.type === 'menu' ? (
+                    <View style={styles.menuControlRow}>
+                      <TouchableOpacity
+                        style={styles.menuDeleteButton}
+                        onPress={() => handleRemoveItem(partyIndex, item.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#FF0000" />
+                      </TouchableOpacity>
+                      <View style={styles.quantityContainer}>
+                        <Text style={styles.guestInputLabel}>Khách:</Text>
+                        <TextInput
+                          style={styles.guestInput}
+                          value={guestCountDraftByParty[party.partyId || String(partyIndex)] ?? String(item.count ?? 1)}
+                          onChangeText={(text) => handleGuestDraftChange(partyIndex, text)}
+                          onBlur={() => applyGuestCount(partyIndex)}
+                          onSubmitEditing={() => applyGuestCount(partyIndex)}
+                          keyboardType="number-pad"
+                          returnKeyType="done"
+                          maxLength={4}
+                        />
+                      </View>
+                    </View>
+                  ) : item.type === 'dish' ? (
                     <View style={styles.quantityContainer}>
                       <TouchableOpacity
                         style={styles.deleteButton}
@@ -857,6 +930,22 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     marginTop: 4,
   },
+  menuControlRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  menuDeleteButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FFD6D6',
+    backgroundColor: '#FFF5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   quantityButton: {
     width: 28,
     height: 28,
@@ -878,6 +967,25 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     minWidth: 20,
     textAlign: 'center',
+  },
+  guestInputLabel: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '700',
+    marginRight: 8,
+  },
+  guestInput: {
+    minWidth: 56,
+    height: 34,
+    borderWidth: 1,
+    borderColor: PRIMARY_COLOR,
+    borderRadius: 10,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+    paddingHorizontal: 8,
+    backgroundColor: BACKGROUND_WHITE,
   },
   dishNoteText: {
     fontSize: 12,
