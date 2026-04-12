@@ -334,9 +334,6 @@ export default function LeaderHomeScreen({ navigation }) {
                 <Text style={styles.partyAddress} numberOfLines={1}>
                   {order.address || '—'}
                 </Text>
-                <Text style={styles.partySubMeta}>
-                  Dịch vụ: {Array.isArray(order?.serviceSnapshot?.services) ? order.serviceSnapshot.services.length : 0} · Món lẻ: {Array.isArray(order?.customDishSnapshot?.customDishes) ? order.customDishSnapshot.customDishes.length : 0}
-                </Text>
                 <Text style={styles.partyStatus}>
                   {ORDER_STATUS_LABEL[order.orderStatus] ?? '—'}
                 </Text>

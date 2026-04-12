@@ -395,12 +395,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           { headers },
         );
         const json = await res.json().catch(() => null);
-        const payment = json?.items?.[0];
-        const isPaid =
-          payment &&
-          (payment.paymentStatus === 2 ||
-            payment.paymentStatus === '2' ||
-            payment.paymentStatus === 'PAID');
+        const items = Array.isArray(json?.items) ? json.items : [];
+        // Chỉ coi là thanh toán thành công nếu là payment full (paymentType = 2) và đã paid.
+        const isPaid = items.some(
+          (payment) =>
+            payment &&
+            (payment.paymentType === 2 || payment.paymentType === '2') &&
+            (payment.paymentStatus === 2 || payment.paymentStatus === '2')
+        );
         if (isPaid && paymentAwaitingConfirmationRef.current && !successHandledRef.current) {
           successHandledRef.current = true;
           stopPaymentPolling();
@@ -1909,10 +1911,6 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               </View>
             )}
             <View style={styles.qrMeta}>
-              <View style={styles.qrMetaRow}>
-                <Text style={styles.qrMetaLabel}>Mã thanh toán</Text>
-                <Text style={styles.qrMetaValue}>{qrData?.paymentCode || ''}</Text>
-              </View>
               <View style={styles.qrMetaRow}>
                 <Text style={styles.qrMetaLabel}>Số tiền</Text>
                 <Text style={styles.qrMetaValue}>

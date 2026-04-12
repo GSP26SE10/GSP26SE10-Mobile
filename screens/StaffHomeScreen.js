@@ -356,9 +356,6 @@ export default function StaffHomeScreen({ navigation }) {
             <Text style={styles.partyAddress} numberOfLines={1}>
               {od.address || '—'}
             </Text>
-            <Text style={styles.partySubMeta}>
-              Dịch vụ: {Array.isArray(od?.serviceSnapshot?.services) ? od.serviceSnapshot.services.length : 0} · Món lẻ: {Array.isArray(od?.customDishSnapshot?.customDishes) ? od.customDishSnapshot.customDishes.length : 0}
-            </Text>
             <Text style={styles.partyStatus}>
               {ORDER_STATUS_LABEL[getOrderStatus(od)] ?? '—'}
             </Text>
