@@ -280,7 +280,10 @@ export default function OrderDetail({ navigation, route }) {
       .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] ||
     order?.startTime ||
     null;
-  const canCancel = Number(order?.status) === 1 && canCancelBeforeTwoDays(firstPartyStartIso);
+  const canCancelStatuses = [1, 2]; // Pending, Approved
+  const canCancel =
+    canCancelStatuses.includes(Number(order?.status)) &&
+    canCancelBeforeTwoDays(firstPartyStartIso);
   const showCancelButton = canCancel && sourceTab !== 'ongoing';
   const canSubmitCancel = cancelReason.trim().length > 0 && !cancellingOrder;
   const isCompleted = Number(order?.status) === 7;

@@ -44,27 +44,32 @@ flowchart TD
 7. If you forget your password, use Forgot Password to request a reset email.
 8. After successful authentication, the system will redirect you to the main screen based on your user role.
 
-## 3.3 Workflow 2: Browse Services and Menus
+## 3.3 Workflow 2: Browse Menu, Services and Dishes
 
 **Purpose:**
-To help users explore available services, buffet menus, dishes, and item details before placing an order.
+To help users explore menu, available services, dishes before placing an order.
 
 **Workflow Diagram:**
 
 ```mermaid
 flowchart TD
-  A[Open Home or Services] --> B[Browse categories]
-  B --> C[Open service/menu list]
-  C --> D[View item details]
-  D --> E[Check images, price, description, ratings]
-  E --> F[Open feedback or AI summary if available]
+  A[Open Home] --> B[View Menu]
+  A --> C[Open Explore]
+  C --> D{Choose tab}
+  D --> E[Services]
+  D --> F[Dishes]
+  B --> G[Open item details]
+  E --> G[Open item details]
+  F --> G
+  G --> H[Check images, price, description, ratings]
+  H --> I[Open feedback or AI summary if available]
 ```
 
 **Detailed Instructions:**
 
-1. Open the Home screen to view featured menu categories.
-2. Navigate to Services to browse available services and dishes.
-3. Tap a menu or service card to open the detail screen.
+1. Open the Home screen to view the Menu.
+2. Open Explore to browse the two tabs: Services and Dishes.
+3. Tap a menu, service, or item card to open the detail screen.
 4. Review images, pricing, descriptions, AI summaries, and ratings.
 5. Tap the feedback area to view customer reviews when available.
 

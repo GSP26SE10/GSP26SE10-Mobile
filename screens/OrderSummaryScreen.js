@@ -494,11 +494,13 @@ export default function OrderSummaryScreen({ navigation, route }) {
         const data = await createDepositQr(orderId, token, paymentMethod);
 
         if (paymentMethod === PAYMENT_METHOD_BANK) {
+          setIsPaymentPending(false);
           setQrData(data);
           setQrVisible(true);
-          setIsPaymentPending(true);
           startCountdown();
         } else if (paymentMethod === PAYMENT_METHOD_ZALOPAY) {
+          setQrVisible(false);
+          setQrData(null);
           setIsPaymentPending(true);
           const orderUrl = extractZaloOrderUrl(data);
           const opened = await openZaloPaySandbox(orderUrl);
