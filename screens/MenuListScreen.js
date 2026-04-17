@@ -59,7 +59,7 @@ export default function MenuListScreen({ navigation, route }) {
       }
 
       const res = await fetch(
-        `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=100`,
+        `${API_URL}/api/menu?Status=1&MenuCategoryId=${menuCategoryId}&page=1&pageSize=100`,
       );
       const json = await res.json();
       const items = json?.items || [];

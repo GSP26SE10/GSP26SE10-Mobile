@@ -53,16 +53,21 @@ export default function ServiceDetailScreen({ navigation, route }) {
   const raw = route?.params?.service;
   const readOnly = route?.params?.readOnly === true;
   const service = normalizeService(raw);
-  const priceText = service.priceFormatted || formatPrice(service.basePrice);
-  const imageUri = service.image;
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [otherServices, setOtherServices] = useState([]);
   const [loadingOther, setLoadingOther] = useState(false);
+  const [serviceDetail, setServiceDetail] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Merge service từ params với detail từ API
+  const mergedService = serviceDetail || service;
+  const priceText = mergedService.priceFormatted || formatPrice(mergedService.basePrice);
+  const imageUri = mergedService.image;
 
   const aiSummaryText =
-    typeof service?.aisServiceSummary === 'string' ? service.aisServiceSummary.trim() : '';
+    typeof mergedService?.aisServiceSummary === 'string' ? mergedService.aisServiceSummary.trim() : '';
   const hasAiSummary = aiSummaryText.length > 0;
 
   const showToast = (message) => {
@@ -71,7 +76,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
   };
 
   const handleChooseService = async () => {
-    if (!service?.serviceId || service?.basePrice == null) {
+    if (!mergedService?.serviceId || mergedService?.basePrice == null) {
       showToast('Vui lòng đợi tải dịch vụ xong');
       return;
     }
@@ -80,7 +85,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
       returnParams: { service: raw },
     });
     if (!ok) return;
-    const result = await addServiceToCart(service);
+    const result = await addServiceToCart(mergedService);
     if (!result?.success && result?.reason === 'NO_MENU') {
       showToast('Vui lòng chọn menu trước!');
       return;
@@ -88,17 +93,51 @@ export default function ServiceDetailScreen({ navigation, route }) {
     showToast('Đã thêm vào giỏ hàng');
   };
 
+  // Fetch chi tiết dịch vụ từ API để lấy aisServiceSummary, rating, reviews
+  useEffect(() => {
+    const loadServiceDetail = async () => {
+      if (!service?.serviceId) return;
+      try {
+        setLoadingDetail(true);
+        const res = await fetch(`${API_URL}/api/Service?Status=1&page=1&pageSize=50`);
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const found = items.find((item) => item.serviceId === service.serviceId);
+        if (found) {
+          setServiceDetail(
+            normalizeService({
+              serviceId: found.serviceId,
+              serviceName: found.serviceName,
+              description: found.description,
+              basePrice: found.basePrice,
+              status: found.status,
+              img: found.img,
+              aisServiceSummary: found.aisServiceSummary,
+              averageRating: found.averageRating ?? null,
+              totalReviews: found.totalReviews ?? null,
+            }),
+          );
+        }
+      } catch (e) {
+        // Nếu lỗi, sử dụng dữ liệu từ params
+      } finally {
+        setLoadingDetail(false);
+      }
+    };
+    loadServiceDetail();
+  }, [service?.serviceId]);
+
   useEffect(() => {
     const load = async (force = false) => {
       try {
         if (!force && otherServicesCache.fetched && Array.isArray(otherServicesCache.items)) {
           setOtherServices(
-            otherServicesCache.items.filter((s) => s?.serviceId !== service.serviceId),
+            otherServicesCache.items.filter((s) => s?.serviceId !== mergedService.serviceId),
           );
           return;
         }
         setLoadingOther(true);
-        const res = await fetch(`${API_URL}/api/Service?page=1&pageSize=50`);
+        const res = await fetch(`${API_URL}/api/Service?Status=1&page=1&pageSize=50`);
         const json = await res.json();
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items.map((item) => ({
@@ -113,7 +152,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
           totalReviews: item.totalReviews ?? null,
         }));
         otherServicesCache = { fetched: true, items: mapped };
-        setOtherServices(mapped.filter((s) => s?.serviceId !== service.serviceId));
+        setOtherServices(mapped.filter((s) => s?.serviceId !== mergedService.serviceId));
       } catch (e) {
         setOtherServices([]);
       } finally {
@@ -121,7 +160,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
       }
     };
     load(false);
-  }, [service.serviceId]);
+  }, [mergedService.serviceId]);
 
   return (
     <SafeAreaView
@@ -168,20 +207,20 @@ export default function ServiceDetailScreen({ navigation, route }) {
         </View>
 
         <View style={styles.infoSection}>
-          <Text style={styles.serviceTitle}>{service.serviceName}</Text>
+          <Text style={styles.serviceTitle}>{mergedService.serviceName}</Text>
           <Text style={styles.servicePrice}>{priceText}</Text>
-          <Text style={styles.serviceDescription}>{service.description}</Text>
+          <Text style={styles.serviceDescription}>{mergedService.description}</Text>
         </View>
 
         {/* Rating + AI summary */}
         <View style={styles.ratingSection}>
           <View style={styles.ratingRow}>
-            {service.averageRating != null && service.totalReviews != null ? (
+            {mergedService.averageRating != null && mergedService.totalReviews != null ? (
               <View style={styles.ratingLeft}>
                 <Ionicons name="star" size={20} color="#FFD700" />
-                <Text style={styles.ratingText}>{Number(service.averageRating).toFixed(1)}</Text>
+                <Text style={styles.ratingText}>{Number(mergedService.averageRating).toFixed(1)}</Text>
                 <Text style={styles.reviewCount}>
-                  {String(service.totalReviews)} lượt đánh giá
+                  {String(mergedService.totalReviews)} lượt đánh giá
                 </Text>
               </View>
             ) : (
@@ -189,7 +228,7 @@ export default function ServiceDetailScreen({ navigation, route }) {
             )}
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => navigation.navigate('Feedback', { serviceId: service?.serviceId })}
+              onPress={() => navigation.navigate('Feedback', { serviceId: mergedService?.serviceId })}
             >
               <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
             </TouchableOpacity>

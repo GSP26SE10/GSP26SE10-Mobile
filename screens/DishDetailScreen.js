@@ -87,7 +87,7 @@ export default function DishDetailScreen({ navigation, route }) {
           return;
         }
         setLoadingOther(true);
-        const res = await fetch(`${API_URL}/api/dish?page=1&pageSize=50`);
+        const res = await fetch(`${API_URL}/api/dish?Status=1&page=1&pageSize=50`);
         const json = await res.json();
         const items = Array.isArray(json?.items) ? json.items : [];
         const mapped = items.map((item) => ({

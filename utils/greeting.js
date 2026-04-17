@@ -1,7 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAccessToken } from './auth';
 
 export async function getStoredFullName() {
   try {
+    const token = await getAccessToken();
+    if (!token) return null;
+
     const raw = await AsyncStorage.getItem('userData');
     if (!raw) return null;
     const data = JSON.parse(raw);

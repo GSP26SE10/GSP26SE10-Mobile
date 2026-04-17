@@ -24,7 +24,8 @@ const { width } = Dimensions.get('window');
 const TABS = ['Dịch vụ', 'Món lẻ'];
 
 let serviceDataCache = { services: null, fetched: false };
-let dishDataCache = { dishes: null, fetched: false };
+let dishDataCache = { byKey: {} };
+let dishCategoryDataCache = { categories: null, fetched: false };
 let menuDishMapCache = { byMenuId: null, fetched: false };
 let lastActiveTab = 0;
 
@@ -52,8 +53,15 @@ export default function ServiceScreen({ navigation, route }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [services, setServices] = useState([]);
   const [dishes, setDishes] = useState([]);
+  const [dishCategories, setDishCategories] = useState([]);
+  const [selectedDishCategoryId, setSelectedDishCategoryId] = useState(null);
+  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
   const [isLoadingServices, setIsLoadingServices] = useState(false);
   const [isLoadingDishes, setIsLoadingDishes] = useState(false);
+  const [isLoadingDishCategories, setIsLoadingDishCategories] = useState(false);
+  const [isLoadingMoreDishes, setIsLoadingMoreDishes] = useState(false);
+  const [dishPage, setDishPage] = useState(1);
+  const [dishTotalPages, setDishTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -61,6 +69,12 @@ export default function ServiceScreen({ navigation, route }) {
   const [excludedDishIds, setExcludedDishIds] = useState(() => new Set());
 
   const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const loadingMoreLockRef = useRef(false);
+  const dishesRef = useRef([]);
+
+  useEffect(() => {
+    dishesRef.current = dishes;
+  }, [dishes]);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -98,7 +112,7 @@ export default function ServiceScreen({ navigation, route }) {
       if (forceRefresh) setRefreshing(true);
       else setIsLoadingServices(true);
 
-      const res = await fetch(`${API_URL}/api/Service?page=1&pageSize=20`);
+      const res = await fetch(`${API_URL}/api/Service?Status=1&page=1&pageSize=20`);
       const json = await res.json();
       const items = json?.items || [];
       const mapped = items.map((item) => ({
@@ -121,18 +135,52 @@ export default function ServiceScreen({ navigation, route }) {
     }
   };
 
-  const loadDishes = async (forceRefresh = false) => {
-    if (!forceRefresh && dishDataCache.fetched && dishDataCache.dishes) {
-      setDishes(dishDataCache.dishes);
+  const getDishCacheKey = (dishCategoryId) =>
+    dishCategoryId != null ? `category:${dishCategoryId}` : 'all';
+
+  const buildDishApiUrl = (page, dishCategoryId) => {
+    const qs = new URLSearchParams();
+    qs.append('Status', '1');
+    if (dishCategoryId != null) qs.append('DishCategoryId', String(dishCategoryId));
+    qs.append('page', String(page));
+    qs.append('pageSize', dishCategoryId != null ? '100' : '10');
+    return `${API_URL}/api/dish?${qs.toString()}`;
+  };
+
+  const mergeDishList = (prev, next) => {
+    const byId = new Map();
+    [...prev, ...next].forEach((item) => {
+      const id = Number(item?.dishId ?? 0);
+      if (!id) return;
+      byId.set(id, item);
+    });
+    return Array.from(byId.values());
+  };
+
+  const loadDishes = async ({
+    forceRefresh = false,
+    page = 1,
+    append = false,
+    dishCategoryId = selectedDishCategoryId,
+  } = {}) => {
+    const cacheKey = getDishCacheKey(dishCategoryId);
+    const cached = dishDataCache.byKey?.[cacheKey];
+    if (!forceRefresh && page === 1 && !append && cached?.items) {
+      setDishes(cached.items);
+      setDishPage(cached.page ?? 1);
+      setDishTotalPages(cached.totalPages ?? 1);
       return;
     }
+
     try {
-      if (forceRefresh) setRefreshing(true);
+      if (append) setIsLoadingMoreDishes(true);
+      else if (forceRefresh) setRefreshing(true);
       else setIsLoadingDishes(true);
 
-      const res = await fetch(`${API_URL}/api/dish?page=1&pageSize=10`);
+      const res = await fetch(buildDishApiUrl(page, dishCategoryId));
       const json = await res.json();
       const items = json?.items || [];
+      const totalPages = Number(json?.totalPages ?? 1);
       const mapped = items.map((item) => ({
         dishId: item.dishId,
         dishName: item.dishName,
@@ -144,13 +192,60 @@ export default function ServiceScreen({ navigation, route }) {
         dishCategoryId: item.dishCategoryId,
         dishCategoryName: item.dishCategoryName,
       }));
-      setDishes(mapped);
-      dishDataCache = { dishes: mapped, fetched: true };
+
+      const nextDishes = append ? mergeDishList(dishesRef.current, mapped) : mapped;
+      setDishes(nextDishes);
+      setDishPage(page);
+      setDishTotalPages(totalPages);
+      dishDataCache.byKey[cacheKey] = {
+        items: nextDishes,
+        page,
+        totalPages,
+      };
     } catch (error) {
       console.error('Failed to fetch dishes', error);
     } finally {
-      if (forceRefresh) setRefreshing(false);
+      if (append) setIsLoadingMoreDishes(false);
+      else if (forceRefresh) setRefreshing(false);
       else setIsLoadingDishes(false);
+    }
+  };
+
+  const loadDishCategories = async (forceRefresh = false) => {
+    if (!forceRefresh && dishCategoryDataCache.fetched && dishCategoryDataCache.categories) {
+      setDishCategories(dishCategoryDataCache.categories);
+      return;
+    }
+    try {
+      setIsLoadingDishCategories(true);
+      const res = await fetch(`${API_URL}/api/dish-category?page=1&pageSize=10`);
+      const json = await res.json();
+      const items = Array.isArray(json?.items) ? json.items : [];
+      const mapped = items
+        .map((item) => ({
+          dishCategoryId: item?.dishCategoryId ?? item?.id ?? null,
+          dishCategoryName: item?.dishCategoryName ?? item?.name ?? item?.categoryName ?? '',
+        }))
+        .filter((item) => item.dishCategoryId != null && item.dishCategoryName);
+      setDishCategories(mapped);
+      dishCategoryDataCache = { categories: mapped, fetched: true };
+    } catch (error) {
+      console.error('Failed to fetch dish categories', error);
+      setDishCategories([]);
+    } finally {
+      setIsLoadingDishCategories(false);
+    }
+  };
+
+  const loadMoreDishes = async () => {
+    if (loadingMoreLockRef.current) return;
+    if (isLoadingDishes || isLoadingMoreDishes) return;
+    if (dishPage >= dishTotalPages) return;
+    loadingMoreLockRef.current = true;
+    try {
+      await loadDishes({ page: dishPage + 1, append: true, dishCategoryId: selectedDishCategoryId });
+    } finally {
+      loadingMoreLockRef.current = false;
     }
   };
 
@@ -199,10 +294,15 @@ export default function ServiceScreen({ navigation, route }) {
 
   useEffect(() => {
     (async () => {
-      await Promise.all([loadServices(false), loadDishes(false)]);
+      await Promise.all([loadServices(false), loadDishes({ forceRefresh: false }), loadDishCategories(false)]);
       await refreshDishFilterContext(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 1) return;
+    loadDishes({ forceRefresh: false, page: 1, append: false, dishCategoryId: selectedDishCategoryId });
+  }, [activeTab, selectedDishCategoryId]);
 
   const handleRefresh = () => {
     if (activeTab === 0) {
@@ -210,7 +310,10 @@ export default function ServiceScreen({ navigation, route }) {
       return;
     }
     (async () => {
-      await loadDishes(true);
+      await Promise.all([
+        loadDishes({ forceRefresh: true, page: 1, append: false, dishCategoryId: selectedDishCategoryId }),
+        loadDishCategories(true),
+      ]);
       await refreshDishFilterContext(true);
     })();
   };
@@ -318,49 +421,64 @@ export default function ServiceScreen({ navigation, route }) {
     if (filteredDishes.length === 0) {
       return (
         <View style={styles.emptyStateWrap}>
-          <Text style={styles.emptyStateText}>Không còn món lẻ ngoài menu đã chọn</Text>
+          <Text style={styles.emptyStateText}>
+            {activeMenuId ? 'Không còn món lẻ ngoài menu đã chọn' : 'Không tìm thấy món lẻ phù hợp'}
+          </Text>
         </View>
       );
     }
-    return filteredDishes.map((dish) => (
-      <TouchableOpacity
-        key={dish.dishId}
-        style={styles.serviceCard}
-        activeOpacity={0.8}
-        onPress={() => navigation.navigate('DishDetail', { dish })}
-      >
-        {dish.image ? (
-          <Image
-            source={{ uri: dish.image }}
-            style={styles.serviceImage}
-            contentFit="cover"
-            cachePolicy="disk"
-            transition={150}
-          />
-        ) : (
-          <View style={[styles.serviceImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
-            <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
-          </View>
-        )}
-        <View style={styles.serviceInfo}>
-          <Text style={styles.serviceName}>{dish.dishName}</Text>
-          {dish.dishCategoryName ? (
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeText}>{dish.dishCategoryName}</Text>
+    return (
+      <>
+        {filteredDishes.map((dish) => (
+          <TouchableOpacity
+            key={dish.dishId}
+            style={styles.serviceCard}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('DishDetail', { dish })}
+          >
+            {dish.image ? (
+              <Image
+                source={{ uri: dish.image }}
+                style={styles.serviceImage}
+                contentFit="cover"
+                cachePolicy="disk"
+                transition={150}
+              />
+            ) : (
+              <View style={[styles.serviceImage, { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="image-outline" size={32} color={TEXT_SECONDARY} />
+              </View>
+            )}
+            <View style={styles.serviceInfo}>
+              <Text style={styles.serviceName}>{dish.dishName}</Text>
+              {dish.dishCategoryName ? (
+                <View style={styles.categoryBadge}>
+                  <Text style={styles.categoryBadgeText}>{dish.dishCategoryName}</Text>
+                </View>
+              ) : null}
+              <Text style={styles.servicePrice}>{formatPrice(dish.price)}</Text>
             </View>
-          ) : null}
-          <Text style={styles.servicePrice}>{formatPrice(dish.price)}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => handleAddDish(dish)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={20} color={TEXT_PRIMARY} />
-        </TouchableOpacity>
-      </TouchableOpacity>
-    ));
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => handleAddDish(dish)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={20} color={TEXT_PRIMARY} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+        {isLoadingMoreDishes ? (
+          <Text style={styles.loadingMoreText}>Đang tải thêm món lẻ...</Text>
+        ) : null}
+      </>
+    );
   };
+
+  const selectedCategoryName =
+    selectedDishCategoryId == null
+      ? 'Tất cả'
+      : dishCategories.find((c) => Number(c.dishCategoryId) === Number(selectedDishCategoryId))
+          ?.dishCategoryName || 'Danh mục';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -380,10 +498,69 @@ export default function ServiceScreen({ navigation, route }) {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-          {/* <TouchableOpacity style={styles.filterButton} activeOpacity={0.7}>
-            <Ionicons name="options" size={20} color={TEXT_PRIMARY} />
-          </TouchableOpacity> */}
+          {activeTab === 1 ? (
+            <TouchableOpacity
+              style={[styles.filterButton, selectedDishCategoryId != null && styles.filterButtonActive]}
+              activeOpacity={0.7}
+              onPress={() => {
+                setShowCategoryFilter((prev) => !prev);
+                if (!dishCategoryDataCache.fetched) loadDishCategories(false);
+              }}
+            >
+              <Ionicons name="options" size={20} color={selectedDishCategoryId != null ? BACKGROUND_WHITE : TEXT_PRIMARY} />
+            </TouchableOpacity>
+          ) : null}
         </View>
+        {activeTab === 1 && showCategoryFilter ? (
+          <View style={styles.filterPanel}>
+            <Text style={styles.filterPanelTitle}>Lọc theo danh mục món lẻ</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipList}>
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  selectedDishCategoryId == null && styles.filterChipActive,
+                ]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setSelectedDishCategoryId(null);
+                  setShowCategoryFilter(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selectedDishCategoryId == null && styles.filterChipTextActive,
+                  ]}
+                >
+                  Tất cả
+                </Text>
+              </TouchableOpacity>
+
+              {dishCategories.map((category) => {
+                const isActive = Number(selectedDishCategoryId) === Number(category.dishCategoryId);
+                return (
+                  <TouchableOpacity
+                    key={String(category.dishCategoryId)}
+                    style={[styles.filterChip, isActive && styles.filterChipActive]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setSelectedDishCategoryId(Number(category.dishCategoryId));
+                      setShowCategoryFilter(false);
+                    }}
+                  >
+                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                      {category.dishCategoryName}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {isLoadingDishCategories ? (
+              <Text style={styles.filterLoadingText}>Đang tải danh mục...</Text>
+            ) : null}
+          
+          </View>
+        ) : null}
       </View>
 
       {/* Tab Bar */}
@@ -416,6 +593,15 @@ export default function ServiceScreen({ navigation, route }) {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={({ nativeEvent }) => {
+          if (activeTab !== 1) return;
+          const paddingToBottom = 140;
+          const isNearBottom =
+            nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >=
+            nativeEvent.contentSize.height - paddingToBottom;
+          if (isNearBottom) loadMoreDishes();
+        }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
@@ -457,7 +643,58 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   filterButton: {
-    padding: 4,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFEFEF',
+  },
+  filterButtonActive: {
+    backgroundColor: PRIMARY_COLOR,
+  },
+  filterPanel: {
+    marginTop: 10,
+    backgroundColor: '#F8F8F8',
+    borderRadius: 12,
+    padding: 10,
+  },
+  filterPanelTitle: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  filterChipList: {
+    paddingRight: 10,
+  },
+  filterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#ECECEC',
+    marginRight: 8,
+  },
+  filterChipActive: {
+    backgroundColor: PRIMARY_COLOR,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+  },
+  filterChipTextActive: {
+    color: BACKGROUND_WHITE,
+  },
+  filterLoadingText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+  },
+  filterSelectedText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
   },
   tabContainer: {
     paddingHorizontal: 20,
@@ -574,5 +811,13 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  loadingMoreText: {
+    marginTop: 4,
+    marginBottom: 8,
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    textAlign: 'center',
+    fontWeight: '600',
   },
 });

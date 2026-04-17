@@ -22,6 +22,7 @@ import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_L
 import { resetChatUnreadCount } from '../utils/chatUnread';
 
 const { width } = Dimensions.get('window');
+const CHAT_OWNER_ID = 1;
 
 const formatVnd = (value) => {
   const n = Number(value ?? 0);
@@ -74,6 +75,32 @@ const normalizeMenuImage = (raw) => {
   ) {
     return uri;
   }
+  return null;
+};
+
+const resolveConversationIdFromResponse = (json, text) => {
+  const candidates = [
+    json?.conversationId,
+    json?.ConversationId,
+    json?.data?.conversationId,
+    json?.data?.ConversationId,
+    json?.data?.id,
+    json?.id,
+  ];
+  for (const candidate of candidates) {
+    if (candidate != null && candidate !== '') return candidate;
+  }
+
+  if (typeof text === 'string' && text.trim()) {
+    const trimmed = text.trim();
+    try {
+      const parsed = JSON.parse(trimmed);
+      return resolveConversationIdFromResponse(parsed, '');
+    } catch {
+      if (/^\d+$/.test(trimmed)) return Number(trimmed);
+    }
+  }
+
   return null;
 };
 
@@ -210,13 +237,12 @@ export default function ChatScreen({ navigation, route }) {
         if (!cancelled) setCustomerId(userId);
 
         const key = `conversationId:${userId}`;
-        const cached = await AsyncStorage.getItem(key);
 
-        // 1) Ưu tiên lấy conversation có sẵn từ backend (đúng yêu cầu: rỗng mới POST tạo mới)
+        // 1) Ưu tiên lấy conversation có sẵn từ backend; nếu không có thì POST tạo mới.
         let existingConversationId = null;
         try {
           const listRes = await fetch(
-            `${API_URL}/api/conversation?CustomerId=${userId}&page=1&pageSize=10`,
+            `${API_URL}/api/conversation?CustomerId=${userId}&OwnerId=${CHAT_OWNER_ID}&page=1&pageSize=10`,
           );
           const listJson = await listRes.json().catch(() => null);
           const items = Array.isArray(listJson?.items) ? listJson.items : [];
@@ -233,13 +259,7 @@ export default function ChatScreen({ navigation, route }) {
           return;
         }
 
-        // fallback: nếu list rỗng nhưng đã cache (offline), dùng cache
-        if (cached) {
-          if (!cancelled) setConversationId(cached);
-          return;
-        }
-
-        const payload = { customerId: Number(userId), ownerId: 1 };
+        const payload = { customerId: Number(userId), ownerId: CHAT_OWNER_ID };
         const res = await fetch(`${API_URL}/api/conversation`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -252,18 +272,14 @@ export default function ChatScreen({ navigation, route }) {
         } catch {
           json = null;
         }
-        const newId =
-          json?.conversationId ??
-          json?.data?.conversationId ??
-          json?.data ??
-          json?.id ??
-          null;
+        const newId = resolveConversationIdFromResponse(json, text);
         if (newId != null) {
           await AsyncStorage.setItem(key, String(newId));
           if (!cancelled) setConversationId(String(newId));
+          return;
         }
       } catch (e) {
-        // ignore init errors for now
+        // Không dùng cache nữa: nếu GET/POST lỗi thì để conversation rỗng để tránh gửi nhầm vào thread đã bị xóa.
       } finally {
         if (!cancelled) setInitializingConversation(false);
       }
@@ -706,7 +722,7 @@ export default function ChatScreen({ navigation, route }) {
       try {
         setLoadingPendingMenu(true);
         const res = await fetch(
-          `${API_URL}/api/menu?MenuId=${intentMenuIdNum}&page=1&pageSize=10`,
+          `${API_URL}/api/menu?Status=1&MenuId=${intentMenuIdNum}&page=1&pageSize=10`,
         );
         const json = await res.json().catch(() => null);
         const first = Array.isArray(json?.items) ? json.items[0] : null;

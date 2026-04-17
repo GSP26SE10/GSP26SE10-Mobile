@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import API_URL from '../constants/api';
+import { getAccessToken } from './auth';
 import { incrementChatUnreadCount, resetChatUnreadCount } from './chatUnread';
 import { incrementNotificationUnreadCount } from './notificationUnread';
 
@@ -38,7 +39,7 @@ export function isChatPushNotificationData(data) {
  */
 async function openScreenFromPushNotificationAsync(getNavigation, data) {
   try {
-    const token = await AsyncStorage.getItem('accessToken');
+    const token = await getAccessToken();
     if (!token) return;
     const raw = await AsyncStorage.getItem('userData');
     if (!raw) return;
@@ -120,7 +121,7 @@ export function attachChatNotificationNavigation(getNavigation) {
 
 export const logAccessTokenNow = async () => {
   try {
-    const accessToken = await AsyncStorage.getItem('accessToken');
+    const accessToken = await getAccessToken();
     console.log('[notification] accessToken', accessToken);
   } catch (e) {
     console.log('[notification] accessToken read error', e);
@@ -160,7 +161,7 @@ const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
     const providedToken = typeof options?.accessToken === 'string' ? options.accessToken : null;
     const providedUser = options?.userData && typeof options.userData === 'object' ? options.userData : null;
 
-    const storedToken = await AsyncStorage.getItem('accessToken');
+    const storedToken = await getAccessToken();
     const rawUser = await AsyncStorage.getItem('userData');
     const storedUser = rawUser ? JSON.parse(rawUser) : null;
 
@@ -219,7 +220,7 @@ const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
 
 export const deactivateCurrentDeviceAsync = async () => {
   try {
-    const accessToken = await AsyncStorage.getItem('accessToken');
+    const accessToken = await getAccessToken();
     const deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (!accessToken || !deviceId) {
       console.log('[devices/deactivate] skip — thiếu token hoặc deviceId', {
@@ -307,7 +308,7 @@ export const activateCurrentDeviceAsync = async (options = {}) => {
     const providedToken = typeof options?.accessToken === 'string' ? options.accessToken : null;
     const providedUser = options?.userData && typeof options.userData === 'object' ? options.userData : null;
 
-    const storedToken = await AsyncStorage.getItem('accessToken');
+    const storedToken = await getAccessToken();
     const rawUser = await AsyncStorage.getItem('userData');
     const storedUser = rawUser ? JSON.parse(rawUser) : null;
 

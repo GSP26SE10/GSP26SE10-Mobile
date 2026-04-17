@@ -105,6 +105,9 @@ const mapApiTaskToDisplay = (t) => {
     : '';
   return {
     id: t.taskId,
+    taskId: t.taskId,
+    orderDetailId: t.orderDetailId ?? null,
+    staffId: t.staffId ?? t.staffID ?? t.assigneeId ?? null,
     title: t.taskName || '—',
     taskStatus: statusNum,
     dateLabel,
@@ -264,6 +267,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [createVisible, setCreateVisible] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [taskTemplates, setTaskTemplates] = useState([]);
   const [loadingTaskTemplates, setLoadingTaskTemplates] = useState(false);
@@ -279,6 +283,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [leaderFullName, setLeaderFullName] = useState('');
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [updatingTask, setUpdatingTask] = useState(false);
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
   const [refreshingTasks, setRefreshingTasks] = useState(false);
   const [tasksReady, setTasksReady] = useState(false);
   const swipeBack = useSwipeBack(() => navigation.goBack());
@@ -570,6 +576,55 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     },
   });
 
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ taskId, payload }) => {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail-staff-task/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Cập nhật công việc thất bại.');
+      }
+      return res.json().catch(() => null);
+    },
+    onError: (error) => {
+      Alert.alert('Lỗi', error?.message || 'Không thể cập nhật công việc.');
+    },
+    onSettled: () => {
+      setUpdatingTask(false);
+    },
+  });
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: async (taskId) => {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail-staff-task/${taskId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Xóa công việc thất bại.');
+      }
+      return res.text().catch(() => '');
+    },
+    onError: (error) => {
+      Alert.alert('Lỗi', error?.message || 'Không thể xóa công việc.');
+    },
+    onSettled: () => {
+      setDeletingTaskId(null);
+    },
+  });
+
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
     const details = encodeURIComponent(
@@ -663,6 +718,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     t.title.toLowerCase().includes(searchKeyword.toLowerCase().trim())
   );
 
+  const isTaskPending = (task) => getTaskStatusNumber(task) === 1;
+
+  const closeTaskModal = () => {
+    setCreateVisible(false);
+    resetForm();
+  };
+
   const resetForm = () => {
     const start = new Date();
     const end = new Date(start.getTime() + 60 * 60 * 1000);
@@ -672,6 +734,33 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     setNewDateTime(start);
     setNewEndDateTime(end);
     setNewNote('');
+    setEditingTask(null);
+  };
+
+  const openCreateTaskModal = () => {
+    resetForm();
+    setCreateVisible(true);
+  };
+
+  const openEditTaskModal = (task) => {
+    if (!task || !isTaskPending(task)) return;
+    const startTime = task.startTime ? new Date(task.startTime) : new Date();
+    const endTime = task.endTime ? new Date(task.endTime) : new Date(startTime.getTime() + 60 * 60 * 1000);
+    setEditingTask(task);
+    setNewTitle(task.title || '');
+    setSelectedMember(
+      task.staffId
+        ? {
+            staffId: task.staffId,
+            staffName: task.assignee && task.assignee !== '—' ? task.assignee : `#${task.staffId}`,
+          }
+        : null,
+    );
+    setAssigneeDropdownOpen(false);
+    setNewDateTime(startTime);
+    setNewEndDateTime(endTime);
+    setNewNote(task.note || '');
+    setCreateVisible(true);
   };
 
   const formatDateLabel = (d) =>
@@ -753,15 +842,46 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       Alert.alert('Thiếu thông tin', 'Vui lòng chọn nhân viên.');
       return;
     }
-    const orderDetailId = order?.orderDetailId ?? partyDetail?.id;
-    if (orderDetailId == null) {
-      Alert.alert('Lỗi', 'Không xác định được đơn.');
-      return;
-    }
     const startTime = new Date(newDateTime.getTime());
     const endTime = new Date(newEndDateTime.getTime());
     if (endTime.getTime() <= startTime.getTime()) {
       Alert.alert('Lỗi', 'Giờ kết thúc phải sau giờ bắt đầu.');
+      return;
+    }
+
+    if (editingTask) {
+      if (!isTaskPending(editingTask)) {
+        Alert.alert('Thông báo', 'Chỉ được sửa khi công việc đang ở trạng thái chờ xử lý.');
+        return;
+      }
+      const taskId = editingTask.taskId ?? editingTask.id;
+      if (!taskId) {
+        Alert.alert('Lỗi', 'Không xác định được công việc cần sửa.');
+        return;
+      }
+      const payload = {
+        orderDetailId: Number(editingTask.orderDetailId ?? order?.orderDetailId ?? partyDetail?.id),
+        staffId: Number(selectedMember.staffId),
+        taskName: newTitle.trim(),
+        taskStatus: Number(editingTask.taskStatus ?? 1),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        note: newNote.trim() || null,
+      };
+      setUpdatingTask(true);
+      try {
+        await updateTaskMutation.mutateAsync({ taskId, payload });
+        await refreshTasksForOrder();
+        closeTaskModal();
+      } catch (_) {
+        // handled by mutation onError
+      }
+      return;
+    }
+
+    const orderDetailId = order?.orderDetailId ?? partyDetail?.id;
+    if (orderDetailId == null) {
+      Alert.alert('Lỗi', 'Không xác định được đơn.');
       return;
     }
 
@@ -777,6 +897,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     // Optimistic: thêm ngay vào list
     const optimisticTask = mapApiTaskToDisplay({
       taskId: `tmp-${Date.now()}`,
+      orderDetailId: Number(orderDetailId),
+      staffId: Number(selectedMember.staffId),
       taskName: payload.taskName,
       startTime: payload.startTime,
       endTime: payload.endTime,
@@ -787,8 +909,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
     const previousTasks = tasks;
     setTasks((prev) => [optimisticTask, ...prev]);
-    setCreateVisible(false);
-    resetForm();
+    closeTaskModal();
     setCreatingTask(true);
 
     createTaskMutation.mutate(payload, {
@@ -797,6 +918,38 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         await refreshTasksForOrder();
       },
     });
+  };
+
+  const handleDeleteTask = (task) => {
+    if (!task || !isTaskPending(task)) {
+      Alert.alert('Thông báo', 'Chỉ được xóa công việc đang ở trạng thái chờ xử lý.');
+      return;
+    }
+    const taskId = task.taskId ?? task.id;
+    if (!taskId) {
+      Alert.alert('Lỗi', 'Không xác định được công việc cần xóa.');
+      return;
+    }
+
+    Alert.alert('Xác nhận xóa', 'Bạn có chắc muốn xóa công việc này không?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: async () => {
+          setDeletingTaskId(taskId);
+          try {
+            await deleteTaskMutation.mutateAsync(taskId);
+            await refreshTasksForOrder();
+            if (editingTask && Number(editingTask.taskId ?? editingTask.id) === Number(taskId)) {
+              closeTaskModal();
+            }
+          } catch (_) {
+            // handled by mutation onError
+          }
+        },
+      },
+    ]);
   };
 
   const parseMoney = (text) => {
@@ -889,8 +1042,19 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
     const selected = compCatalogItems.find((c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId));
     const unitPrice = Number(selected?.unitPrice ?? 0);
+    const hasImages = compImages.length > 0;
+    const deltaAmount = unitPrice * qty;
+    const rollbackTotal = totalCompAmount;
+    let reopenCompModal = false;
 
     setSubmittingComp(true);
+    setCompModalVisible(false);
+
+    if (!hasImages) {
+      setTotalCompAmount((prev) => prev + deltaAmount);
+    }
+
+    let submitFailed = false;
     try {
       const token = await getAccessToken();
       const formData = new FormData();
@@ -919,20 +1083,31 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         throw new Error(errText || 'Tạo chi phí đền bù thất bại.');
       }
 
-      // Update UI total (server will compute totalAmount = unitPrice * quantity)
-      if (unitPrice > 0) {
+      // Update UI total after success only when there are images.
+      if (hasImages && unitPrice > 0) {
         setTotalCompAmount((prev) => prev + unitPrice * qty);
       }
 
-      setCompModalVisible(false);
       setSelectedCatalogId(null);
       setCompQuantity('1');
       setCompNote('');
       setCompImages([]);
     } catch (e) {
+      submitFailed = true;
+      if (!hasImages) {
+        setTotalCompAmount(rollbackTotal);
+      } else {
+        reopenCompModal = true;
+      }
       Alert.alert('Lỗi', e?.message || 'Không thể thêm chi phí đền bù.');
     } finally {
       setSubmittingComp(false);
+      if (reopenCompModal) {
+        setCompModalVisible(true);
+      }
+      if (!submitFailed && hasImages) {
+        setCompModalVisible(false);
+      }
     }
   };
 
@@ -1305,7 +1480,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           </View>
           <TouchableOpacity
             style={styles.addTaskButton}
-            onPress={() => setCreateVisible(true)}
+            onPress={openCreateTaskModal}
             activeOpacity={0.8}
           >
             <Ionicons name="add" size={20} color={BACKGROUND_WHITE} />
@@ -1370,26 +1545,54 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   const isDone = statusNum === 3;
                   const isInProgress = statusNum === 2;
                   const isOverdue = statusNum === 5;
+                  const isPendingTask = statusNum === 1;
+                  const taskId = task.taskId ?? task.id;
                   return (
-                <View
-                  style={[
-                    styles.taskStatusBadge,
-                    isDone && styles.taskStatusBadgeDone,
-                    isInProgress && styles.taskStatusBadgeInProgress,
-                    isOverdue && styles.taskStatusBadgeOverdue,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.taskStatusText,
-                      isDone && styles.taskStatusTextDone,
-                      isInProgress && styles.taskStatusTextInProgress,
-                      isOverdue && styles.taskStatusTextOverdue,
-                    ]}
-                  >
-                    {task.status}
-                  </Text>
-                </View>
+                    <View style={styles.taskActionColumn}>
+                      <View
+                        style={[
+                          styles.taskStatusBadge,
+                          isDone && styles.taskStatusBadgeDone,
+                          isInProgress && styles.taskStatusBadgeInProgress,
+                          isOverdue && styles.taskStatusBadgeOverdue,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.taskStatusText,
+                            isDone && styles.taskStatusTextDone,
+                            isInProgress && styles.taskStatusTextInProgress,
+                            isOverdue && styles.taskStatusTextOverdue,
+                          ]}
+                        >
+                          {task.status}
+                        </Text>
+                      </View>
+                      {isPendingTask ? (
+                        <View style={styles.taskActionButtonsRow}>
+                          <TouchableOpacity
+                            style={styles.taskActionButton}
+                            activeOpacity={0.8}
+                            onPress={() => openEditTaskModal(task)}
+                            disabled={!taskId || updatingTask || deletingTaskId != null}
+                          >
+                            <Ionicons name="pencil-outline" size={18} color={PRIMARY_COLOR} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.taskActionButton}
+                            activeOpacity={0.8}
+                            onPress={() => handleDeleteTask(task)}
+                            disabled={!taskId || updatingTask || deletingTaskId != null}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={18}
+                              color={deletingTaskId === taskId ? '#DC2626' : '#DC2626'}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </View>
                   );
                 })()}
               </View>
@@ -1458,8 +1661,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         transparent
         animationType="fade"
         onRequestClose={() => {
-          setCreateVisible(false);
-          resetForm();
+          closeTaskModal();
         }}
       >
         <View style={styles.modalOverlay}>
@@ -1469,7 +1671,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
               <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Tạo công việc</Text>
+                <Text style={styles.modalTitle}>{editingTask ? 'Sửa công việc' : 'Tạo công việc'}</Text>
                 <ScrollView
                   style={styles.modalScroll}
                   contentContainerStyle={styles.modalScrollContent}
@@ -1674,8 +1876,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   <TouchableOpacity
                     style={[styles.modalButton, styles.modalButtonSecondary]}
                     onPress={() => {
-                      setCreateVisible(false);
-                      resetForm();
+                      closeTaskModal();
                     }}
                     activeOpacity={0.8}
                   >
@@ -1685,13 +1886,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                     style={[
                       styles.modalButton,
                       styles.modalButtonPrimary,
-                      (creatingTask || !newTitle.trim() || !selectedMember?.staffId) && styles.modalButtonDisabled,
+                      (creatingTask || updatingTask || !newTitle.trim() || !selectedMember?.staffId) && styles.modalButtonDisabled,
                     ]}
                     onPress={handleAddTask}
-                    disabled={creatingTask || !newTitle.trim() || !selectedMember?.staffId}
+                    disabled={creatingTask || updatingTask || !newTitle.trim() || !selectedMember?.staffId}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.modalButtonPrimaryText}>{creatingTask ? 'Đang tạo...' : 'Thêm'}</Text>
+                    <Text style={styles.modalButtonPrimaryText}>
+                      {editingTask ? (updatingTask ? 'Đang lưu...' : 'Cập nhật') : (creatingTask ? 'Đang tạo...' : 'Thêm')}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2459,7 +2662,7 @@ const styles = StyleSheet.create({
   },
   taskRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -2468,6 +2671,10 @@ const styles = StyleSheet.create({
   taskInfo: {
     flex: 1,
     marginRight: 12,
+  },
+  taskActionColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
   },
   skeleton: {
     backgroundColor: '#E5E5E5',
@@ -2538,6 +2745,22 @@ const styles = StyleSheet.create({
   taskStatusTextOverdue: {
     color: '#DC2626',
     fontWeight: '700',
+  },
+  taskActionButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    columnGap: 8,
+  },
+  taskActionButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BACKGROUND_WHITE,
   },
   modalOverlay: {
     flex: 1,

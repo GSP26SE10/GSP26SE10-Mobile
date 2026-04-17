@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   KeyboardAvoidingView,
   TouchableOpacity,
   Modal,
@@ -14,6 +15,7 @@ import {
   Platform,
   Linking,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,6 +68,8 @@ const formatDateTime = (iso) => {
     minute: '2-digit',
   });
 };
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const canCancelBeforeTwoDays = (iso) => {
   if (!iso) return false;
@@ -145,7 +149,8 @@ export default function OrderDetail({ navigation, route }) {
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackImages, setFeedbackImages] = useState([]); // [{ uri, type, name }]
   const [previewFeedbackImage, setPreviewFeedbackImage] = useState('');
-  const [previewExtraChargeImage, setPreviewExtraChargeImage] = useState('');
+  const [previewExtraChargeImages, setPreviewExtraChargeImages] = useState([]);
+  const [previewExtraChargeIndex, setPreviewExtraChargeIndex] = useState(0);
   const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancellingOrder, setCancellingOrder] = useState(false);
@@ -154,6 +159,7 @@ export default function OrderDetail({ navigation, route }) {
   const [existingServiceFeedbacks, setExistingServiceFeedbacks] = useState([]);
   const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
   const feedbackSubmitLockRef = useRef(false);
+  const extraChargeCarouselRef = useRef(null);
   const toggleDishes = (idx) => {
     setExpandedDishesSet((prev) => {
       const next = new Set(prev);
@@ -382,6 +388,17 @@ export default function OrderDetail({ navigation, route }) {
     return Array.isArray(imgUrl) ? imgUrl[0] : imgUrl;
   };
 
+  const getExtraChargeImages = (extraCharge) => {
+    const images = extraCharge?.image;
+    if (Array.isArray(images)) {
+      return images.map((img) => String(img)).filter(Boolean);
+    }
+    if (typeof images === 'string' && images.trim()) {
+      return [images.trim()];
+    }
+    return [];
+  };
+
   /** Backend có thể trả camelCase / snake_case / PascalCase */
   const getFeedbackOrderDetailId = (fb) => {
     const raw = fb?.orderDetailId ?? fb?.order_detail_id ?? fb?.OrderDetailId;
@@ -526,6 +543,34 @@ export default function OrderDetail({ navigation, route }) {
     if (!target || !orderId) return;
     feedbackSubmitLockRef.current = true;
     setSubmittingFeedback(true);
+    const hasImages = feedbackImages.length > 0;
+    const shouldOptimistic = !hasImages;
+    const rollbackMenuFeedbacks = existingMenuFeedbacks;
+    const rollbackServiceFeedbacks = existingServiceFeedbacks;
+    const optimisticFeedback = {
+      feedbackId: `tmp-${Date.now()}`,
+      orderId: Number(orderId),
+      orderDetailId: target.orderDetailId ?? null,
+      rating: feedbackRating,
+      comment: feedbackComment?.trim() || '',
+      customerId: null,
+      customerName: 'Bạn',
+      createdAt: new Date().toISOString(),
+      img: [],
+    };
+
+    if (shouldOptimistic) {
+      if (target.type === 'menu') {
+        optimisticFeedback.menuId = target.id;
+        optimisticFeedback.menuName = target.name || 'Menu';
+        setExistingMenuFeedbacks((prev) => [optimisticFeedback, ...prev]);
+      } else {
+        optimisticFeedback.serviceId = target.id;
+        optimisticFeedback.serviceName = target.name || 'Dịch vụ';
+        setExistingServiceFeedbacks((prev) => [optimisticFeedback, ...prev]);
+      }
+    }
+
     try {
       let customerId = null;
       try {
@@ -582,40 +627,43 @@ export default function OrderDetail({ navigation, route }) {
         body: formData,
       });
 
-      const nextIndex = currentFeedbackIndex + 1;
-      if (nextIndex < feedbackTargets.length) {
-        setCurrentFeedbackIndex(nextIndex);
-        setFeedbackRating(5);
-        setFeedbackComment('');
-        setFeedbackImages([]);
-      } else {
-        setFeedbackImages([]);
-        setFeedbackVisible(false);
-
-        // Refresh feedback list so "Đánh giá" button disappears after submit.
-        if (orderId && isCompleted) {
-          setLoadingFeedbacks(true);
-          try {
-            const [menuRes, serviceRes] = await Promise.all([
-              fetch(`${API_URL}/api/feedback-menu?OrderId=${orderId}&page=1&pageSize=10`),
-              fetch(`${API_URL}/api/feedback-service?OrderId=${orderId}&page=1&pageSize=10`),
-            ]);
-            const menuJson = await menuRes.json().catch(() => null);
-            const serviceJson = await serviceRes.json().catch(() => null);
-            const menuItems = Array.isArray(menuJson?.items) ? menuJson.items : [];
-            const serviceItems = Array.isArray(serviceJson?.items) ? serviceJson.items : [];
-            setExistingMenuFeedbacks(menuItems);
-            setExistingServiceFeedbacks(serviceItems);
-          } catch (_) {
+      if (!shouldOptimistic && orderId && isCompleted) {
+        setLoadingFeedbacks(true);
+        try {
+          const [menuRes, serviceRes] = await Promise.all([
+            fetch(`${API_URL}/api/feedback-menu?OrderId=${orderId}&page=1&pageSize=10`),
+            fetch(`${API_URL}/api/feedback-service?OrderId=${orderId}&page=1&pageSize=10`),
+          ]);
+          const menuJson = await menuRes.json().catch(() => null);
+          const serviceJson = await serviceRes.json().catch(() => null);
+          const menuItems = Array.isArray(menuJson?.items) ? menuJson.items : [];
+          const serviceItems = Array.isArray(serviceJson?.items) ? serviceJson.items : [];
+          setExistingMenuFeedbacks(menuItems);
+          setExistingServiceFeedbacks(serviceItems);
+        } catch (_) {
+          if (shouldOptimistic) {
+            setExistingMenuFeedbacks(rollbackMenuFeedbacks);
+            setExistingServiceFeedbacks(rollbackServiceFeedbacks);
+          } else {
             setExistingMenuFeedbacks([]);
             setExistingServiceFeedbacks([]);
-          } finally {
-            setLoadingFeedbacks(false);
           }
+        } finally {
+          setLoadingFeedbacks(false);
         }
       }
+
+      setFeedbackImages([]);
+      setFeedbackComment('');
+      setFeedbackRating(5);
+      setCurrentFeedbackIndex(0);
+      setFeedbackVisible(false);
     } catch (e) {
-      // bỏ qua lỗi, có thể bổ sung toast sau
+      if (shouldOptimistic) {
+        setExistingMenuFeedbacks(rollbackMenuFeedbacks);
+        setExistingServiceFeedbacks(rollbackServiceFeedbacks);
+      }
+      Alert.alert('Lỗi', e?.message || 'Không thể gửi đánh giá.');
     } finally {
       setSubmittingFeedback(false);
       feedbackSubmitLockRef.current = false;
@@ -1122,30 +1170,39 @@ export default function OrderDetail({ navigation, route }) {
                       </View>
 
                       {extraCharges.map((c, idx) => {
-                        const imgUrl = Array.isArray(c?.image) && c.image.length > 0 ? c.image[0] : null;
+                        const imgUrls = getExtraChargeImages(c);
+                        const hasMultipleImages = imgUrls.length > 1;
                         const amount = Number(c?.unitPrice ?? 0) * Number(c?.quantity ?? 1);
                         const displayTotal = Number(c?.totalAmount ?? amount ?? 0);
                         const timeIso = c?.incurredAt ?? c?.createdAt;
                         return (
                           <View key={c?.orderDetailExtraChargeId ?? idx} style={styles.extraChargeCard}>
                             <View style={styles.extraChargeTopRow}>
-                              {imgUrl ? (
+                              {imgUrls.length > 0 ? (
                                 <TouchableOpacity
                                   activeOpacity={0.85}
-                                  onPress={() => setPreviewExtraChargeImage(String(imgUrl))}
+                                  onPress={() => {
+                                    setPreviewExtraChargeImages(imgUrls);
+                                    setPreviewExtraChargeIndex(0);
+                                  }}
                                 >
                                   <View style={styles.extraChargeImgWrap}>
                                     <ExpoImage
-                                      source={{ uri: String(imgUrl) }}
+                                      source={{ uri: imgUrls[0] }}
                                       style={styles.extraChargeImg}
                                       contentFit="cover"
                                       cachePolicy="disk"
                                     />
+                                    {hasMultipleImages ? (
+                                      <View style={styles.extraChargeImgBadge}>
+                                        <Text style={styles.extraChargeImgBadgeText}>
+                                          +{imgUrls.length - 1}
+                                        </Text>
+                                      </View>
+                                    ) : null}
                                   </View>
                                 </TouchableOpacity>
-                              ) : (
-                                <View style={[styles.extraChargeImgWrap, styles.imagePlaceholder]} />
-                              )}
+                              ) : null}
                               <View style={styles.extraChargeInfo}>
                                 <Text style={styles.extraChargeCardTitle}>{c?.title || 'Phụ phí'}</Text>
                                 {!!c?.description && (
@@ -1535,25 +1592,70 @@ export default function OrderDetail({ navigation, route }) {
 
       {/* Extra charge preview modal */}
       <Modal
-        visible={!!previewExtraChargeImage}
+        visible={previewExtraChargeImages.length > 0}
         transparent
         animationType="fade"
-        onRequestClose={() => setPreviewExtraChargeImage('')}
+        onRequestClose={() => {
+          setPreviewExtraChargeImages([]);
+          setPreviewExtraChargeIndex(0);
+        }}
       >
         <View style={styles.previewOverlay}>
           <TouchableOpacity
             style={styles.previewCloseBtn}
-            onPress={() => setPreviewExtraChargeImage('')}
+            onPress={() => {
+              setPreviewExtraChargeImages([]);
+              setPreviewExtraChargeIndex(0);
+            }}
             activeOpacity={0.8}
           >
             <Ionicons name="close" size={24} color={BACKGROUND_WHITE} />
           </TouchableOpacity>
-          <ExpoImage
-            source={{ uri: previewExtraChargeImage }}
-            style={styles.previewImage}
-            contentFit="contain"
-            cachePolicy="disk"
+          <FlatList
+            ref={extraChargeCarouselRef}
+            data={previewExtraChargeImages}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item, index) => `extra-charge-preview-${index}`}
+            onMomentumScrollEnd={(event) => {
+              const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              setPreviewExtraChargeIndex(nextIndex);
+            }}
+            renderItem={({ item }) => (
+              <View style={styles.previewImagePage}>
+                <ExpoImage
+                  source={{ uri: item }}
+                  style={styles.previewImage}
+                  contentFit="contain"
+                  cachePolicy="disk"
+                />
+              </View>
+            )}
+            getItemLayout={(data, index) => ({
+              length: SCREEN_WIDTH,
+              offset: SCREEN_WIDTH * index,
+              index,
+            })}
           />
+          <View style={styles.previewCounter}>
+            <Text style={styles.previewCounterText}>
+              {previewExtraChargeImages.length > 0
+                ? `${previewExtraChargeIndex + 1}/${previewExtraChargeImages.length}`
+                : '0/0'}
+            </Text>
+          </View>
+          <View style={styles.previewIndicators}>
+            {previewExtraChargeImages.map((_, index) => (
+              <View
+                key={`extra-charge-dot-${index}`}
+                style={[
+                  styles.previewIndicator,
+                  index === previewExtraChargeIndex && styles.previewIndicatorActive,
+                ]}
+              />
+            ))}
+          </View>
         </View>
       </Modal>
 
@@ -2047,10 +2149,28 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginRight: 10,
     backgroundColor: '#E0E0E0',
+    position: 'relative',
   },
   extraChargeImg: {
     width: '100%',
     height: '100%',
+  },
+  extraChargeImgBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  extraChargeImgBadgeText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 11,
+    fontWeight: '800',
   },
   extraChargeInfo: {
     flex: 1,
@@ -2448,6 +2568,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
   },
+  previewImagePage: {
+    width: SCREEN_WIDTH - 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   previewCloseBtn: {
     position: 'absolute',
     top: 52,
@@ -2463,6 +2588,38 @@ const styles = StyleSheet.create({
   previewImage: {
     width: '100%',
     height: '72%',
+  },
+  previewCounter: {
+    position: 'absolute',
+    bottom: 34,
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  previewCounterText: {
+    color: BACKGROUND_WHITE,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  previewIndicators: {
+    position: 'absolute',
+    bottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewIndicator: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginHorizontal: 3,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  previewIndicatorActive: {
+    width: 18,
+    backgroundColor: BACKGROUND_WHITE,
   },
 });
 

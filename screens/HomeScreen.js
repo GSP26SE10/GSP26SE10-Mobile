@@ -91,7 +91,7 @@ export default function HomeScreen({ navigation, route }) {
 
       const [categoryRes, menuRes] = await Promise.all([
         fetch(`${API_URL}/api/menu-category?page=1&pageSize=10`),
-        fetch(`${API_URL}/api/menu?page=1&pageSize=100`),
+        fetch(`${API_URL}/api/menu?Status=1&page=1&pageSize=100`),
       ]);
 
       const categoryJson = await categoryRes.json();

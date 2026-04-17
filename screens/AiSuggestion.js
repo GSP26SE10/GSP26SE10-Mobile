@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	ActivityIndicator,
 	Animated,
+	Easing,
 	KeyboardAvoidingView,
 	Modal,
 	Platform,
@@ -65,10 +66,23 @@ const startOfDay = (date) => {
 	return normalized;
 };
 
-const AI_SUGGESTION_HISTORY_KEY = 'aiSuggestionHistory';
+const AI_SUGGESTION_HISTORY_KEY_PREFIX = 'aiSuggestionHistory';
 const AI_SUGGESTION_HISTORY_LIMIT = 10;
 const HISTORY_SWIPE_DELETE_WIDTH = 92;
-let aiSuggestionHistoryCache = null;
+let aiSuggestionHistoryCacheByKey = {};
+
+async function getAiSuggestionHistoryKey() {
+	try {
+		const raw = await AsyncStorage.getItem('userData');
+		const parsed = raw ? JSON.parse(raw) : null;
+		const userId = parsed?.userId;
+		return userId != null
+			? `${AI_SUGGESTION_HISTORY_KEY_PREFIX}:${userId}`
+			: `${AI_SUGGESTION_HISTORY_KEY_PREFIX}:guest`;
+	} catch {
+		return `${AI_SUGGESTION_HISTORY_KEY_PREFIX}:guest`;
+	}
+}
 
 function SwipeableHistoryCard({ item, index, onPress, onDelete }) {
 	const translateX = useRef(new Animated.Value(0)).current;
@@ -181,6 +195,38 @@ export default function AiSuggestionScreen({ navigation }) {
 	const [isResultModalVisible, setIsResultModalVisible] = useState(false);
 	const [toastVisible, setToastVisible] = useState(false);
 	const [toastMessage, setToastMessage] = useState('');
+	const historyKeyRef = useRef(null);
+	const dropdownAnim = useRef(new Animated.Value(0)).current;
+
+	const estimatedDropdownHeight = useMemo(() => {
+		const rowHeight = 44;
+		const borderOffset = 2;
+		return Math.max(1, partyCategories.length * rowHeight + borderOffset);
+	}, [partyCategories]);
+
+	const dropdownMaxHeight = dropdownAnim.interpolate({
+		inputRange: [0, 1],
+		outputRange: [0, estimatedDropdownHeight],
+	});
+
+	const dropdownOpacity = dropdownAnim.interpolate({
+		inputRange: [0, 1],
+		outputRange: [0, 1],
+	});
+
+	const dropdownRotate = dropdownAnim.interpolate({
+		inputRange: [0, 1],
+		outputRange: ['0deg', '180deg'],
+	});
+
+	useEffect(() => {
+		Animated.timing(dropdownAnim, {
+			toValue: showCategoryOptions ? 1 : 0,
+			duration: showCategoryOptions ? 230 : 170,
+			easing: showCategoryOptions ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+			useNativeDriver: false,
+		}).start();
+	}, [showCategoryOptions, dropdownAnim]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -210,15 +256,19 @@ export default function AiSuggestionScreen({ navigation }) {
 		let cancelled = false;
 		(async () => {
 			try {
-				if (Array.isArray(aiSuggestionHistoryCache)) {
-					if (!cancelled) setSuggestionHistory(aiSuggestionHistoryCache);
+				const historyKey = await getAiSuggestionHistoryKey();
+				historyKeyRef.current = historyKey;
+
+				const cached = aiSuggestionHistoryCacheByKey?.[historyKey];
+				if (Array.isArray(cached)) {
+					if (!cancelled) setSuggestionHistory(cached);
 					return;
 				}
 
-				const raw = await AsyncStorage.getItem(AI_SUGGESTION_HISTORY_KEY);
+				const raw = await AsyncStorage.getItem(historyKey);
 				const parsed = raw ? JSON.parse(raw) : [];
 				const safeHistory = Array.isArray(parsed) ? parsed : [];
-				aiSuggestionHistoryCache = safeHistory;
+				aiSuggestionHistoryCacheByKey[historyKey] = safeHistory;
 				if (!cancelled) setSuggestionHistory(safeHistory);
 			} catch (error) {
 				if (!cancelled) setSuggestionHistory([]);
@@ -301,10 +351,13 @@ export default function AiSuggestionScreen({ navigation }) {
 	};
 
 	const saveHistory = async (nextHistory) => {
-		aiSuggestionHistoryCache = nextHistory;
+		const historyKey =
+			historyKeyRef.current || (await getAiSuggestionHistoryKey());
+		historyKeyRef.current = historyKey;
+		aiSuggestionHistoryCacheByKey[historyKey] = nextHistory;
 		setSuggestionHistory(nextHistory);
 		try {
-			await AsyncStorage.setItem(AI_SUGGESTION_HISTORY_KEY, JSON.stringify(nextHistory));
+			await AsyncStorage.setItem(historyKey, JSON.stringify(nextHistory));
 		} catch (error) {
 			console.log('[AI Suggestion] Save history error:', error?.message || error);
 		}
@@ -341,6 +394,10 @@ export default function AiSuggestionScreen({ navigation }) {
 	const handleOpenHistoryDetail = (item) => {
 		setSuggestionData(item);
 		setIsResultModalVisible(true);
+	};
+
+	const handleToggleCategoryOptions = () => {
+		setShowCategoryOptions((prev) => !prev);
 	};
 
 	const handleSubmit = async () => {
@@ -433,8 +490,8 @@ export default function AiSuggestionScreen({ navigation }) {
 					createdAt: new Date().toISOString(),
 				};
 
-				const currentHistory = Array.isArray(aiSuggestionHistoryCache)
-					? aiSuggestionHistoryCache
+				const currentHistory = Array.isArray(aiSuggestionHistoryCacheByKey?.[historyKeyRef.current])
+					? aiSuggestionHistoryCacheByKey[historyKeyRef.current]
 					: suggestionHistory;
 				const merged = [historyItem, ...(Array.isArray(currentHistory) ? currentHistory : [])];
 				const deduplicated = merged.filter(
@@ -524,7 +581,7 @@ export default function AiSuggestionScreen({ navigation }) {
 							<TouchableOpacity
 								style={styles.selectBox}
 								activeOpacity={0.75}
-								onPress={() => setShowCategoryOptions((prev) => !prev)}
+								onPress={handleToggleCategoryOptions}
 							>
 								<Text
 									style={[
@@ -534,14 +591,22 @@ export default function AiSuggestionScreen({ navigation }) {
 								>
 									{selectedCategory?.partyCategoryName || 'Chọn loại tiệc'}
 								</Text>
-								<Ionicons
-									name={showCategoryOptions ? 'chevron-up' : 'chevron-down'}
-									size={18}
-									color={TEXT_SECONDARY}
-								/>
+								<Animated.View style={{ transform: [{ rotate: dropdownRotate }] }}>
+									<Ionicons
+										name="chevron-down"
+										size={18}
+										color={TEXT_SECONDARY}
+									/>
+								</Animated.View>
 							</TouchableOpacity>
 
-							{showCategoryOptions && (
+							<Animated.View
+								style={[
+									styles.dropdownAnimatedWrap,
+									{ maxHeight: dropdownMaxHeight, opacity: dropdownOpacity },
+								]}
+								pointerEvents={showCategoryOptions ? 'auto' : 'none'}
+							>
 								<View style={styles.dropdownWrap}>
 									{partyCategories.map((item) => {
 										const isSelected = Number(item.partyCategoryId) === Number(selectedCategoryId);
@@ -562,7 +627,7 @@ export default function AiSuggestionScreen({ navigation }) {
 										);
 									})}
 								</View>
-							)}
+							</Animated.View>
 						</View>
 
 						<View style={styles.formGroup}>
@@ -846,6 +911,9 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		overflow: 'hidden',
 		backgroundColor: BACKGROUND_WHITE,
+	},
+	dropdownAnimatedWrap: {
+		overflow: 'hidden',
 	},
 	dropdownItem: {
 		paddingVertical: 10,

@@ -231,7 +231,7 @@ export default function MenuDetailScreen({ navigation, route }) {
       try {
         setIsLoadingMenuInfo(true);
         const res = await fetch(
-          `${API_URL}/api/menu?MenuId=${menuId}&MenuCategoryId=${menuCategoryId}&page=1&pageSize=1`,
+          `${API_URL}/api/menu?Status=1&MenuId=${menuId}&MenuCategoryId=${menuCategoryId}&page=1&pageSize=1`,
         );
         const json = await res.json();
         const first = json?.items?.[0];
@@ -265,8 +265,8 @@ export default function MenuDetailScreen({ navigation, route }) {
       try {
         setIsLoadingSimilar(true);
         const endpoint = menuCategoryId
-          ? `${API_URL}/api/menu?MenuCategoryId=${menuCategoryId}&page=1&pageSize=20`
-          : `${API_URL}/api/menu?page=1&pageSize=100`;
+          ? `${API_URL}/api/menu?Status=1&MenuCategoryId=${menuCategoryId}&page=1&pageSize=20`
+          : `${API_URL}/api/menu?Status=1&page=1&pageSize=100`;
 
         const res = await fetch(endpoint);
         const json = await res.json();

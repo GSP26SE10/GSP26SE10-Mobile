@@ -20,6 +20,7 @@ import {
   getNotificationEnabledSettingAsync,
   setNotificationEnabledSettingAsync,
 } from '../utils/notification';
+import { getAccessToken } from '../utils/auth';
 import { clearCartOnLogout } from '../utils/cartStorage';
 import { clearChatUnreadOnLogout } from '../utils/chatUnread';
 import { clearNotificationUnreadOnLogout } from '../utils/notificationUnread';
@@ -38,12 +39,13 @@ export default function AccountScreen({ navigation }) {
     let mounted = true;
     const loadUser = async () => {
       try {
-        const [stored, enabled] = await Promise.all([
+        const [token, stored, enabled] = await Promise.all([
+          getAccessToken(),
           AsyncStorage.getItem('userData'),
           getNotificationEnabledSettingAsync(),
         ]);
         if (!mounted) return;
-        if (stored) {
+        if (token && stored) {
           setUser(JSON.parse(stored));
         } else {
           setUser(null);

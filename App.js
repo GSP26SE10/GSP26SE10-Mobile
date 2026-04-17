@@ -77,8 +77,9 @@ export default function App() {
       refreshChatUnreadCount();
       refreshNotificationUnreadCount();
       try {
-        const raw = await AsyncStorage.getItem("userData");
-        if (raw) {
+        const token = await getAccessToken();
+        const raw = token ? await AsyncStorage.getItem("userData") : null;
+        if (token && raw) {
           const data = JSON.parse(raw);
           const role = data?.roleName;
           let initialScreen = "Home";

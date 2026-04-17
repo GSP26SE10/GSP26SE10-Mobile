@@ -117,24 +117,16 @@ export async function getOrderParties() {
 }
 
 /**
- * Xoa toan bo du lieu gio hang khi logout va thong bao cap nhat badge.
+ * Logout chi dọn cart guest/legacy, KHONG xoa cart theo userId.
+ * Muc tieu: moi account giu cart rieng khi dang xuat/dang nhap qua lai.
  */
 export async function clearCartOnLogout() {
   try {
-    const userId = await getCurrentUserId();
     const keysToRemove = [
       PARTIES_KEY_PREFIX,
       ACTIVE_PARTY_KEY_PREFIX,
       LEGACY_CART_KEY,
     ];
-
-    if (userId) {
-      keysToRemove.push(
-        `${PARTIES_KEY_PREFIX}:${userId}`,
-        `${ACTIVE_PARTY_KEY_PREFIX}:${userId}`,
-        `${LEGACY_CART_KEY}:${userId}`
-      );
-    }
 
     await AsyncStorage.multiRemove(keysToRemove);
   } catch (e) {
