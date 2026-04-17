@@ -44,7 +44,7 @@ import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview'
 const LEADER_GROUP_MEMBERS_KEY = 'leaderGroupMembers';
 const LEADER_OVERVIEW_CACHE_KEY = 'leaderOverviewCache:v2';
 const LEADER_OVERVIEW_API = '/api/staff-group/leader/orders-overview';
-const TASK_TEMPLATE_API = '/api/task-template?page=1&pageSize=10';
+const TASK_TEMPLATE_API = '/api/task-template?IsActive=true&page=1&pageSize=10';
 
 const formatTimeRangeFromOrder = (order) => {
   if (!order?.startTime) return '—';

@@ -232,7 +232,7 @@ export default function AiSuggestionScreen({ navigation }) {
 		let cancelled = false;
 		(async () => {
 			try {
-				const res = await fetch(`${API_URL}/api/party-category?page=1&pageSize=10`);
+				const res = await fetch(`${API_URL}/api/party-category?Status=1&page=1&pageSize=10`);
 				const json = await res.json().catch(() => null);
 				const categories = Array.isArray(json?.items) ? json.items : [];
 				if (cancelled) return;

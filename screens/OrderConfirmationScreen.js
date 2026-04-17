@@ -321,7 +321,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
       try {
         setLoadingPartyCategories(true);
         const token = await getAccessToken();
-        const res = await fetch(`${API_URL}/api/party-category?page=1&pageSize=10`, {
+        const res = await fetch(`${API_URL}/api/party-category?Status=1&page=1&pageSize=10`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const json = await res.json().catch(() => null);
