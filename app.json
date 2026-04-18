@@ -29,7 +29,8 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.taivippro123.bookfet"
+      "package": "com.taivippro123.bookfet",
+      "googleServicesFile": "./google-services.json"
     },
     "updates": {
       "url": "https://u.expo.dev/297dbc86-bf1c-4c0d-81eb-0dcb9cfe6bf3",
@@ -40,6 +41,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-notifications",
       "expo-web-browser",
       "@react-native-community/datetimepicker"
     ],

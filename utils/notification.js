@@ -130,6 +130,7 @@ export const logAccessTokenNow = async () => {
 
 const DEVICE_ID_KEY = 'deviceId';
 const EXPO_PUSH_TOKEN_KEY = 'expoPushToken';
+const FCM_PUSH_TOKEN_KEY = 'fcmPushToken';
 const NOTIFICATION_ENABLED_KEY = 'notificationEnabled';
 
 export const getNotificationEnabledSettingAsync = async () => {
@@ -156,8 +157,14 @@ const getOrCreateDeviceId = async () => {
   return newId;
 };
 
-const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
+const registerDeviceOnBackend = async (tokens = {}, options = {}) => {
   try {
+    const expoPushToken =
+      typeof tokens?.expoPushToken === 'string' ? String(tokens.expoPushToken).trim() : '';
+    const fcmToken = typeof tokens?.fcmToken === 'string' ? String(tokens.fcmToken).trim() : '';
+    const normalizedToken = expoPushToken || fcmToken;
+    const hasPushToken = Boolean(normalizedToken);
+
     const providedToken = typeof options?.accessToken === 'string' ? options.accessToken : null;
     const providedUser = options?.userData && typeof options.userData === 'object' ? options.userData : null;
 
@@ -168,19 +175,19 @@ const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
     const accessToken = String(providedToken || storedToken || '').trim();
     const user = providedUser || storedUser;
     const userId = user?.userId ?? null;
-    if (!accessToken || !userId || !expoPushToken) {
+    if (!accessToken || !userId || !hasPushToken) {
       console.log('[devices/register] skip — thiếu dữ liệu', {
         hasAccessToken: !!accessToken,
         userId: userId ?? null,
-        hasExpoPushToken: !!expoPushToken,
+        hasPushToken: !!normalizedToken,
       });
-      return;
+      return false;
     }
 
     const deviceId = await getOrCreateDeviceId();
     const payload = {
       userId: Number(userId),
-      expoPushToken: String(expoPushToken),
+      expoPushToken: String(normalizedToken),
       deviceId: String(deviceId),
       platform: Platform.OS,
       isActive: true,
@@ -188,7 +195,10 @@ const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
     const url = `${API_URL}/api/devices/register`;
     console.log('[devices/register] đang gửi', {
       url,
-      body: { ...payload, expoPushToken: `${String(expoPushToken).slice(0, 24)}…` },
+      body: {
+        ...payload,
+        expoPushToken: `${String(normalizedToken).slice(0, 24)}…`,
+      },
     });
 
     const res = await fetch(url, {
@@ -213,8 +223,10 @@ const registerDeviceOnBackend = async (expoPushToken, options = {}) => {
       ok: res.ok,
       body: json,
     });
+    return res.ok;
   } catch (e) {
     console.log('[notification] registerDeviceOnBackend error', e);
+    return false;
   }
 };
 
@@ -274,6 +286,24 @@ export const registerForPushNotificationsAsync = async (options = {}) => {
       return;
     }
 
+    if (Platform.OS === 'android') {
+      const tokenRes = await Notifications.getDevicePushTokenAsync();
+      const token =
+        typeof tokenRes?.data === 'string'
+          ? tokenRes.data
+          : tokenRes?.data != null
+            ? String(tokenRes.data)
+            : null;
+
+      console.log('[notification] android fcmToken', token || null);
+      if (token) {
+        await AsyncStorage.setItem(FCM_PUSH_TOKEN_KEY, token);
+        await registerDeviceOnBackend({ fcmToken: token }, options);
+      }
+      await logAccessTokenNow();
+      return;
+    }
+
     const projectIdRaw =
       Constants?.expoConfig?.extra?.eas?.projectId ||
       Constants?.easConfig?.projectId ||
@@ -295,7 +325,7 @@ export const registerForPushNotificationsAsync = async (options = {}) => {
     console.log('[notification] expoPushToken', token || null);
     if (token) {
       await AsyncStorage.setItem(EXPO_PUSH_TOKEN_KEY, token);
-      await registerDeviceOnBackend(token, options);
+      await registerDeviceOnBackend({ expoPushToken: token }, options);
     }
     await logAccessTokenNow();
   } catch (e) {
@@ -323,6 +353,19 @@ export const activateCurrentDeviceAsync = async (options = {}) => {
       return false;
     }
 
+    if (Platform.OS === 'android') {
+      let fcmToken = await AsyncStorage.getItem(FCM_PUSH_TOKEN_KEY);
+      if (!fcmToken) {
+        await registerForPushNotificationsAsync({ accessToken, userData: user });
+        fcmToken = await AsyncStorage.getItem(FCM_PUSH_TOKEN_KEY);
+      }
+      if (!fcmToken) {
+        console.log('[devices/activate] skip — thiếu fcmToken');
+        return false;
+      }
+      return await registerDeviceOnBackend({ fcmToken }, { accessToken, userData: user });
+    }
+
     let expoPushToken = await AsyncStorage.getItem(EXPO_PUSH_TOKEN_KEY);
     if (!expoPushToken) {
       await registerForPushNotificationsAsync({ accessToken, userData: user });
@@ -332,46 +375,7 @@ export const activateCurrentDeviceAsync = async (options = {}) => {
       console.log('[devices/activate] skip — thiếu expoPushToken');
       return false;
     }
-
-    const deviceId = await getOrCreateDeviceId();
-    const payload = {
-      userId: Number(userId),
-      expoPushToken: String(expoPushToken),
-      deviceId: String(deviceId),
-      platform: Platform.OS,
-      isActive: true,
-    };
-    const url = `${API_URL}/api/devices/register`;
-    console.log('[devices/activate] đang gửi', {
-      url,
-      body: { ...payload, expoPushToken: `${String(expoPushToken).slice(0, 24)}…` },
-    });
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        accept: '*/*',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const text = await res.text();
-    let json = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch (_) {
-      json = { raw: text };
-    }
-    console.log('[devices/activate] phản hồi', {
-      status: res.status,
-      ok: res.ok,
-      body: json,
-    });
-
-    if (!res.ok) return false;
-    return true;
+    return await registerDeviceOnBackend({ expoPushToken }, { accessToken, userData: user });
   } catch (e) {
     console.log('[notification] activateCurrentDeviceAsync error', e);
     return false;
