@@ -69,7 +69,7 @@ const formatDateTime = (iso) => {
   });
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const canCancelBeforeTwoDays = (iso) => {
   if (!iso) return false;
@@ -1450,18 +1450,30 @@ export default function OrderDetail({ navigation, route }) {
         }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.feedbackOverlay}>
+          <View
+            style={[
+              styles.feedbackOverlay,
+              feedbackKeyboardHeight > 0 && styles.feedbackOverlayKeyboardOpen,
+            ]}
+          >
             <KeyboardAvoidingView
-              style={styles.feedbackKeyboardHost}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={[
+                styles.feedbackKeyboardHost,
+                feedbackKeyboardHeight > 0 && styles.feedbackKeyboardHostKeyboardOpen,
+              ]}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
               keyboardVerticalOffset={0}
             >
               <TouchableWithoutFeedback onPress={() => { }}>
                 <View
                   style={[
                     styles.feedbackCard,
-                    Platform.OS === 'android' && feedbackKeyboardHeight > 0 && {
-                      marginBottom: Math.max(feedbackKeyboardHeight - 36, 12),
+                    feedbackKeyboardHeight > 0 && styles.feedbackCardKeyboardOpen,
+                    {
+                      maxHeight: Math.max(
+                        320,
+                        SCREEN_HEIGHT - (feedbackKeyboardHeight > 0 ? feedbackKeyboardHeight + 28 : 80),
+                      ),
                     },
                   ]}
                 >
@@ -1469,7 +1481,7 @@ export default function OrderDetail({ navigation, route }) {
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="on-drag"
                     showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ paddingBottom: 10 }}
+                    contentContainerStyle={styles.feedbackScrollContent}
                   >
                     <TouchableOpacity
                       style={[
@@ -1714,18 +1726,30 @@ export default function OrderDetail({ navigation, route }) {
         }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.cancelOverlay}>
+          <View
+            style={[
+              styles.cancelOverlay,
+              cancelKeyboardHeight > 0 && styles.cancelOverlayKeyboardOpen,
+            ]}
+          >
             <KeyboardAvoidingView
-              style={styles.cancelKeyboardHost}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={[
+                styles.cancelKeyboardHost,
+                cancelKeyboardHeight > 0 && styles.cancelKeyboardHostKeyboardOpen,
+              ]}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
               keyboardVerticalOffset={0}
             >
               <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
                 <View
                   style={[
                     styles.cancelCard,
-                    Platform.OS === 'android' && cancelKeyboardHeight > 0 && {
-                      marginBottom: Math.max(cancelKeyboardHeight - 36, 12),
+                    cancelKeyboardHeight > 0 && styles.cancelCardKeyboardOpen,
+                    {
+                      maxHeight: Math.max(
+                        280,
+                        SCREEN_HEIGHT - (cancelKeyboardHeight > 0 ? cancelKeyboardHeight + 28 : 80),
+                      ),
                     },
                   ]}
                 >
@@ -2301,10 +2325,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
+  cancelOverlayKeyboardOpen: {
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
   cancelKeyboardHost: {
+    flex: 1,
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  cancelKeyboardHostKeyboardOpen: {
+    justifyContent: 'flex-start',
   },
   cancelCard: {
     backgroundColor: BACKGROUND_WHITE,
@@ -2312,6 +2345,9 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '100%',
     maxWidth: 460,
+  },
+  cancelCardKeyboardOpen: {
+    alignSelf: 'center',
   },
   cancelTitle: {
     fontSize: 16,
@@ -2425,11 +2461,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
+  feedbackOverlayKeyboardOpen: {
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
   feedbackKeyboardHost: {
     flex: 1,
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  feedbackKeyboardHostKeyboardOpen: {
+    justifyContent: 'flex-start',
   },
   feedbackCard: {
     width: '100%',
@@ -2440,6 +2484,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 20,
     paddingBottom: 16,
+  },
+  feedbackCardKeyboardOpen: {
+    alignSelf: 'center',
+  },
+  feedbackScrollContent: {
+    paddingBottom: 10,
   },
   feedbackCloseButton: {
     position: 'absolute',
