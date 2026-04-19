@@ -3,7 +3,9 @@ import {
 	ActivityIndicator,
 	FlatList,
 	Image,
+	KeyboardAvoidingView,
 	Modal,
+	Platform,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -434,7 +436,17 @@ export default function ProfileScreen({ navigation }) {
 				</TouchableOpacity>
 			</View>
 
-			<ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+			<KeyboardAvoidingView
+				style={styles.keyboardWrap}
+				behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+			>
+				<ScrollView
+					style={styles.scrollView}
+					contentContainerStyle={styles.content}
+					showsVerticalScrollIndicator={false}
+					keyboardShouldPersistTaps="handled"
+					keyboardDismissMode="on-drag"
+				>
 				<View style={styles.avatarContainer}>
 					<View style={styles.avatarCircle}>
 						{avatarUri ? (
@@ -543,7 +555,8 @@ export default function ProfileScreen({ navigation }) {
 						)}
 					</TouchableOpacity>
 				) : null}
-			</ScrollView>
+				</ScrollView>
+			</KeyboardAvoidingView>
 
 			<Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
 				<TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setPickerVisible(false)}>
@@ -606,6 +619,9 @@ const styles = StyleSheet.create({
 		justifyContent: 'center',
 	},
 	scrollView: {
+		flex: 1,
+	},
+	keyboardWrap: {
 		flex: 1,
 	},
 	content: {

@@ -410,7 +410,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
       <KeyboardAvoidingView
         style={styles.kav}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
@@ -418,6 +418,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Party dots indicator */}
           {orderParties.length > 1 && (
@@ -750,7 +751,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={styles.modalKav}
             >
               <TouchableWithoutFeedback onPress={() => {}} accessible={false}>

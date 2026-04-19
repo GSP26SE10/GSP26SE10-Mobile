@@ -143,6 +143,7 @@ export default function OrderDetail({ navigation, route }) {
   const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
   const [expandedDishesSet, setExpandedDishesSet] = useState(() => new Set());
   const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackKeyboardHeight, setFeedbackKeyboardHeight] = useState(0);
   const [feedbackTargets, setFeedbackTargets] = useState([]);
   const [currentFeedbackIndex, setCurrentFeedbackIndex] = useState(0);
   const [feedbackRating, setFeedbackRating] = useState(5);
@@ -152,6 +153,7 @@ export default function OrderDetail({ navigation, route }) {
   const [previewExtraChargeImages, setPreviewExtraChargeImages] = useState([]);
   const [previewExtraChargeIndex, setPreviewExtraChargeIndex] = useState(0);
   const [cancelConfirmVisible, setCancelConfirmVisible] = useState(false);
+  const [cancelKeyboardHeight, setCancelKeyboardHeight] = useState(0);
   const [cancelReason, setCancelReason] = useState('');
   const [cancellingOrder, setCancellingOrder] = useState(false);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
@@ -299,6 +301,36 @@ export default function OrderDetail({ navigation, route }) {
   const hasExistingFeedback =
     (existingMenuFeedbacks?.length ?? 0) > 0 || (existingServiceFeedbacks?.length ?? 0) > 0;
   const canSubmitFeedback = feedbackComment.trim().length > 0 && !submittingFeedback;
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !feedbackVisible) return undefined;
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setFeedbackKeyboardHeight(e?.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setFeedbackKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      setFeedbackKeyboardHeight(0);
+    };
+  }, [feedbackVisible]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !cancelConfirmVisible) return undefined;
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setCancelKeyboardHeight(e?.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setCancelKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      setCancelKeyboardHeight(0);
+    };
+  }, [cancelConfirmVisible]);
 
   const paidAmount = (payments ?? []).reduce((sum, p) => {
     return Number(p?.paymentStatus) === 2 ? sum + Number(p?.amount ?? 0) : sum;
@@ -1420,14 +1452,22 @@ export default function OrderDetail({ navigation, route }) {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.feedbackOverlay}>
             <KeyboardAvoidingView
-              style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}
+              style={styles.feedbackKeyboardHost}
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={0}
             >
               <TouchableWithoutFeedback onPress={() => { }}>
-                <View style={styles.feedbackCard}>
+                <View
+                  style={[
+                    styles.feedbackCard,
+                    Platform.OS === 'android' && feedbackKeyboardHeight > 0 && {
+                      marginBottom: Math.max(feedbackKeyboardHeight - 36, 12),
+                    },
+                  ]}
+                >
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={{ paddingBottom: 10 }}
                   >
@@ -1527,6 +1567,9 @@ export default function OrderDetail({ navigation, route }) {
                         value={feedbackComment}
                         onChangeText={setFeedbackComment}
                         editable={!submittingFeedback}
+                        returnKeyType="done"
+                        blurOnSubmit
+                        onSubmitEditing={Keyboard.dismiss}
                       />
                     </View>
 
@@ -1672,56 +1715,72 @@ export default function OrderDetail({ navigation, route }) {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <View style={styles.cancelOverlay}>
-            <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
-              <View style={styles.cancelCard}>
-                <Text style={styles.cancelTitle}>Xác nhận hủy đơn</Text>
-                <Text style={styles.cancelBody}>
-                  Bạn có chắc muốn hủy đơn, đọc thêm về chính sách hủy đơn/hoàn tiền của chúng tôi{' '}
-                  <Text style={styles.cancelPolicyLink} onPress={openCancelPolicy}>tại đây</Text>
-                </Text>
+            <KeyboardAvoidingView
+              style={styles.cancelKeyboardHost}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={0}
+            >
+              <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
+                <View
+                  style={[
+                    styles.cancelCard,
+                    Platform.OS === 'android' && cancelKeyboardHeight > 0 && {
+                      marginBottom: Math.max(cancelKeyboardHeight - 36, 12),
+                    },
+                  ]}
+                >
+                  <Text style={styles.cancelTitle}>Xác nhận hủy đơn</Text>
+                  <Text style={styles.cancelBody}>
+                    Bạn có chắc muốn hủy đơn, đọc thêm về chính sách hủy đơn/hoàn tiền của chúng tôi{' '}
+                    <Text style={styles.cancelPolicyLink} onPress={openCancelPolicy}>tại đây</Text>
+                  </Text>
 
-                <TextInput
-                  style={styles.cancelReasonInput}
-                  placeholder="Nhập lý do hủy đơn"
-                  placeholderTextColor="#9CA3AF"
-                  value={cancelReason}
-                  onChangeText={setCancelReason}
-                  multiline
-                  maxLength={500}
-                  editable={!cancellingOrder}
-                  textAlignVertical="top"
-                />
+                  <TextInput
+                    style={styles.cancelReasonInput}
+                    placeholder="Nhập lý do hủy đơn"
+                    placeholderTextColor="#9CA3AF"
+                    value={cancelReason}
+                    onChangeText={setCancelReason}
+                    multiline
+                    maxLength={500}
+                    editable={!cancellingOrder}
+                    textAlignVertical="top"
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
 
-                <View style={styles.cancelActions}>
-                  <TouchableOpacity
-                    style={[styles.cancelActionBtn, styles.cancelActionBtnSecondary]}
-                    activeOpacity={0.85}
-                    disabled={cancellingOrder}
-                    onPress={() => {
-                      setCancelConfirmVisible(false);
-                      setCancelReason('');
-                    }}
-                  >
-                    <Text style={styles.cancelActionSecondaryText}>Đóng</Text>
-                  </TouchableOpacity>
+                  <View style={styles.cancelActions}>
+                    <TouchableOpacity
+                      style={[styles.cancelActionBtn, styles.cancelActionBtnSecondary]}
+                      activeOpacity={0.85}
+                      disabled={cancellingOrder}
+                      onPress={() => {
+                        setCancelConfirmVisible(false);
+                        setCancelReason('');
+                      }}
+                    >
+                      <Text style={styles.cancelActionSecondaryText}>Đóng</Text>
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.cancelActionBtn,
-                      styles.cancelActionBtnDanger,
-                      !canSubmitCancel && styles.cancelButtonDisabled,
-                    ]}
-                    activeOpacity={0.85}
-                    disabled={!canSubmitCancel}
-                    onPress={handleCancelOrder}
-                  >
-                    <Text style={styles.cancelActionDangerText}>
-                      {cancellingOrder ? 'Đang hủy...' : 'Hủy tiệc'}
-                    </Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.cancelActionBtn,
+                        styles.cancelActionBtnDanger,
+                        !canSubmitCancel && styles.cancelButtonDisabled,
+                      ]}
+                      activeOpacity={0.85}
+                      disabled={!canSubmitCancel}
+                      onPress={handleCancelOrder}
+                    >
+                      <Text style={styles.cancelActionDangerText}>
+                        {cancellingOrder ? 'Đang hủy...' : 'Hủy tiệc'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -2242,10 +2301,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
+  cancelKeyboardHost: {
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   cancelCard: {
     backgroundColor: BACKGROUND_WHITE,
     borderRadius: 16,
     padding: 16,
+    width: '100%',
+    maxWidth: 460,
   },
   cancelTitle: {
     fontSize: 16,
@@ -2359,8 +2425,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
+  feedbackKeyboardHost: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   feedbackCard: {
     width: '100%',
+    maxWidth: 460,
+    maxHeight: '88%',
     borderRadius: 18,
     backgroundColor: BACKGROUND_WHITE,
     paddingHorizontal: 18,

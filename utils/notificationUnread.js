@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAccessToken } from './auth';
 import { fetchUnreadNotificationsCount } from './notificationsApi';
+import { syncAppIconBadgeCount } from './appIconBadge';
 
 const NOTIFICATION_UNREAD_KEY_PREFIX = 'notificationUnreadCount';
 const LEGACY_NOTIFICATION_UNREAD_KEY = 'notificationUnreadCount';
@@ -79,6 +80,7 @@ export async function setNotificationUnreadCount(nextCount) {
   }
 
   notifyUnreadChange(normalized);
+  await syncAppIconBadgeCount();
   return normalized;
 }
 
@@ -116,4 +118,5 @@ export async function clearNotificationUnreadOnLogout() {
   }
 
   notifyUnreadChange(0);
+  await syncAppIconBadgeCount();
 }

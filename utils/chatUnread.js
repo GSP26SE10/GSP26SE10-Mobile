@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
+import { syncAppIconBadgeCount } from './appIconBadge';
 
 const CHAT_UNREAD_KEY_PREFIX = 'chatUnreadCount';
 const LEGACY_CHAT_UNREAD_KEY = 'chatUnreadCount';
@@ -26,14 +26,6 @@ async function getCurrentUserId() {
 async function getUnreadKey() {
   const userId = await getCurrentUserId();
   return userId ? `${CHAT_UNREAD_KEY_PREFIX}:${userId}` : LEGACY_CHAT_UNREAD_KEY;
-}
-
-async function setAppIconBadgeCount(count) {
-  try {
-    await Notifications.setBadgeCountAsync(normalizeCount(count));
-  } catch {
-    // Android launcher may ignore badge; keep silent.
-  }
 }
 
 function notifyUnreadChange(count) {
@@ -70,7 +62,7 @@ export function subscribeChatUnreadChange(listener) {
 
 export async function refreshChatUnreadCount() {
   const count = await readStoredUnreadCount();
-  await setAppIconBadgeCount(count);
+  await syncAppIconBadgeCount();
   notifyUnreadChange(count);
   return count;
 }
@@ -92,7 +84,7 @@ export async function setChatUnreadCount(nextCount) {
     // ignore storage failures
   }
 
-  await setAppIconBadgeCount(normalized);
+  await syncAppIconBadgeCount();
   notifyUnreadChange(normalized);
   return normalized;
 }
@@ -119,6 +111,6 @@ export async function clearChatUnreadOnLogout() {
     // ignore
   }
 
-  await setAppIconBadgeCount(0);
+  await syncAppIconBadgeCount();
   notifyUnreadChange(0);
 }

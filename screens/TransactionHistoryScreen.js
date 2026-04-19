@@ -519,6 +519,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   emptyText: {
+    paddingTop: 50,
     fontSize: 14,
     color: TEXT_SECONDARY,
     fontWeight: '600',

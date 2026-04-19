@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { syncAppIconBadgeCount } from './appIconBadge';
 
 const LEGACY_CART_KEY = 'cart';
 const PARTIES_KEY_PREFIX = 'orderParties';
@@ -21,6 +22,7 @@ function notifyOrderPartiesChange() {
       // ignore
     }
   });
+  void syncAppIconBadgeCount();
 }
 
 async function getCurrentUserId() {

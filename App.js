@@ -13,6 +13,7 @@ import {
 } from "./utils/notification";
 import { refreshChatUnreadCount } from "./utils/chatUnread";
 import { refreshNotificationUnreadCount } from "./utils/notificationUnread";
+import { syncAppIconBadgeCount } from "./utils/appIconBadge";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import EmailVerificationScreen from "./screens/EmailVerificationScreen";
@@ -76,6 +77,7 @@ export default function App() {
       }
       refreshChatUnreadCount();
       refreshNotificationUnreadCount();
+      syncAppIconBadgeCount();
       try {
         const token = await getAccessToken();
         const raw = token ? await AsyncStorage.getItem("userData") : null;

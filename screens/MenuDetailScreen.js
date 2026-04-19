@@ -89,6 +89,9 @@ export default function MenuDetailScreen({ navigation, route }) {
   const [isLoadingSimilar, setIsLoadingSimilar] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const hasBottomActionBar = !fromStaff && !readOnly;
+  const bottomBarInsetPadding = Math.max(insets.bottom, Platform.OS === 'android' ? 6 : 10);
+  const contentBottomPadding = hasBottomActionBar ? 112 + bottomBarInsetPadding : 28;
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -334,7 +337,7 @@ export default function MenuDetailScreen({ navigation, route }) {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: contentBottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Image Carousel */}
@@ -542,7 +545,7 @@ export default function MenuDetailScreen({ navigation, route }) {
 
       {/* Bottom Action Bar (ẩn với staff) */}
       {!fromStaff && !readOnly && (
-        <View style={[styles.bottomBar, Platform.OS === 'android' && { paddingBottom: 34 + insets.bottom }]}>
+        <View style={[styles.bottomBar, { paddingBottom: bottomBarInsetPadding }]}>
           {isLoadingMenuInfo ? (
             <SkeletonBox style={{ width: 120, height: 24, borderRadius: 6 }} />
           ) : (
@@ -662,7 +665,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingBottom: 100,
+    paddingBottom: 28,
   },
   imageCarouselContainer: {
     width: width,
@@ -829,8 +832,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    paddingBottom: 34,
+    paddingTop: 14,
     backgroundColor: BACKGROUND_WHITE,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

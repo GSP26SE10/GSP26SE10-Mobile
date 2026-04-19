@@ -9,6 +9,8 @@ import {
   Dimensions,
   Alert,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +30,7 @@ import Toast from '../components/Toast';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR, TEXT_SECONDARY, BORDER_LIGHT } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
+const MAX_GUEST_COUNT = 1000;
 
 // Status: 1 = Sắp tới, 5 = Đang diễn ra, 6 = Thanh toán, 7 = Hoàn thành, 8 = Bị từ chối, 9 = Khách hủy
 const ORDER_STATUS = {
@@ -347,6 +350,18 @@ export default function OrdersScreen({ navigation, route }) {
     const party = (orderParties || [])[partyIndex];
     const key = party?.partyId || String(partyIndex);
     const digitsOnly = String(text ?? '').replace(/[^0-9]/g, '');
+
+    if (digitsOnly.length > 4) {
+      showToast('Số khách tối đa là 1000');
+      return;
+    }
+
+    const parsed = Number(digitsOnly);
+    if (digitsOnly && Number.isFinite(parsed) && parsed > MAX_GUEST_COUNT) {
+      showToast('Số khách tối đa là 1000');
+      return;
+    }
+
     setGuestCountDraftByParty((prev) => ({
       ...prev,
       [key]: digitsOnly,
@@ -362,7 +377,8 @@ export default function OrdersScreen({ navigation, route }) {
     const key = party?.partyId || String(partyIndex);
     const raw = String(guestCountDraftByParty[key] ?? '').trim();
     const parsed = Number(raw);
-    const target = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    const normalized = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    const target = Math.min(normalized, MAX_GUEST_COUNT);
     const currentMax = Math.max(...menuItems.map((m) => Number(m.count ?? 0)), 1);
     const realDelta = target - currentMax;
 
@@ -433,6 +449,8 @@ export default function OrdersScreen({ navigation, route }) {
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {partiesWithItems.map((party, partyIndex) => (
             <View key={party.partyId || String(partyIndex)} style={styles.partySection}>
@@ -700,6 +718,8 @@ export default function OrdersScreen({ navigation, route }) {
           keyExtractor={(order) => String(order.orderId)}
           contentContainerStyle={styles.scrollContent}
           renderItem={({ item: order }) => renderOrderCard(order, tabKey)}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           onEndReached={() => {
             if (!loading && page < totalPages) {
               fetchOrdersForTab(tabKey, page + 1, true);
@@ -783,30 +803,36 @@ export default function OrdersScreen({ navigation, route }) {
       </View>
 
       {/* Swipeable Content */}
-      <FlatList
-        ref={flatListRef}
-        data={TABS}
-        renderItem={renderTabContent}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={handleContentScroll}
-        scrollEventThrottle={16}
-        getItemLayout={(data, index) => ({
-          length: width,
-          offset: width * index,
-          index,
-        })}
-        onScrollToIndexFailed={(info) => {
-          setTimeout(() => {
-            flatListRef.current?.scrollToIndex({
-              index: info.index,
-              animated: false,
-            });
-          }, 100);
-        }}
-      />
+      <KeyboardAvoidingView
+        style={styles.keyboardWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={TABS}
+          renderItem={renderTabContent}
+          keyExtractor={(item) => item.id}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScroll={handleContentScroll}
+          scrollEventThrottle={16}
+          getItemLayout={(data, index) => ({
+            length: width,
+            offset: width * index,
+            index,
+          })}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: info.index,
+                animated: false,
+              });
+            }, 100);
+          }}
+        />
+      </KeyboardAvoidingView>
 
       <BottomNavigation activeTab="Orders" onTabPress={(tab) => navigation.navigate(tab)} />
     </SafeAreaView>
@@ -854,6 +880,9 @@ const styles = StyleSheet.create({
   },
   tabContent: {
     width: width,
+    flex: 1,
+  },
+  keyboardWrap: {
     flex: 1,
   },
   scrollView: {
@@ -975,16 +1004,18 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   guestInput: {
-    minWidth: 56,
-    height: 34,
+    minWidth: 74,
+    height: 40,
     borderWidth: 1,
     borderColor: PRIMARY_COLOR,
     borderRadius: 10,
     textAlign: 'center',
     fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
     color: PRIMARY_COLOR,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 0,
     backgroundColor: BACKGROUND_WHITE,
   },
   dishNoteText: {

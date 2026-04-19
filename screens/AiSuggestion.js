@@ -15,7 +15,7 @@ import {
 	View,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,6 +37,18 @@ const splitDishText = (value) =>
 		.split(/[\n,]/)
 		.map((item) => item.trim())
 		.filter(Boolean);
+
+const toDigitsOnly = (value) => String(value || '').replace(/[^0-9]/g, '');
+
+const formatGroupedVndInput = (value) => {
+	const digits = toDigitsOnly(value);
+	if (!digits) return '';
+	try {
+		return Number(digits).toLocaleString('vi-VN');
+	} catch {
+		return digits;
+	}
+};
 
 const formatVnd = (value) => {
 	if (value == null) return '';
@@ -69,6 +81,7 @@ const startOfDay = (date) => {
 const AI_SUGGESTION_HISTORY_KEY_PREFIX = 'aiSuggestionHistory';
 const AI_SUGGESTION_HISTORY_LIMIT = 10;
 const HISTORY_SWIPE_DELETE_WIDTH = 92;
+const MIN_BUDGET_PER_GUEST = 100000;
 let aiSuggestionHistoryCacheByKey = {};
 
 async function getAiSuggestionHistoryKey() {
@@ -179,6 +192,7 @@ function SwipeableHistoryCard({ item, index, onPress, onDelete }) {
 }
 
 export default function AiSuggestionScreen({ navigation }) {
+	const insets = useSafeAreaInsets();
 	const [numberOfGuests, setNumberOfGuests] = useState('');
 	const [budget, setBudget] = useState('');
 	const [eventDate, setEventDate] = useState(new Date());
@@ -293,14 +307,25 @@ export default function AiSuggestionScreen({ navigation }) {
 		() => startOfDay(eventDate).getTime() < normalizedToday.getTime(),
 		[eventDate, normalizedToday]
 	);
+	const budgetDigits = useMemo(() => toDigitsOnly(budget), [budget]);
+	const budgetValueNumber = useMemo(() => Number(budgetDigits), [budgetDigits]);
+	const guestsValueNumber = useMemo(
+		() => Number(String(numberOfGuests).trim()),
+		[numberOfGuests]
+	);
+	const isBudgetPerGuestTooLow = useMemo(() => {
+		if (!Number.isFinite(guestsValueNumber) || guestsValueNumber <= 0) return false;
+		if (!Number.isFinite(budgetValueNumber) || budgetValueNumber <= 0) return false;
+		return budgetValueNumber / guestsValueNumber < MIN_BUDGET_PER_GUEST;
+	}, [budgetValueNumber, guestsValueNumber]);
 
 	const isFormValid = useMemo(() => {
-		const guests = Number(String(numberOfGuests).trim());
-		const budgetValue = Number(String(budget).trim());
+		const guests = guestsValueNumber;
+		const budgetValue = budgetValueNumber;
 
 		return (
 			String(numberOfGuests || '').trim().length > 0 &&
-			String(budget || '').trim().length > 0 &&
+			String(budgetDigits || '').trim().length > 0 &&
 			String(favoriteDishes || '').trim().length > 0 &&
 			String(allergyDishes || '').trim().length > 0 &&
 			Number.isFinite(guests) &&
@@ -310,7 +335,16 @@ export default function AiSuggestionScreen({ navigation }) {
 			!!selectedCategoryId &&
 			!isPastEventDate
 		);
-	}, [numberOfGuests, budget, favoriteDishes, allergyDishes, selectedCategoryId, isPastEventDate]);
+	}, [
+		numberOfGuests,
+		budgetDigits,
+		guestsValueNumber,
+		budgetValueNumber,
+		favoriteDishes,
+		allergyDishes,
+		selectedCategoryId,
+		isPastEventDate,
+	]);
 
 	const resetToForm = () => {
 		setScreenState('form');
@@ -403,12 +437,12 @@ export default function AiSuggestionScreen({ navigation }) {
 	const handleSubmit = async () => {
 		if (isSubmitting) return;
 
-		const guests = Number(String(numberOfGuests).trim());
-		const budgetValue = Number(String(budget).trim());
+		const guests = guestsValueNumber;
+		const budgetValue = budgetValueNumber;
 		const favoriteText = String(favoriteDishes || '').trim();
 		const allergyText = String(allergyDishes || '').trim();
 
-		if (!String(numberOfGuests || '').trim() || !String(budget || '').trim() || !favoriteText || !allergyText) {
+		if (!String(numberOfGuests || '').trim() || !budgetDigits || !favoriteText || !allergyText) {
 			setToastMessage('Vui lòng nhập đầy đủ thông tin');
 			setToastVisible(true);
 			return;
@@ -422,6 +456,12 @@ export default function AiSuggestionScreen({ navigation }) {
 
 		if (!Number.isFinite(budgetValue) || budgetValue <= 0) {
 			setToastMessage('Vui lòng nhập ngân sách hợp lệ');
+			setToastVisible(true);
+			return;
+		}
+
+		if (budgetValue / guests < MIN_BUDGET_PER_GUEST) {
+			setToastMessage('Ngân sách quá thấp. Vui lòng tăng ngân sách để AI gợi ý chính xác.');
 			setToastVisible(true);
 			return;
 		}
@@ -545,7 +585,10 @@ export default function AiSuggestionScreen({ navigation }) {
 				>
 					<ScrollView
 						style={styles.scrollView}
-						contentContainerStyle={styles.content}
+						contentContainerStyle={[
+							styles.content,
+							{ paddingBottom: 28 + Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 0) },
+						]}
 						keyboardShouldPersistTaps="handled"
 					>
 						<Text style={styles.sectionHint}>
@@ -569,11 +612,16 @@ export default function AiSuggestionScreen({ navigation }) {
 							<TextInput
 								style={styles.input}
 								value={budget}
-								onChangeText={setBudget}
+								onChangeText={(text) => setBudget(formatGroupedVndInput(text))}
 								keyboardType="number-pad"
-								placeholder="Ví dụ: 500000"
+								placeholder="Ví dụ: 500.000"
 								placeholderTextColor={TEXT_PLACEHOLDER}
 							/>
+							{isBudgetPerGuestTooLow && (
+								<Text style={styles.fieldError}>
+									Ngân sách quá thấp, vui lòng tăng ngân sách để AI gợi ý chính xác hơn.
+								</Text>
+							)}
 						</View>
 
 						<View style={styles.formGroup}>

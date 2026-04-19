@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   RefreshControl,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -563,51 +565,58 @@ export default function ServiceScreen({ navigation, route }) {
         ) : null}
       </View>
 
-      {/* Tab Bar */}
-      <View style={styles.tabContainer}>
-        <View style={styles.tabBar}>
-          <Animated.View
-            style={[
-              styles.tabIndicator,
-              { transform: [{ translateX: indicatorTranslateX }] },
-            ]}
-          />
-          {TABS.map((tab, index) => (
-            <TouchableOpacity
-              key={tab}
-              style={styles.tabItem}
-              activeOpacity={0.7}
-              onPress={() => { setActiveTab(index); lastActiveTab = index; }}
-            >
-              <Text style={[styles.tabText, activeTab === index && styles.tabTextActive]}>
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Content List */}
-      <ScrollView
-        key={`tab-${activeTab}`}
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={({ nativeEvent }) => {
-          if (activeTab !== 1) return;
-          const paddingToBottom = 140;
-          const isNearBottom =
-            nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >=
-            nativeEvent.contentSize.height - paddingToBottom;
-          if (isNearBottom) loadMoreDishes();
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+      <KeyboardAvoidingView
+        style={styles.keyboardWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {activeTab === 0 ? renderServiceList() : renderDishList()}
-      </ScrollView>
+        {/* Tab Bar */}
+        <View style={styles.tabContainer}>
+          <View style={styles.tabBar}>
+            <Animated.View
+              style={[
+                styles.tabIndicator,
+                { transform: [{ translateX: indicatorTranslateX }] },
+              ]}
+            />
+            {TABS.map((tab, index) => (
+              <TouchableOpacity
+                key={tab}
+                style={styles.tabItem}
+                activeOpacity={0.7}
+                onPress={() => { setActiveTab(index); lastActiveTab = index; }}
+              >
+                <Text style={[styles.tabText, activeTab === index && styles.tabTextActive]}>
+                  {tab}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Content List */}
+        <ScrollView
+          key={`tab-${activeTab}`}
+          style={styles.scrollView}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          scrollEventThrottle={16}
+          onScroll={({ nativeEvent }) => {
+            if (activeTab !== 1) return;
+            const paddingToBottom = 140;
+            const isNearBottom =
+              nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >=
+              nativeEvent.contentSize.height - paddingToBottom;
+            if (isNearBottom) loadMoreDishes();
+          }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
+          {activeTab === 0 ? renderServiceList() : renderDishList()}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <BottomNavigation activeTab="Search" onTabPress={(tab) => navigation.navigate(tab)} />
     </SafeAreaView>
@@ -699,6 +708,9 @@ const styles = StyleSheet.create({
   tabContainer: {
     paddingHorizontal: 20,
     paddingBottom: 12,
+  },
+  keyboardWrap: {
+    flex: 1,
   },
   tabBar: {
     flexDirection: 'row',
