@@ -41,3 +41,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+/docs
+Tech_Overview_Interview_Guide.md

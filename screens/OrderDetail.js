@@ -431,6 +431,57 @@ export default function OrderDetail({ navigation, route }) {
     return [];
   };
 
+  const getRefundSummaryFromMtdZlp = (mtdZlp) => {
+    if (!mtdZlp || typeof mtdZlp !== 'object') return null;
+
+    const paymentList = Array.isArray(mtdZlp?.Payments)
+      ? mtdZlp.Payments
+      : Array.isArray(mtdZlp?.payments)
+        ? mtdZlp.payments
+        : [];
+
+    const refundsWithMeta = paymentList.flatMap((payment) => {
+      const refundList = Array.isArray(payment?.Refunds)
+        ? payment.Refunds
+        : Array.isArray(payment?.refunds)
+          ? payment.refunds
+          : [];
+      const zpTransId = payment?.ZpTransId ?? payment?.zpTransId ?? null;
+      return refundList.map((refund) => ({ refund, zpTransId }));
+    });
+
+    if (!refundsWithMeta.length) return null;
+
+    const totalAmount = refundsWithMeta.reduce((sum, item) => {
+      const refund = item?.refund;
+      const amount = Number(refund?.Amount ?? refund?.amount ?? 0);
+      return sum + (Number.isNaN(amount) ? 0 : amount);
+    }, 0);
+
+    const latestRefundMeta = refundsWithMeta
+      .slice()
+      .sort((a, b) => {
+        const aTime = new Date(a?.refund?.CreatedAt ?? a?.refund?.createdAt ?? 0).getTime();
+        const bTime = new Date(b?.refund?.CreatedAt ?? b?.refund?.createdAt ?? 0).getTime();
+        return bTime - aTime;
+      })[0] ?? null;
+
+    const latestRefundAt = latestRefundMeta?.refund?.CreatedAt ?? latestRefundMeta?.refund?.createdAt ?? null;
+    const fallbackZpTransId = paymentList
+      .map((p) => p?.ZpTransId ?? p?.zpTransId ?? null)
+      .find(Boolean) ?? null;
+    const zpTransId = latestRefundMeta?.zpTransId ?? fallbackZpTransId;
+
+    return {
+      totalAmount,
+      latestRefundAt,
+      zpTransId,
+      count: refundsWithMeta.length,
+    };
+  };
+
+  const refundSummary = getRefundSummaryFromMtdZlp(order?.mtdZlp);
+
   /** Backend có thể trả camelCase / snake_case / PascalCase */
   const getFeedbackOrderDetailId = (fb) => {
     const raw = fb?.orderDetailId ?? fb?.order_detail_id ?? fb?.OrderDetailId;
@@ -1269,7 +1320,7 @@ export default function OrderDetail({ navigation, route }) {
                     </View>
                   )}
 
-                  {!isCancelled && (
+                  {!isOrderRejectedOrCancelled && (
                     <View style={[styles.payRow, { marginTop: 14 }]}>
                       <View style={styles.payLabelWithIcon}>
                         <Ionicons
@@ -1285,7 +1336,7 @@ export default function OrderDetail({ navigation, route }) {
                       </Text>
                     </View>
                   )}
-                  {!isCancelled && fullPayment ? (
+                  {!isOrderRejectedOrCancelled && fullPayment ? (
                     <>
                       <View style={[styles.payRow, { marginTop: 8 }]}>
                         <Text style={styles.payLabel}>Thời gian</Text>
@@ -1308,7 +1359,7 @@ export default function OrderDetail({ navigation, route }) {
                     </>
                   ) : null}
 
-                  {!isCancelled && !isPaidFullAfterExtra && (
+                  {!isOrderRejectedOrCancelled && !isPaidFullAfterExtra && (
                     <View style={[styles.payRow, { marginTop: 10 }]}>
                       <Text style={styles.payLabelStrong}>Còn lại</Text>
                       <Text style={styles.payValueStrong}>
@@ -1425,6 +1476,30 @@ export default function OrderDetail({ navigation, route }) {
                 )}
               </>
             )}
+          </View>
+        )}
+
+        {!loading && refundSummary && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Thông tin hoàn tiền</Text>
+            <View style={styles.refundInfoBox}>
+              <View style={styles.payRow}>
+                <Text style={styles.payLabel}>Số tiền hoàn</Text>
+                <Text style={styles.refundInfoAmount}>{formatVnd(refundSummary.totalAmount)}</Text>
+              </View>
+              {!!refundSummary.latestRefundAt && (
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabel}>Thời gian hoàn</Text>
+                  <Text style={styles.payValueSmall}>{formatDateTime(refundSummary.latestRefundAt)}</Text>
+                </View>
+              )}
+              {!!refundSummary.zpTransId && (
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabel}>Mã giao dịch (ZaloPay)</Text>
+                  <Text style={styles.payValueSmall}>{String(refundSummary.zpTransId)}</Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
 
@@ -2190,6 +2265,25 @@ const styles = StyleSheet.create({
   },
   payValueStrong: {
     fontSize: 16,
+    color: PRIMARY_COLOR,
+    fontWeight: '800',
+  },
+  refundInfoBox: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: '#FAFAFA',
+  },
+  refundInfoTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  refundInfoAmount: {
+    fontSize: 14,
     color: PRIMARY_COLOR,
     fontWeight: '800',
   },
