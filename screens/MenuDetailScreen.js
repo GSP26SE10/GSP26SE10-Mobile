@@ -46,11 +46,8 @@ const SkeletonBox = ({ style }) => (
 );
 
 const getMenuDetail = () => {
-  const baseImageUrl =
-    'https://aeonmall-review-rikkei.cdn.vccloud.vn/public/wp/16/editors/S2BaLrALzwD1UT9Jk8uJoEGpB7mWCs5OrlCteIPx.jpg';
-
   return {
-    images: [baseImageUrl, baseImageUrl, baseImageUrl],
+    images: [],
   };
 };
 
@@ -73,6 +70,8 @@ export default function MenuDetailScreen({ navigation, route }) {
   const fromStaff = route?.params?.fromStaff || false;
   const readOnly = route?.params?.readOnly === true;
   const menuNameFromParams = route?.params?.menuName;
+  const menuBasePriceFromParams = route?.params?.menuBasePrice ?? null;
+  const menuCategoryNameFromParams = route?.params?.menuCategoryName ?? buffetType;
   const menuImageFromParams = route?.params?.menuImage || null;
   const menuImagesFromParams = Array.isArray(route?.params?.menuImages)
     ? route.params.menuImages.filter((u) => typeof u === 'string' && u.trim())
@@ -99,24 +98,31 @@ export default function MenuDetailScreen({ navigation, route }) {
   };
 
   const baseDetail = getMenuDetail();
+  const resolvedMenuData = menuInfo || {
+    menuId,
+    menuName: menuNameFromParams,
+    basePrice: menuBasePriceFromParams,
+    imgUrl: menuImagesFromParams.length > 0 ? menuImagesFromParams : menuImageFromParams,
+    menuCategoryName: menuCategoryNameFromParams,
+  };
   const menuDetail = {
     ...baseDetail,
-    images: Array.isArray(menuInfo?.imgUrl)
-      ? menuInfo.imgUrl
-      : menuInfo?.imgUrl
-        ? [menuInfo.imgUrl]
+    images: Array.isArray(resolvedMenuData?.imgUrl)
+      ? resolvedMenuData.imgUrl
+      : resolvedMenuData?.imgUrl
+        ? [resolvedMenuData.imgUrl]
         : menuImagesFromParams.length > 0
           ? menuImagesFromParams
           : menuImageFromParams
             ? [menuImageFromParams]
         : baseDetail.images,
-    averageRating: menuInfo?.averageRating ?? null,
-    totalReviews: menuInfo?.totalReviews ?? null,
+    averageRating: resolvedMenuData?.averageRating ?? null,
+    totalReviews: resolvedMenuData?.totalReviews ?? null,
   };
   const aiSummaryText =
-    typeof menuInfo?.aisMenuSummary === 'string' ? menuInfo.aisMenuSummary.trim() : '';
+    typeof resolvedMenuData?.aisMenuSummary === 'string' ? resolvedMenuData.aisMenuSummary.trim() : '';
   const hasAiSummary = aiSummaryText.length > 0;
-  const resolvedMenuCategoryName = menuInfo?.menuCategoryName || buffetType || null;
+  const resolvedMenuCategoryName = resolvedMenuData?.menuCategoryName || buffetType || null;
   const resolvedSimilarCacheKey = getSimilarCacheKey(menuCategoryId, resolvedMenuCategoryName);
   const flatListRef = useRef(null);
   const fullscreenFlatListRef = useRef(null);
@@ -155,7 +161,7 @@ export default function MenuDetailScreen({ navigation, route }) {
   }, [isFullscreenVisible, fullscreenImageIndex]);
 
   const handleChooseMenu = async () => {
-    if (isLoadingMenuInfo || !menuInfo) {
+    if (isLoadingMenuInfo || !resolvedMenuData || !resolvedMenuData.menuId) {
       showToast('Vui lòng đợi tải menu xong');
       return;
     }
@@ -164,7 +170,7 @@ export default function MenuDetailScreen({ navigation, route }) {
       returnParams: { menuId, menuCategoryId, buffetType, fromStaff },
     });
     if (!ok) return;
-    const menu = menuInfo;
+    const menu = resolvedMenuData;
     const result = await addMenuToCart({
       ...menu,
       menuCategoryId: menuCategoryId ?? null,
@@ -229,13 +235,14 @@ export default function MenuDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     const fetchMenuInfo = async () => {
-      if (!menuCategoryId || !menuId) return;
+      if (!menuId) return;
 
       try {
         setIsLoadingMenuInfo(true);
-        const res = await fetch(
-          `${API_URL}/api/menu?Status=1&MenuId=${menuId}&MenuCategoryId=${menuCategoryId}&page=1&pageSize=1`,
-        );
+        const endpoint = menuCategoryId
+          ? `${API_URL}/api/menu?Status=1&MenuId=${menuId}&MenuCategoryId=${menuCategoryId}&page=1&pageSize=1`
+          : `${API_URL}/api/menu?Status=1&MenuId=${menuId}&page=1&pageSize=1`;
+        const res = await fetch(endpoint);
         const json = await res.json();
         const first = json?.items?.[0];
         if (first) {
@@ -398,9 +405,9 @@ export default function MenuDetailScreen({ navigation, route }) {
             <SkeletonBox style={{ width: 220, height: 28, borderRadius: 6 }} />
           </View>
         ) : (
-          (menuInfo?.menuName ?? menuNameFromParams) != null && (
+          (resolvedMenuData?.menuName ?? menuNameFromParams) != null && (
             <Text style={styles.menuTitle}>
-              {menuInfo?.menuName ?? menuNameFromParams}
+              {resolvedMenuData?.menuName ?? menuNameFromParams}
             </Text>
           )
         )}
@@ -550,7 +557,7 @@ export default function MenuDetailScreen({ navigation, route }) {
             <SkeletonBox style={{ width: 120, height: 24, borderRadius: 6 }} />
           ) : (
             <Text style={styles.price}>
-              {menuInfo?.basePrice != null ? formatPrice(menuInfo.basePrice) : ''}
+              {resolvedMenuData?.basePrice != null ? formatPrice(resolvedMenuData.basePrice) : ''}
             </Text>
           )}
           <View style={styles.bottomActions}>
@@ -564,10 +571,10 @@ export default function MenuDetailScreen({ navigation, route }) {
             <TouchableOpacity
               style={[
                 styles.chooseButton,
-                (isLoadingMenuInfo || !menuInfo) && styles.chooseButtonDisabled,
+                (isLoadingMenuInfo || !resolvedMenuData || !resolvedMenuData.menuId) && styles.chooseButtonDisabled,
               ]}
               onPress={handleChooseMenu}
-              disabled={isLoadingMenuInfo || !menuInfo}
+              disabled={isLoadingMenuInfo || !resolvedMenuData || !resolvedMenuData.menuId}
               activeOpacity={0.8}
             >
               <Text style={styles.chooseButtonText}>Chọn Menu</Text>

@@ -84,6 +84,28 @@ const HISTORY_SWIPE_DELETE_WIDTH = 92;
 const MIN_BUDGET_PER_GUEST = 100000;
 let aiSuggestionHistoryCacheByKey = {};
 
+const getAiErrorInfo = (status) => {
+	const numericStatus = Number(status);
+	if (Number.isFinite(numericStatus) && numericStatus >= 500 && numericStatus <= 599) {
+		return {
+			message: 'Lỗi do bên máy chủ AI. Vui lòng thử lại sau.',
+			statusCode: numericStatus,
+		};
+	}
+
+	if (Number.isFinite(numericStatus) && numericStatus >= 400 && numericStatus <= 499) {
+		return {
+			message: 'Không thể xử lý yêu cầu. Vui lòng thử lại sau.',
+			statusCode: numericStatus,
+		};
+	}
+
+	return {
+		message: 'Có lỗi xảy ra, vui lòng thử lại.',
+		statusCode: Number.isFinite(numericStatus) ? numericStatus : null,
+	};
+};
+
 async function getAiSuggestionHistoryKey() {
 	try {
 		const raw = await AsyncStorage.getItem('userData');
@@ -209,6 +231,8 @@ export default function AiSuggestionScreen({ navigation }) {
 	const [isResultModalVisible, setIsResultModalVisible] = useState(false);
 	const [toastVisible, setToastVisible] = useState(false);
 	const [toastMessage, setToastMessage] = useState('');
+	const [errorStatusCode, setErrorStatusCode] = useState(null);
+	const [errorDisplayMessage, setErrorDisplayMessage] = useState('Vui lòng kiểm tra thông tin rồi thử lại.');
 	const historyKeyRef = useRef(null);
 	const dropdownAnim = useRef(new Animated.Value(0)).current;
 
@@ -351,6 +375,8 @@ export default function AiSuggestionScreen({ navigation }) {
 		setSuggestionData(null);
 		setIsResultModalVisible(false);
 		setIsSubmitting(false);
+		setErrorStatusCode(null);
+		setErrorDisplayMessage('Vui lòng kiểm tra thông tin rồi thử lại.');
 	};
 
 	const clearFormFields = () => {
@@ -379,6 +405,13 @@ export default function AiSuggestionScreen({ navigation }) {
 		navigation.navigate('MenuDetail', {
 			menuId: suggestionData.menuId,
 			menuName: suggestionData.menuName,
+			menuBasePrice: suggestionData.basePrice,
+			menuImage: Array.isArray(suggestionData.imgUrl)
+				? suggestionData.imgUrl[0]
+				: suggestionData.imgUrl,
+			menuImages: Array.isArray(suggestionData.imgUrl) ? suggestionData.imgUrl : [],
+			menuCategoryId: suggestionData.menuCategoryId ?? null,
+			menuCategoryName: suggestionData.menuCategoryName ?? 'AI gợi ý',
 			buffetType: 'AI gợi ý',
 			fromAiSuggestion: true,
 		});
@@ -512,7 +545,9 @@ export default function AiSuggestionScreen({ navigation }) {
 			}
 
 			if (!res.ok || json?.success === false) {
-				throw new Error(json?.message || 'Không lấy được gợi ý từ AI');
+				const error = new Error('AI suggestion request failed');
+				error.status = res.status;
+				throw error;
 			}
 
 			console.log('[AI Suggestion] API response:', json);
@@ -551,7 +586,16 @@ export default function AiSuggestionScreen({ navigation }) {
 		} catch (error) {
 			console.log('[AI Suggestion] API error:', error?.message || error);
 			setScreenState('error');
-			setToastMessage(error?.message || 'Có lỗi xảy ra, vui lòng thử lại');
+			const isTimeoutError =
+				String(error?.message || '').toLowerCase().includes('timeout') ||
+				String(error?.message || '').toLowerCase().includes('timed out');
+			const statusFromError = isTimeoutError ? 504 : error?.status;
+			const { message, statusCode } = getAiErrorInfo(statusFromError);
+			const uiMessage = statusCode ? `${message} (Mã lỗi: ${statusCode})` : message;
+
+			setErrorStatusCode(statusCode);
+			setErrorDisplayMessage(uiMessage);
+			setToastMessage(uiMessage);
 			setToastVisible(true);
 		} finally {
 			setIsSubmitting(false);
@@ -780,7 +824,9 @@ export default function AiSuggestionScreen({ navigation }) {
 					<View style={styles.errorCard}>
 						<Ionicons name="alert-circle-outline" size={28} color="#D23A3A" />
 						<Text style={styles.errorTitle}>Không thể lấy gợi ý AI</Text>
-						<Text style={styles.errorDesc}>Vui lòng kiểm tra thông tin rồi thử lại.</Text>
+						<Text style={styles.errorDesc}>
+							{errorDisplayMessage}
+						</Text>
 						<TouchableOpacity style={styles.secondaryButton} activeOpacity={0.82} onPress={resetToForm}>
 							<Text style={styles.secondaryButtonText}>Thử lại</Text>
 						</TouchableOpacity>
