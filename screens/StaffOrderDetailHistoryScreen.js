@@ -22,7 +22,7 @@ const formatTimeRange = (startIso, endIso) => {
     d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) =>
     `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  return `${time(start)} – ${date(start)}`;
+  return `${time(start)} – ${time(end)}, ${date(start)}`;
 };
 
 const TASK_STATUS_MAP = { 1: 'Chưa bắt đầu', 2: 'Đang thực hiện', 3: 'Hoàn thành', 5: 'Trễ deadline' };

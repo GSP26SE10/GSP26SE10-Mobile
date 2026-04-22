@@ -52,7 +52,7 @@ const formatTimeRangeFromOrder = (order) => {
   const end = order?.endTime ? new Date(order.endTime) : start;
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  return `${time(start)} – ${date(start)}`;
+  return `${time(start)} – ${time(end)}, ${date(start)}`;
 };
 
 const emptyPartyDetail = {
@@ -169,6 +169,15 @@ const getTaskTemplateName = (item) => {
     item.name ??
     '';
   return String(raw).trim();
+};
+
+const formatCompDateTime = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  return `${time} ${date}`;
 };
 
 const pickMenuId = (...candidates) => {
@@ -304,6 +313,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [totalCompAmount, setTotalCompAmount] = useState(
     () => Number(orderFromParams?.extraChargeCost ?? orderFromParams?.extraChargeTotal ?? 0) || 0
   );
+  const [extraCharges, setExtraCharges] = useState([]);
+  const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
@@ -520,8 +531,6 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         setIsBilling(nextSt === 6);
         const stLabel = mapOrderStatusToPartyStatus(nextSt);
         if (stLabel) setPartyStatus(stLabel);
-        const extra = Number(order.extraChargeCost ?? order.extraChargeTotal ?? 0) || 0;
-        setTotalCompAmount(extra);
       }
       await AsyncStorage.setItem(
         LEADER_OVERVIEW_CACHE_KEY,
@@ -530,6 +539,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       if (Array.isArray(payload.members) && payload.members.length > 0) {
         await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
       }
+      await fetchExtraChargesForOrder(orderDetailId);
     } catch (e) {
       // keep current tasks on error
     } finally {
@@ -968,6 +978,40 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     setCompCatalogDropdownOpen(false);
   };
 
+  const fetchExtraChargesForOrder = async (targetOrderDetailId = orderDetailId) => {
+    if (!targetOrderDetailId) {
+      setExtraCharges([]);
+      return [];
+    }
+    setLoadingExtraCharges(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/order-detail-extra-charge/order/${targetOrderDetailId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Không thể tải chi phí phát sinh.');
+      const json = await res.json().catch(() => []);
+      const list = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.items)
+          ? json.items
+          : [];
+      setExtraCharges(list);
+      const nextTotal = list.reduce((sum, item) => sum + (Number(item?.totalAmount ?? 0) || 0), 0);
+      setTotalCompAmount(nextTotal);
+      return list;
+    } catch (_) {
+      setExtraCharges([]);
+      return [];
+    } finally {
+      setLoadingExtraCharges(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchExtraChargesForOrder(orderDetailId);
+  }, [orderDetailId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -998,7 +1042,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission?.granted) {
-        Alert.alert('Quyền truy cập ảnh', 'Vui lòng cho phép truy cập thư viện ảnh để tải ảnh đền bù.');
+        Alert.alert('Quyền truy cập ảnh', 'Vui lòng cho phép truy cập thư viện ảnh để tải ảnh chi phí phát sinh.');
         return;
       }
       const remaining = Math.max(0, 4 - compImages.length);
@@ -1032,7 +1076,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     }
     const qty = Number(String(compQuantity).replace(/[^\d]/g, '') || 0);
     if (!selectedCatalogId) {
-      Alert.alert('Lỗi', 'Vui lòng chọn hạng mục đền bù.');
+      Alert.alert('Lỗi', 'Vui lòng chọn hạng mục phát sinh.');
       return;
     }
     if (!qty || qty <= 0) {
@@ -1040,19 +1084,10 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       return;
     }
 
-    const selected = compCatalogItems.find((c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId));
-    const unitPrice = Number(selected?.unitPrice ?? 0);
-    const hasImages = compImages.length > 0;
-    const deltaAmount = unitPrice * qty;
-    const rollbackTotal = totalCompAmount;
     let reopenCompModal = false;
 
     setSubmittingComp(true);
     setCompModalVisible(false);
-
-    if (!hasImages) {
-      setTotalCompAmount((prev) => prev + deltaAmount);
-    }
 
     let submitFailed = false;
     try {
@@ -1080,13 +1115,10 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        throw new Error(errText || 'Tạo chi phí đền bù thất bại.');
+        throw new Error(errText || 'Tạo chi phí phát sinh thất bại.');
       }
 
-      // Update UI total after success only when there are images.
-      if (hasImages && unitPrice > 0) {
-        setTotalCompAmount((prev) => prev + unitPrice * qty);
-      }
+      await fetchExtraChargesForOrder(orderDetailId);
 
       setSelectedCatalogId(null);
       setCompQuantity('1');
@@ -1094,18 +1126,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       setCompImages([]);
     } catch (e) {
       submitFailed = true;
-      if (!hasImages) {
-        setTotalCompAmount(rollbackTotal);
-      } else {
-        reopenCompModal = true;
-      }
-      Alert.alert('Lỗi', e?.message || 'Không thể thêm chi phí đền bù.');
+      reopenCompModal = true;
+      Alert.alert('Lỗi', e?.message || 'Không thể thêm chi phí phát sinh.');
     } finally {
       setSubmittingComp(false);
       if (reopenCompModal) {
         setCompModalVisible(true);
       }
-      if (!submitFailed && hasImages) {
+      if (!submitFailed) {
         setCompModalVisible(false);
       }
     }
@@ -1339,7 +1367,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         <View style={styles.summarySection}>
           {isOrderBilling && (
             <View style={styles.compHeaderRow}>
-              <Text style={styles.compTitle}>+ Thêm chi phí hư hại / đền bù:</Text>
+              <Text style={styles.compTitle}>+ Thêm chi phí hư hại / phát sinh:</Text>
               <TouchableOpacity
                 style={styles.compAddButton}
                 activeOpacity={0.8}
@@ -1377,6 +1405,66 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <Text style={[styles.summaryValue, styles.summaryHighlight]}>
               {remainingWithExtraCharge}
             </Text>
+          </View>
+
+          <View style={styles.extraChargeSection}>
+            <Text style={styles.extraChargeTitle}>Chi phí phát sinh</Text>
+            {loadingExtraCharges ? (
+              <Text style={styles.extraChargeHint}>Đang tải...</Text>
+            ) : extraCharges.length === 0 ? (
+              <Text style={styles.extraChargeHint}>Chưa có chi phí phát sinh.</Text>
+            ) : (
+              extraCharges.map((ec, idx) => {
+                const images = Array.isArray(ec?.images)
+                  ? ec.images
+                  : Array.isArray(ec?.image)
+                    ? ec.image
+                    : [];
+                return (
+                  <View
+                    key={String(ec?.orderDetailExtraChargeId ?? ec?.id ?? `${ec?.extraChargeCatalogId ?? 'ec'}-${idx}`)}
+                    style={styles.extraChargeCard}
+                  >
+                    <View style={styles.extraChargeTopRow}>
+                      <Text style={styles.extraChargeCardTitle} numberOfLines={2}>
+                        {ec?.title || '—'}
+                      </Text>
+                      <Text style={styles.extraChargeAmount}>
+                        {formatMoney(ec?.totalAmount ?? 0)}
+                      </Text>
+                    </View>
+                    <Text style={styles.extraChargeMeta}>
+                      {`${formatMoney(ec?.unitPrice ?? 0)} × ${ec?.quantity ?? 0} ${ec?.unit || ''}`.trim()}
+                    </Text>
+                    <Text style={styles.extraChargeMeta}>
+                      {(ec?.creatorName || ec?.createdBy?.name)
+                        ? `Người tạo: ${ec?.creatorName || ec?.createdBy?.name}`
+                        : '—'}
+                      {!!(ec?.incurredAt || ec?.createdAt)
+                        ? ` · ${formatCompDateTime(ec?.incurredAt || ec?.createdAt)}`
+                        : ''}
+                    </Text>
+                    {!!ec?.note && (
+                      <Text style={styles.extraChargeNote} numberOfLines={2}>
+                        Ghi chú: {String(ec.note)}
+                      </Text>
+                    )}
+                    {!!images.length && (
+                      <View style={styles.extraChargeImgRow}>
+                        {images.slice(0, 4).map((u, i) => (
+                          <ExpoImage
+                            key={`${u}-${i}`}
+                            source={{ uri: String(u) }}
+                            style={styles.extraChargeImg}
+                            contentFit="cover"
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -1903,7 +1991,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      {/* Modal thêm chi phí đền bù */}
+      {/* Modal thêm chi phí phát sinh */}
       <Modal
         visible={compModalVisible}
         transparent
@@ -1917,7 +2005,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
               <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Thêm chi phí đền bù</Text>
+                <Text style={styles.modalTitle}>Thêm chi phí phát sinh</Text>
                 <ScrollView
                   style={styles.modalScroll}
                   contentContainerStyle={styles.modalScrollContent}
@@ -1928,7 +2016,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   {loadingCompCatalog ? (
                     <Text style={styles.compHintText}>Đang tải danh sách...</Text>
                   ) : compCatalogItems.length === 0 ? (
-                    <Text style={styles.compHintText}>Không có hạng mục đền bù khả dụng.</Text>
+                    <Text style={styles.compHintText}>Không có hạng mục phát sinh khả dụng.</Text>
                   ) : (
                     <View>
                       <TouchableOpacity
@@ -1942,7 +2030,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                               const selected = compCatalogItems.find(
                                 (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId),
                               );
-                              return selected?.title || 'Chọn hạng mục đền bù';
+                              return selected?.title || 'Chọn hạng mục phát sinh';
                             })()}
                           </Text>
                           <Text style={styles.compCatalogDropdownSub} numberOfLines={1}>
@@ -2596,6 +2684,72 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: BACKGROUND_WHITE,
+  },
+  extraChargeSection: {
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    paddingTop: 10,
+  },
+  extraChargeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 8,
+  },
+  extraChargeHint: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  extraChargeCard: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 12,
+    backgroundColor: BACKGROUND_WHITE,
+    padding: 10,
+    marginBottom: 8,
+  },
+  extraChargeTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  extraChargeCardTitle: {
+    flex: 1,
+    marginRight: 10,
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  extraChargeAmount: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: PRIMARY_COLOR,
+  },
+  extraChargeMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  extraChargeNote: {
+    marginTop: 6,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontStyle: 'italic',
+  },
+  extraChargeImgRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  extraChargeImg: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    marginRight: 8,
+    backgroundColor: '#E8E8E8',
   },
   tasksContainer: {
     flex: 1,

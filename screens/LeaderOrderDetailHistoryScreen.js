@@ -30,7 +30,7 @@ const formatTimeRangeFromOrder = (order) => {
   const end = order?.endTime ? new Date(order.endTime) : start;
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  return `${time(start)} – ${date(start)}`;
+  return `${time(start)} – ${time(end)}, ${date(start)}`;
 };
 
 const TASK_STATUS_LABEL = {
@@ -427,7 +427,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
       </View>
 
       <View style={styles.extraChargeSection}>
-        <Text style={styles.extraChargeTitle}>Chi phí phát sinh / đền bù</Text>
+        <Text style={styles.extraChargeTitle}>Chi phí phát sinh</Text>
         {loadingExtraCharges ? (
           <Text style={styles.extraChargeHint}>Đang tải...</Text>
         ) : extraCharges.length === 0 ? (

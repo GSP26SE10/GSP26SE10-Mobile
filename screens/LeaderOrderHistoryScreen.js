@@ -20,7 +20,7 @@ const formatTimeRange = (startIso, endIso) => {
   const end = endIso ? new Date(endIso) : start;
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  return `${time(start)} – ${date(start)}`;
+  return `${time(start)} – ${time(end)}, ${date(start)}`;
 };
 
 const ORDER_STATUS_LABEL = {

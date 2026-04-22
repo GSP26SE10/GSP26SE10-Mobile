@@ -57,6 +57,13 @@ const formatTime = (iso) => {
   });
 };
 
+const formatPartyTimeRange = (startIso, endIso) => {
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
+  return `${formatTime(startIso)} – ${formatTime(endIso || startIso)} ${formatDate(start)}`;
+};
+
 const formatDateTime = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
@@ -353,7 +360,7 @@ export default function OrderDetail({ navigation, route }) {
     return sum + Number(c?.totalAmount ?? 0);
   }, 0);
 
-  // "Thanh toán nốt" = (totalPrice - depositAmount) + tiền đền bù
+  // "Thanh toán nốt" = (totalPrice - depositAmount) + tiền phát sinh
   const dueFullPlusExtra = Math.max(0, totalPriceNum - depositAmount) + extraChargeTotal;
 
   // "Còn lại" được tính theo tổng phải trả = totalPrice + extraCharges
@@ -946,7 +953,7 @@ export default function OrderDetail({ navigation, route }) {
                       </View>
                       <View style={styles.detailMetaRow}>
                         <Ionicons name="time-outline" size={16} color={TEXT_SECONDARY} style={styles.detailMetaIcon} />
-                        <Text style={styles.detailMetaText}>{formatTime(od.startTime)} {formatDate(od.startTime)}</Text>
+                        <Text style={styles.detailMetaText}>{formatPartyTimeRange(od.startTime, od.endTime)}</Text>
                       </View>
                       {od.address ? (
                         <View style={styles.detailMetaRow}>
