@@ -15,7 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-big-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
-import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { buildRoleHeader, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 
 const initialDate = new Date();
@@ -140,14 +140,14 @@ export default function StaffCalendarScreen({ navigation }) {
     )
   );
 
-  const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [greetingText, setGreetingText] = useState('Nhân viên');
   const [events, setEvents] = useState([]);
   const cacheDigestRef = useRef('');
 
   useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
-      setGreetingText(buildGreeting(fullName));
+      setGreetingText(buildRoleHeader(fullName, 'Nhân viên'));
     })();
   }, []);
   const [currentDate, setCurrentDate] = useState(initialDate);

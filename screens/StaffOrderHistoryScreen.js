@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
-import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { buildRoleHeader, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
 import {
@@ -105,7 +105,7 @@ function buildOrdersFromTaskItems(items) {
 }
 
 export default function StaffOrderHistoryScreen({ navigation }) {
-  const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [greetingText, setGreetingText] = useState('Nhân viên');
   const [allTaskItems, setAllTaskItems] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -179,7 +179,7 @@ export default function StaffOrderHistoryScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
-      setGreetingText(buildGreeting(fullName));
+      setGreetingText(buildRoleHeader(fullName, 'Nhân viên'));
     })();
   }, []);
 

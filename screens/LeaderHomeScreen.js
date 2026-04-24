@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
-import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { buildRoleHeader, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
 import {
   getNotificationUnreadCount,
@@ -85,7 +85,7 @@ const HOME_TABS = [
 ];
 
 export default function LeaderHomeScreen({ navigation }) {
-  const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [greetingText, setGreetingText] = useState('Nhóm trưởng');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -155,7 +155,7 @@ export default function LeaderHomeScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
-      setGreetingText(buildGreeting(fullName));
+      setGreetingText(buildRoleHeader(fullName, 'Nhóm trưởng'));
     })();
   }, []);
 

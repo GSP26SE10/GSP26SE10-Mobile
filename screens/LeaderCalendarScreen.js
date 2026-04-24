@@ -15,7 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-big-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
-import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { buildRoleHeader, getStoredFullName } from '../utils/greeting';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, PRIMARY_COLOR } from '../constants/colors';
 import { normalizeLeaderOrdersOverviewApi } from '../utils/leaderOrdersOverview';
 
@@ -130,14 +130,14 @@ export default function LeaderCalendarScreen({ navigation }) {
     )
   );
 
-  const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [greetingText, setGreetingText] = useState('Nhóm trưởng');
   const [events, setEvents] = useState([]);
   const cacheDigestRef = useRef('');
 
   useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
-      setGreetingText(buildGreeting(fullName));
+      setGreetingText(buildRoleHeader(fullName, 'Nhóm trưởng'));
     })();
   }, []);
   const [currentDate, setCurrentDate] = useState(initialDate);

@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
-import { buildGreeting, getStoredFullName } from '../utils/greeting';
+import { buildRoleHeader, getStoredFullName } from '../utils/greeting';
 import { getAccessToken } from '../utils/auth';
 import API_URL from '../constants/api';
 import { TEXT_PRIMARY, BACKGROUND_WHITE, TEXT_SECONDARY, PRIMARY_COLOR } from '../constants/colors';
@@ -35,7 +35,7 @@ const ORDER_STATUS_LABEL = {
 };
 
 export default function LeaderOrderHistoryScreen({ navigation }) {
-  const [greetingText, setGreetingText] = useState('Xin chào!');
+  const [greetingText, setGreetingText] = useState('Nhóm trưởng');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,7 +68,7 @@ export default function LeaderOrderHistoryScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       const fullName = await getStoredFullName();
-      setGreetingText(buildGreeting(fullName));
+      setGreetingText(buildRoleHeader(fullName, 'Nhóm trưởng'));
     })();
   }, []);
 

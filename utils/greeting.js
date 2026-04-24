@@ -22,3 +22,13 @@ export function buildGreeting(fullName) {
   return `Xin chào, ${name}!`;
 }
 
+export function buildRoleHeader(fullName, roleLabel) {
+  const name = (fullName || '').trim();
+  const role = (roleLabel || '').trim();
+
+  if (name && role) return `${name} - ${role}`;
+  if (name) return name;
+  if (role) return role;
+  return 'Xin chào!';
+}
+
