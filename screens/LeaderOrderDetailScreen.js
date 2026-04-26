@@ -47,9 +47,11 @@ const LEADER_OVERVIEW_API = '/api/staff-group/leader/orders-overview';
 const TASK_TEMPLATE_API = '/api/task-template?IsActive=true&page=1&pageSize=10';
 
 const formatTimeRangeFromOrder = (order) => {
-  if (!order?.startTime) return '—';
-  const start = new Date(order.startTime);
-  const end = order?.endTime ? new Date(order.endTime) : start;
+  const startIso = order?.startTime ?? order?.schedule?.startTime;
+  const endIso = order?.endTime ?? order?.schedule?.endTime;
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   return `${time(start)} – ${time(end)}, ${date(start)}`;
@@ -93,6 +95,23 @@ const formatTaskDeadline = (startIso, endIso) => {
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   return `${time(start)} – ${time(end)}, ${date(start)}`;
+};
+
+const formatDateTimeDisplay = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${time} ${date}`;
+};
+
+const normalizeSnapshotItems = (snapshot, nestedKey) => {
+  if (Array.isArray(snapshot)) return snapshot;
+  if (snapshot && Array.isArray(snapshot?.items)) return snapshot.items;
+  if (snapshot && nestedKey && Array.isArray(snapshot?.[nestedKey])) return snapshot[nestedKey];
+  if (snapshot && typeof snapshot === 'object') return [snapshot];
+  return [];
 };
 
 const mapApiTaskToDisplay = (t) => {
@@ -223,14 +242,14 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const partyDetail = order
     ? {
         id: order.orderDetailId,
-        image: order.menuImage || null,
-        name: order.menuName || '—',
-        dishes: order.partyCategory || '—',
-        guests: `${order.numberOfGuests ?? 0} NGƯỜI`,
+        image: order.menuImage ?? order?.menu?.image ?? null,
+        name: order.menuName ?? order?.menu?.name ?? '—',
+        dishes: order.partyCategory ?? order?.party?.category ?? '—',
+        guests: `${order.numberOfGuests ?? order?.party?.numberOfGuests ?? 0} NGƯỜI`,
         timeRange: formatTimeRangeFromOrder(order),
-        address: order.address || '—',
-        contactName: order.customerName || '—',
-        phone: order.customerPhone || '',
+        address: order.address ?? order?.schedule?.address ?? '—',
+        contactName: order.customerName ?? order?.customer?.name ?? '—',
+        phone: order.customerPhone ?? order?.customer?.phone ?? '',
         status: route?.params?.status && typeof route.params.status === 'string' ? route.params.status : '—',
         subtotal: formatVnd(order.totalPrice),
         vat: '—',
@@ -274,6 +293,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [partyStatus, setPartyStatus] = useState(initialStatus);
   const [activeTab, setActiveTab] = useState('overview');
   const [tasks, setTasks] = useState(initialTasks);
+  const [taskEvidenceMap, setTaskEvidenceMap] = useState({});
   const [searchKeyword, setSearchKeyword] = useState('');
   const [createVisible, setCreateVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -303,6 +323,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const [pickerTarget, setPickerTarget] = useState('start');
   const [compModalVisible, setCompModalVisible] = useState(false);
   const [compCatalogItems, setCompCatalogItems] = useState([]);
+  const [compRelatedCatalogItems, setCompRelatedCatalogItems] = useState([]);
   const [loadingCompCatalog, setLoadingCompCatalog] = useState(false);
   const [selectedCatalogId, setSelectedCatalogId] = useState(null);
   const [compCatalogDropdownOpen, setCompCatalogDropdownOpen] = useState(false);
@@ -506,6 +527,23 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     };
   }, [createVisible]);
 
+  const fetchTaskEvidence = async (taskId) => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task?TaskId=${taskId}&page=1&pageSize=10`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const first = items[0];
+      return first?.img || null;
+    } catch (e) {
+      return null;
+    }
+  };
+
   const refreshTasksForOrder = async () => {
     const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
     if (orderDetailId == null) return;
@@ -519,18 +557,57 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       const data = await res.json();
       const payload = normalizeLeaderOrdersOverviewApi(data);
       const orders = payload.orders;
-      const order = orders.find((o) => o.orderDetailId === orderDetailId);
-      const orderTasks = (order?.tasks && Array.isArray(order.tasks))
-        ? order.tasks.map(mapApiTaskToDisplay)
+      const overviewOrder = orders.find((o) => o.orderDetailId === orderDetailId);
+      let enrichedOrder = overviewOrder || null;
+
+      if (overviewOrder) {
+        const detailOrder = await fetchOrderDetailByIds({
+          token,
+          orderId: overviewOrder?.orderId,
+          orderDetailId: overviewOrder?.orderDetailId,
+        });
+        if (detailOrder) {
+          enrichedOrder = {
+            ...overviewOrder,
+            ...detailOrder,
+            // order-detail API does not return leader task list, keep tasks from overview.
+            tasks: Array.isArray(overviewOrder?.tasks) ? overviewOrder.tasks : [],
+          };
+        }
+      }
+
+      const orderTasks = (enrichedOrder?.tasks && Array.isArray(enrichedOrder.tasks))
+        ? enrichedOrder.tasks.map(mapApiTaskToDisplay)
         : [];
       setTasks(orderTasks);
-      if (order) {
-        setRefreshedOrder(order);
-        const nextSt = Number(order.orderStatus ?? order.orderDetailStatus ?? 0);
+      
+      // Fetch evidence images for all tasks
+      const evidenceMap = {};
+      for (const task of orderTasks) {
+        const taskId = task.taskId ?? task.id;
+        if (taskId != null) {
+          const evidenceUrl = await fetchTaskEvidence(taskId);
+          if (evidenceUrl) {
+            evidenceMap[taskId] = evidenceUrl;
+          }
+        }
+      }
+      setTaskEvidenceMap(evidenceMap);
+      
+      if (enrichedOrder) {
+        setRefreshedOrder(enrichedOrder);
+        const nextSt = Number(
+          enrichedOrder.orderStatus ??
+          enrichedOrder.orderDetailStatus ??
+          enrichedOrder.status ??
+          0
+        );
         setOrderStatusNum(nextSt);
         setIsBilling(nextSt === 6);
         const stLabel = mapOrderStatusToPartyStatus(nextSt);
         if (stLabel) setPartyStatus(stLabel);
+        const extra = Number(enrichedOrder.extraChargeCost ?? enrichedOrder.extraChargeTotal ?? 0) || 0;
+        setTotalCompAmount(extra);
       }
       await AsyncStorage.setItem(
         LEADER_OVERVIEW_CACHE_KEY,
@@ -969,6 +1046,48 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
   const formatMoney = (value) =>
     `${value.toLocaleString('vi-VN')}₫`;
+
+  const actualEndTimeLabel = formatDateTimeDisplay(order?.actualEndTime);
+  const hasOvertimeMinutes = order?.overtimeMinutes != null;
+  const overtimeMinutesLabel = hasOvertimeMinutes
+    ? `${Number(order.overtimeMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const hasServiceDurationMinutes = order?.serviceDurationMinutes != null;
+  const serviceDurationMinutesLabel = hasServiceDurationMinutes
+    ? `${Number(order.serviceDurationMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const noteOrderDetailText =
+    typeof order?.noteOrderDetail === 'string' && order.noteOrderDetail.trim()
+      ? order.noteOrderDetail.trim()
+      : '';
+  const guestDiscountItems = normalizeSnapshotItems(order?.guestDiscountSnapshot, 'guestDiscounts');
+  const extraChargeSnapshotItems = normalizeSnapshotItems(order?.extraChargeSnapshot, 'extraCharges');
+
+  const getGuestDiscountText = (item, idx) => {
+    const amount = Number(item?.discountAmount ?? item?.amount ?? item?.value ?? NaN);
+    const percent = Number(item?.discountPercent ?? item?.percent ?? NaN);
+    const guests = Number(item?.numberOfGuests ?? item?.minGuests ?? item?.guestCount ?? NaN);
+    const baseLabel =
+      item?.discountName || item?.name || item?.title || `Mức giảm giá #${idx + 1}`;
+    const valueLabel =
+      Number.isFinite(amount) && amount > 0
+        ? formatMoney(amount)
+        : Number.isFinite(percent) && percent > 0
+          ? `${percent}%`
+          : '';
+    const guestLabel = Number.isFinite(guests) && guests > 0 ? ` (${guests} khách)` : '';
+    return `${baseLabel}${guestLabel}${valueLabel ? `: ${valueLabel}` : ''}`;
+  };
+
+  const getExtraChargeText = (item, idx) => {
+    const title = item?.title || item?.extraChargeTitle || item?.catalogTitle || `Chi phí #${idx + 1}`;
+    const qty = Number(item?.quantity ?? item?.qty ?? NaN);
+    const amount = Number(item?.amount ?? item?.totalAmount ?? item?.cost ?? NaN);
+    const qtyLabel = Number.isFinite(qty) && qty > 0 ? `x${qty}` : '';
+    const amountLabel = Number.isFinite(amount) && amount >= 0 ? formatMoney(amount) : '';
+    return `${title}${qtyLabel ? ` (${qtyLabel})` : ''}${amountLabel ? `: ${amountLabel}` : ''}`;
+  };
+
   const remainingWithExtraCharge = formatMoney(
     (Number(order?.remainingAmount ?? 0) || 0) + totalCompAmount
   );
@@ -1012,6 +1131,43 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     fetchExtraChargesForOrder(orderDetailId);
   }, [orderDetailId]);
 
+  const fetchOrderDetailByIds = async ({ token, orderId, orderDetailId }) => {
+    if (!orderId || !orderDetailId) return null;
+    const res = await fetch(
+      `${API_URL}/api/order-detail?OrderDetailId=${encodeURIComponent(String(orderDetailId))}&OrderId=${encodeURIComponent(String(orderId))}&page=1&pageSize=10`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const items = Array.isArray(json?.items) ? json.items : [];
+    return (
+      items.find(
+        (item) =>
+          Number(item?.orderDetailId) === Number(orderDetailId) &&
+          Number(item?.orderId) === Number(orderId)
+      ) || items[0] || null
+    );
+  };
+
+  const normalizeCompCatalogResponse = (payload) => {
+    const list = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload?.data?.items)
+          ? payload.data.items
+          : [];
+    return list.filter(Boolean);
+  };
+
+  const getCompCatalogId = (item) => {
+    const rawId = item?.extraChargeCatalogId ?? item?.id ?? item?.catalogId;
+    const numericId = Number(rawId);
+    return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1019,14 +1175,57 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       try {
         setLoadingCompCatalog(true);
         const token = await getAccessToken();
-        const res = await fetch(`${API_URL}/api/order-detail-extra-charge/catalog/active`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        let relatedList = [];
+        try {
+          const relatedRes = await fetch(
+            `${API_URL}/api/order-detail-extra-charge/catalog/active/by-order-detail/${orderDetailId}`,
+            {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            }
+          );
+          const relatedJson = await relatedRes.json().catch(() => null);
+          relatedList = normalizeCompCatalogResponse(relatedJson);
+        } catch (_) {
+          relatedList = [];
+        }
+
+        let list = [];
+        try {
+          const res = await fetch(`${API_URL}/api/order-detail-extra-charge/catalog/active`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const json = await res.json().catch(() => null);
+          list = normalizeCompCatalogResponse(json);
+        } catch (_) {
+          list = [];
+        }
+
+        const relatedIds = new Set();
+        const normalizedRelatedList = [];
+        relatedList.forEach((item) => {
+          const id = getCompCatalogId(item);
+          if (id == null || relatedIds.has(id)) return;
+          relatedIds.add(id);
+          normalizedRelatedList.push(item);
         });
-        const json = await res.json().catch(() => null);
-        const list = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-        if (!cancelled) setCompCatalogItems(list);
+
+        const otherList = [];
+        list.forEach((item) => {
+          const id = getCompCatalogId(item);
+          if (id == null || relatedIds.has(id)) return;
+          relatedIds.add(id);
+          otherList.push(item);
+        });
+
+        if (!cancelled) {
+          setCompRelatedCatalogItems(normalizedRelatedList);
+          setCompCatalogItems(otherList);
+        }
       } catch (_) {
-        if (!cancelled) setCompCatalogItems([]);
+        if (!cancelled) {
+          setCompRelatedCatalogItems([]);
+          setCompCatalogItems([]);
+        }
       } finally {
         if (!cancelled) setLoadingCompCatalog(false);
       }
@@ -1034,7 +1233,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [compModalVisible]);
+  }, [compModalVisible, orderDetailId]);
 
   const pickCompImages = async () => {
     if (submittingComp) return;
@@ -1152,8 +1351,28 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         const errText = await res.text().catch(() => '');
         throw new Error(errText || 'Không thể chuyển trạng thái sang chờ thanh toán.');
       }
+
+      const actualEndRes = await fetch(
+        `${API_URL}/api/order-detail/${orderDetailId}/actual-end-time`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            actualEndTime: new Date().toISOString(),
+          }),
+        },
+      );
+      if (!actualEndRes.ok) {
+        const errText = await actualEndRes.text().catch(() => '');
+        throw new Error(errText || 'Không thể cập nhật giờ kết thúc thực tế.');
+      }
+
       setOrderStatusNum(6);
       setIsBilling(true);
+      setPartyStatus('Kết thúc tiệc');
       setPaymentMethod(null);
     } catch (e) {
       Alert.alert('Lỗi', e?.message || 'Không thể chuyển sang trạng thái thanh toán.');
@@ -1279,7 +1498,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <Image
               source={{ uri: partyDetail.image }}
               style={styles.partyImage}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           ) : (
             <View style={styles.partyImagePlaceholder}>
@@ -1289,7 +1508,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           <View style={styles.partyCardLeft}>
             <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-              {partyDetail.guests}
+              {partyDetail.dishes} · {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>
@@ -1326,6 +1545,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
             {selectedServices.map((service, idx) => (
               <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                {service?.img && (
+                  <Image
+                    source={{ uri: service.img }}
+                    style={styles.snapshotItemImage}
+                    resizeMode="contain"
+                  />
+                )}
                 <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
                 <Text style={styles.snapshotRowMeta}>
                   SL: {service?.quantity ?? 1} · Đơn giá: {formatMoney(service?.basePrice ?? 0)}
@@ -1340,6 +1566,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
             {selectedCustomDishes.map((dish, idx) => (
               <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                {dish?.img && (
+                  <Image
+                    source={{ uri: dish.img }}
+                    style={styles.snapshotItemImage}
+                    resizeMode="contain"
+                  />
+                )}
                 <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
                 <Text style={styles.snapshotRowMeta}>
                   Đơn giá: {formatMoney(dish?.unitPrice ?? 0)} · Tổng: {formatMoney(dish?.totalAmount ?? 0)}
@@ -1359,9 +1592,41 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             disabled={changingToBilling}
           >
             <Text style={styles.finishButtonText}>
-              {changingToBilling ? 'Đang chuyển...' : 'Cho khách hàng thanh toán'}
+              {changingToBilling ? 'Đang chuyển...' : 'Kết thúc & Thanh toán'}
             </Text>
           </TouchableOpacity>
+        )}
+
+        {(!!actualEndTimeLabel || hasOvertimeMinutes || hasServiceDurationMinutes || !!noteOrderDetailText) && (
+          <View style={styles.summarySection}>
+            {!!actualEndTimeLabel && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Thời gian kết thúc thực tế</Text>
+                <Text style={styles.summaryValue}>{actualEndTimeLabel}</Text>
+              </View>
+            )}
+
+            {hasOvertimeMinutes && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Thời gian quá giờ</Text>
+                <Text style={styles.summaryValue}>{overtimeMinutesLabel}</Text>
+              </View>
+            )}
+
+            {hasServiceDurationMinutes && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Thời gian phục vụ</Text>
+                <Text style={styles.summaryValue}>{serviceDurationMinutesLabel}</Text>
+              </View>
+            )}
+
+            {!!noteOrderDetailText && (
+              <View style={styles.summaryNoteBox}>
+                <Text style={styles.summaryNoteTitle}>Ghi chú</Text>
+                <Text style={styles.summaryNoteText}>{noteOrderDetailText}</Text>
+              </View>
+            )}
+          </View>
         )}
 
         <View style={styles.summarySection}>
@@ -1398,6 +1663,21 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               <Text style={styles.summaryValue}>{formatMoney(totalCompAmount)}</Text>
             </View>
           )}
+
+          {guestDiscountItems.length > 0 && (
+            <View style={styles.summarySnapshotSectionCard}>
+              <Text style={styles.snapshotSectionTitle}>Giảm giá theo số lượng khách</Text>
+              {guestDiscountItems.map((item, idx) => (
+                <Text
+                  key={`guest-discount-${idx}`}
+                  style={styles.summaryExtraText}
+                >
+                  • {getGuestDiscountText(item, idx)}
+                </Text>
+              ))}
+            </View>
+          )}
+
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
               Còn lại
@@ -1456,7 +1736,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                             key={`${u}-${i}`}
                             source={{ uri: String(u) }}
                             style={styles.extraChargeImg}
-                            contentFit="cover"
+                            contentFit="contain"
                           />
                         ))}
                       </View>
@@ -1626,6 +1906,13 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   )}
                   {!!task.note && (
                     <Text style={styles.taskNote} numberOfLines={2}>Ghi chú: {task.note}</Text>
+                  )}
+                  {taskEvidenceMap[task.taskId ?? task.id] && (
+                    <Image
+                      source={{ uri: taskEvidenceMap[task.taskId ?? task.id] }}
+                      style={styles.taskEvidenceThumb}
+                      resizeMode="contain"
+                    />
                   )}
                 </View>
                 {(() => {
@@ -2015,7 +2302,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                   <Text style={styles.fieldLabel}>Chọn hạng mục</Text>
                   {loadingCompCatalog ? (
                     <Text style={styles.compHintText}>Đang tải danh sách...</Text>
-                  ) : compCatalogItems.length === 0 ? (
+                  ) : compRelatedCatalogItems.length === 0 && compCatalogItems.length === 0 ? (
                     <Text style={styles.compHintText}>Không có hạng mục phát sinh khả dụng.</Text>
                   ) : (
                     <View>
@@ -2027,7 +2314,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                         <View style={{ flex: 1, marginRight: 8 }}>
                           <Text style={styles.compCatalogDropdownTitle} numberOfLines={2}>
                             {(() => {
-                              const selected = compCatalogItems.find(
+                              const selected = [...compRelatedCatalogItems, ...compCatalogItems].find(
                                 (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId),
                               );
                               return selected?.title || 'Chọn hạng mục phát sinh';
@@ -2035,7 +2322,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                           </Text>
                           <Text style={styles.compCatalogDropdownSub} numberOfLines={1}>
                             {(() => {
-                              const selected = compCatalogItems.find(
+                              const selected = [...compRelatedCatalogItems, ...compCatalogItems].find(
                                 (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId),
                               );
                               const unitPrice = Number(selected?.unitPrice ?? 0);
@@ -2057,7 +2344,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                             nestedScrollEnabled
                             showsVerticalScrollIndicator={false}
                           >
-                            {compCatalogItems.map((c) => {
+                            {compRelatedCatalogItems.map((c) => {
                               const id = c?.extraChargeCatalogId;
                               const isSelected = Number(id) === Number(selectedCatalogId);
                               return (
@@ -2086,6 +2373,46 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                                     name={isSelected ? 'radio-button-on' : 'radio-button-off'}
                                     size={18}
                                     color={PRIMARY_COLOR}
+                                  />
+                                </TouchableOpacity>
+                              );
+                            })}
+                            {compRelatedCatalogItems.length > 0 && compCatalogItems.length > 0 && (
+                              <View style={styles.compCatalogSeparatorWrap}>
+                                <View style={styles.compCatalogSeparatorLine} />
+                                <Text style={styles.compCatalogSeparatorText}>Các hạng mục khác</Text>
+                                <View style={styles.compCatalogSeparatorLine} />
+                              </View>
+                            )}
+                            {compCatalogItems.map((c) => {
+                              const id = c?.extraChargeCatalogId;
+                              const isSelected = Number(id) === Number(selectedCatalogId);
+                              return (
+                                <TouchableOpacity
+                                  key={String(id)}
+                                  style={[
+                                    styles.compCatalogItem,
+                                    isSelected && styles.compCatalogItemSelected,
+                                    { marginBottom: 0 },
+                                  ]}
+                                  activeOpacity={0.85}
+                                  onPress={() => {
+                                    setSelectedCatalogId(id);
+                                    setCompCatalogDropdownOpen(false);
+                                  }}
+                                >
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.compCatalogTitle} numberOfLines={2}>
+                                      {c?.title || '—'}
+                                    </Text>
+                                    <Text style={styles.compCatalogSub} numberOfLines={2}>
+                                      {formatMoney(Number(c?.unitPrice ?? 0))} / {c?.unit || 'đơn vị'}
+                                    </Text>
+                                  </View>
+                                  <Ionicons
+                                    name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                                    size={18}
+                                    color={isSelected ? PRIMARY_COLOR : TEXT_SECONDARY}
                                   />
                                 </TouchableOpacity>
                               );
@@ -2138,7 +2465,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                           disabled={submittingComp}
                           onPress={() => setCompImages((prev) => prev.filter((_, i) => i !== idx))}
                         >
-                          <ExpoImage source={{ uri: img.uri }} style={styles.compThumb} />
+                          <ExpoImage source={{ uri: img.uri }} style={styles.compThumb} contentFit="contain" />
                           <View style={styles.compThumbRemoveBadge}>
                             <Ionicons name="close" size={12} color={BACKGROUND_WHITE} />
                           </View>
@@ -2387,6 +2714,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#EFEFEF',
   },
+  snapshotItemImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#EFEFEF',
+  },
   snapshotRowTitle: {
     fontSize: 13,
     fontWeight: '700',
@@ -2539,6 +2873,22 @@ const styles = StyleSheet.create({
     borderColor: PRIMARY_COLOR,
     backgroundColor: 'rgba(232, 113, 46, 0.06)',
   },
+  compCatalogSeparatorWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  compCatalogSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: BORDER_LIGHT,
+  },
+  compCatalogSeparatorText: {
+    marginHorizontal: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    color: TEXT_SECONDARY,
+  },
   compCatalogTitle: {
     fontSize: 14,
     fontWeight: '800',
@@ -2645,6 +2995,14 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#FAFAFA',
   },
+  summarySnapshotSectionCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: BACKGROUND_WHITE,
+    padding: 10,
+    marginBottom: 10,
+  },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2662,6 +3020,31 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  summaryExtraText: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  summaryNoteBox: {
+    marginBottom: 10,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  summaryNoteTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    marginBottom: 4,
+  },
+  summaryNoteText: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    lineHeight: 18,
   },
   compHeaderRow: {
     flexDirection: 'row',
@@ -2863,6 +3246,13 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     fontStyle: 'italic',
     marginTop: 2,
+  },
+  taskEvidenceThumb: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: '#EFEFEF',
   },
   taskStatusBadge: {
     paddingHorizontal: 10,

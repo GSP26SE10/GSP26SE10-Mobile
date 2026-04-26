@@ -12,10 +12,15 @@ import {
   Linking,
   Alert,
   RefreshControl,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ExpoImagePicker from 'expo-image-picker';
 import BottomNavigationStaff from '../components/BottomNavigationStaff';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { getAccessToken } from '../utils/auth';
@@ -42,6 +47,23 @@ const getTaskStatusNumber = (task) => Number(task?.taskStatus ?? task?.status ??
 /** Trạng thái tiếp theo: chỉ 1→2, 2→3. 3 → null (không đổi). */
 const getNextTaskStatus = (current) =>
   current === 1 ? 2 : current === 2 ? 3 : null;
+
+const guessMimeTypeFromUri = (uri) => {
+  if (!uri || typeof uri !== 'string') return 'image/jpeg';
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic')) return 'image/heic';
+  return 'image/jpeg';
+};
+
+const getFileNameFromUri = (uri, fallback = 'completion.jpg') => {
+  if (!uri || typeof uri !== 'string') return fallback;
+  const clean = uri.split('?')[0];
+  const parts = clean.split('/');
+  const last = parts[parts.length - 1];
+  return last || fallback;
+};
 
 const formatTaskTime = (iso) => {
   if (!iso) return '—';
@@ -70,6 +92,15 @@ const resolveImageUri = (img) => {
   if (!img || typeof img !== 'string') return null;
   if (img.startsWith('http://') || img.startsWith('https://')) return img;
   return `${API_URL}${img}`;
+};
+
+const getImageDimensions = (screenWidth, preferredHeight = 120) => {
+  // Calculate width to maintain aspect ratio for container
+  // preferredHeight is the target height, width fills available space
+  return {
+    width: '100%',
+    height: preferredHeight,
+  };
 };
 
 const pickMenuId = (...candidates) => {
@@ -147,12 +178,12 @@ function buildPartyDetailFromOrderDetail(od) {
   return {
     id: od.orderDetailId,
     menuId: resolveMenuIdFromOrderDetail(od),
-    image: resolveImageUri(od.menuImage),
-    name: od.menuName || '—',
-    dishes: od.partyCategory || '—',
-    guests: `${od.numberOfGuests ?? 0} người`,
-    timeRange: formatTimeRange(od.startTime, od.endTime),
-    address: od.address || '—',
+    image: resolveImageUri(od.menuImage ?? od?.menu?.image),
+    name: od.menuName ?? od?.menu?.name ?? '—',
+    dishes: od.partyCategory ?? od?.party?.category ?? '—',
+    guests: `${od.numberOfGuests ?? od?.party?.numberOfGuests ?? 0} người`,
+    timeRange: formatTimeRange(od.startTime ?? od?.schedule?.startTime, od.endTime ?? od?.schedule?.endTime),
+    address: od.address ?? od?.schedule?.address ?? '—',
     contactName: '—',
     phone: '—',
     status: mapOrderStatusToPartyStatus(od.orderStatus ?? od.status),
@@ -330,8 +361,11 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
   const [tasks, setTasks] = useState(fromApi ? initialTasksFromApi : mockTasks);
   const [confirmTask, setConfirmTask] = useState(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [completionNote, setCompletionNote] = useState('');
+  const [completionImage, setCompletionImage] = useState(null);
   const [refreshingTasks, setRefreshingTasks] = useState(false);
   const [tasksReady, setTasksReady] = useState(!fromApi);
+  const [taskEvidenceMap, setTaskEvidenceMap] = useState({});
   const swipeBack = useSwipeBack(() => navigation.goBack());
   const refreshFnRef = useRef(null);
 
@@ -352,6 +386,23 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
     if (statusNum === 5) return 'overdue';
     if (statusNum === 2) return 'inProgress';
     return 'default';
+  };
+
+  const fetchTaskEvidence = async (taskId) => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task?TaskId=${taskId}&page=1&pageSize=10`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const first = items[0];
+      return first?.img || null;
+    } catch (e) {
+      return null;
+    }
   };
 
   const refreshTasksForOrder = async () => {
@@ -382,7 +433,20 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           setResolvedOrderStatusNum(nextOrderStatusNum);
         }
       }
-      setTasks(forOrder.map(mapApiTaskToDisplay));
+      const displayTasks = forOrder.map(mapApiTaskToDisplay);
+      setTasks(displayTasks);
+      // Fetch evidence images for all tasks
+      const evidenceMap = {};
+      for (const task of displayTasks) {
+        const taskId = task.taskId ?? task.id;
+        if (taskId != null) {
+          const evidenceUrl = await fetchTaskEvidence(taskId);
+          if (evidenceUrl) {
+            evidenceMap[taskId] = evidenceUrl;
+          }
+        }
+      }
+      setTaskEvidenceMap(evidenceMap);
     } catch (e) {
       // keep current tasks
     } finally {
@@ -421,44 +485,130 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
         : t
     );
 
-  const updateTaskStatusMutation = useMutation({
-    mutationFn: async ({ taskId, nextStatus }) => {
+  const acceptTaskMutation = useMutation({
+    mutationFn: async ({ taskId }) => {
       const token = await getAccessToken();
       const res = await fetch(
-        `${API_URL}/api/order-detail-staff-task/${taskId}/staff-task-status`,
+        `${API_URL}/api/order-detail-staff-task/${taskId}/accept`,
         {
           method: 'PATCH',
           headers: {
-            'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ taskStatus: nextStatus }),
         }
       );
-      if (!res.ok) throw new Error('API failed');
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || 'Không thể nhận công việc.');
+      }
     },
-    onMutate: async ({ taskId, nextStatus, previousTasks }) => {
+    onMutate: async ({ taskId, previousTasks }) => {
       const optimisticList = applyOptimisticTaskStatus(
         previousTasks,
         taskId,
-        nextStatus
+        2
       );
       setTasks(optimisticList);
       return { previousTasks };
     },
-    onError: (err, { previousTasks }, context) => {
+    onError: (_err, _variables, context) => {
       if (context?.previousTasks != null) {
         setTasks(context.previousTasks);
       }
       Alert.alert(
         'Lỗi',
-        'Không thể cập nhật trạng thái. Vui lòng thử lại.'
+        'Không thể nhận công việc. Vui lòng thử lại.'
       );
     },
     onSettled: () => {
       if (fromApi) refreshTasksForOrder();
     },
   });
+
+  const completeTaskMutation = useMutation({
+    mutationFn: async ({ taskId, image, note }) => {
+      const token = await getAccessToken();
+      const formData = new FormData();
+      formData.append('CompletionImage', {
+        uri: image.uri,
+        type: image.type || guessMimeTypeFromUri(image.uri),
+        name: image.name || getFileNameFromUri(image.uri),
+      });
+      formData.append('Note', note?.trim() || '');
+
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task/${taskId}/complete`,
+        {
+          method: 'PATCH',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: formData,
+        }
+      );
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || 'Không thể hoàn thành công việc.');
+      }
+    },
+    onSuccess: () => {
+      setCompletionImage(null);
+      setCompletionNote('');
+      if (fromApi) refreshTasksForOrder();
+    },
+    onError: (error) => {
+      Alert.alert('Lỗi', error?.message || 'Không thể hoàn thành công việc.');
+    },
+  });
+
+  const pickCompletionImage = async () => {
+    try {
+      const permission = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission?.granted) {
+        Alert.alert('Quyền truy cập ảnh', 'Vui lòng cho phép truy cập thư viện ảnh.');
+        return;
+      }
+      const result = await ExpoImagePicker.launchImageLibraryAsync({
+        mediaTypes: ExpoImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      });
+      if (result?.canceled) return;
+      const first = Array.isArray(result?.assets) ? result.assets[0] : null;
+      if (!first?.uri) return;
+      setCompletionImage({
+        uri: first.uri,
+        type: first?.mimeType || guessMimeTypeFromUri(first.uri),
+        name: first?.fileName || getFileNameFromUri(first.uri),
+      });
+    } catch (_) {
+      Alert.alert('Lỗi', 'Không thể chọn ảnh. Vui lòng thử lại.');
+    }
+  };
+
+  const handleSubmitComplete = async () => {
+    if (!confirmTask) return;
+    const taskId = confirmTask.taskId ?? confirmTask.id;
+    if (!taskId) {
+      Alert.alert('Lỗi', 'Không xác định được công việc.');
+      return;
+    }
+    if (!completionImage?.uri) {
+      Alert.alert('Thiếu ảnh', 'Vui lòng chọn ảnh hoàn thành để gửi Leader.');
+      return;
+    }
+    try {
+      await completeTaskMutation.mutateAsync({
+        taskId,
+        image: completionImage,
+        note: completionNote,
+      });
+      setConfirmVisible(false);
+      setConfirmTask(null);
+    } catch (_) {
+      // handled by mutation onError
+    }
+  };
 
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
@@ -614,7 +764,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             <Image
               source={{ uri: partyDetail.image }}
               style={styles.partyImage}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           ) : (
             <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
@@ -624,7 +774,7 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
           <View style={styles.partyCardLeft}>
             <Text style={styles.partyName}>{partyDetail.name}</Text>
             <Text style={styles.partyMeta}>
-             {partyDetail.guests}
+             {partyDetail.dishes} · {partyDetail.guests}
             </Text>
             <Text style={styles.partyMeta}>
               <Text style={styles.partyMetaLabel}>Thời gian: </Text>
@@ -640,19 +790,6 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             >
               {partyDetail.address}
             </Text>
-            {partyDetail.contactName !== '—' && (
-              <Text style={styles.partyContact}>
-                Khách hàng: {partyDetail.contactName}
-              </Text>
-            )}
-            {partyDetail.phone !== '—' && (
-              <Text
-                style={[styles.partyContact, styles.partyPhone]}
-                onPress={handleCallPhone}
-              >
-                Số điện thoại: {partyDetail.phone}
-              </Text>
-            )}
           </View>
           <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
         </TouchableOpacity>
@@ -662,6 +799,13 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
             {(partyDetail.services || []).map((service, idx) => (
               <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                {service?.img && (
+                  <Image
+                    source={{ uri: service.img }}
+                    style={styles.snapshotItemImage}
+                    resizeMode="contain"
+                  />
+                )}
                 <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
                 <Text style={styles.snapshotRowMeta}>
                   SL: {service?.quantity ?? 1} · Đơn giá: {Number(service?.basePrice ?? 0).toLocaleString('vi-VN')}₫
@@ -676,6 +820,13 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
             {(partyDetail.customDishes || []).map((dish, idx) => (
               <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+                {dish?.img && (
+                  <Image
+                    source={{ uri: dish.img }}
+                    style={styles.snapshotItemImage}
+                    resizeMode="contain"
+                  />
+                )}
                 <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
                 <Text style={styles.snapshotRowMeta}>
                   Đơn giá: {Number(dish?.unitPrice ?? 0).toLocaleString('vi-VN')}₫ · Tổng: {Number(dish?.totalAmount ?? 0).toLocaleString('vi-VN')}₫
@@ -758,6 +909,8 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
             activeOpacity={0.8}
             onPress={() => {
               if (canChangeStatus) {
+                setCompletionImage(null);
+                setCompletionNote('');
                 setConfirmTask(task);
                 setConfirmVisible(true);
               }
@@ -777,6 +930,13 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
                   <Text style={styles.taskNote} numberOfLines={2}>
                     {task.note}
                   </Text>
+                )}
+                {fromApi && taskEvidenceMap[task.taskId ?? task.id] && (
+                  
+                  <Image
+                    source={{ uri: taskEvidenceMap[task.taskId ?? task.id] }}
+                    style={styles.taskEvidenceThumb}
+                  />
                 )}
               </View>
               <View
@@ -865,51 +1025,109 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
         visible={confirmVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmVisible(false)}
+        onRequestClose={() => {
+          setConfirmVisible(false);
+          setCompletionImage(null);
+          setCompletionNote('');
+        }}
       >
         <View style={styles.modalOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             activeOpacity={1}
-            onPress={() => setConfirmVisible(false)}
+            onPress={() => {
+              setConfirmVisible(false);
+              setCompletionImage(null);
+              setCompletionNote('');
+            }}
           />
-          <View style={styles.modalCard}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setConfirmVisible(false)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={20} color={TEXT_PRIMARY} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>
-              {confirmTask?.taskStatus === 1
-                ? 'Bắt đầu công việc'
-                : 'Xác nhận hoàn thành công việc'}
-            </Text>
-            <Text style={styles.modalTaskTitle}>
-              {confirmTask?.title || confirmTask?.taskName || ''}
-            </Text>
-            <SlideToConfirm
-              disabled={!confirmTask}
-              onComplete={() => {
-                if (!confirmTask) return;
-                setConfirmVisible(false);
-                if (fromApi) {
-                  const nextStatus = getNextTaskStatus(confirmTask.taskStatus);
-                  if (nextStatus != null) {
-                    const taskId = confirmTask.taskId ?? confirmTask.id;
-                    updateTaskStatusMutation.mutate({
-                      taskId,
-                      nextStatus,
-                      previousTasks: tasks,
-                    });
-                  }
-                } else {
-                  handleConfirmTask(confirmTask.id);
-                }
-              }}
-            />
-          </View>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+            style={styles.modalKeyboardWrapper}
+          >
+            <View style={styles.modalCard}>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
+                  setConfirmVisible(false);
+                  setCompletionImage(null);
+                  setCompletionNote('');
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={20} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>
+                {confirmTask?.taskStatus === 1
+                  ? 'Xác nhận nhận việc'
+                  : 'Gửi bằng chứng hoàn thành'}
+              </Text>
+              <Text style={styles.modalTaskTitle}>
+                {confirmTask?.title || confirmTask?.taskName || ''}
+              </Text>
+              {confirmTask?.taskStatus === 1 ? (
+                <SlideToConfirm
+                  disabled={!confirmTask || acceptTaskMutation.isPending}
+                  onComplete={() => {
+                    if (!confirmTask) return;
+                    setConfirmVisible(false);
+                    if (fromApi) {
+                      const taskId = confirmTask.taskId ?? confirmTask.id;
+                      acceptTaskMutation.mutate({
+                        taskId,
+                        previousTasks: tasks,
+                      });
+                    } else {
+                      handleConfirmTask(confirmTask.id);
+                    }
+                  }}
+                />
+              ) : (
+                <View>
+                  <TouchableOpacity
+                    style={styles.evidencePickButton}
+                    activeOpacity={0.85}
+                    onPress={pickCompletionImage}
+                    disabled={completeTaskMutation.isPending}
+                  >
+                    <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
+                    <Text style={styles.evidencePickButtonText}>
+                      {completionImage?.uri ? 'Đổi ảnh minh chứng' : 'Chọn ảnh minh chứng'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {completionImage?.uri ? (
+                    <Image source={{ uri: completionImage.uri }} style={styles.evidencePreview} resizeMode="contain" />
+                  ) : null}
+
+                  <TextInput
+                    style={styles.evidenceNoteInput}
+                    placeholder="Ghi chú"
+                    placeholderTextColor={TEXT_SECONDARY}
+                    multiline
+                    value={completionNote}
+                    onChangeText={setCompletionNote}
+                    editable={!completeTaskMutation.isPending}
+                  />
+
+                  <TouchableOpacity
+                    style={[
+                      styles.evidenceSubmitButton,
+                      (!completionImage?.uri || completeTaskMutation.isPending) && styles.evidenceSubmitButtonDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={handleSubmitComplete}
+                    disabled={!completionImage?.uri || completeTaskMutation.isPending}
+                  >
+                    <Text style={styles.evidenceSubmitButtonText}>
+                      {completeTaskMutation.isPending ? 'Đang gửi...' : 'Xác nhận hoàn thành'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -1029,6 +1247,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: '#EFEFEF',
+  },
+  snapshotItemImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#EFEFEF',
   },
   snapshotRowTitle: {
     fontSize: 13,
@@ -1178,6 +1403,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
+  taskEvidenceThumb: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: '#EFEFEF',
+  },
   taskTitle: {
     fontSize: 14,
     color: TEXT_PRIMARY,
@@ -1265,6 +1497,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
+  modalKeyboardWrapper: {
+    width: '100%',
+  },
   modalCard: {
     width: '100%',
     borderRadius: 20,
@@ -1292,6 +1527,58 @@ const styles = StyleSheet.create({
     color: TEXT_PRIMARY,
     textAlign: 'center',
     marginBottom: 20,
+  },
+  evidencePickButton: {
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    gap: 8,
+  },
+  evidencePickButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: TEXT_PRIMARY,
+  },
+  evidencePreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    marginBottom: 10,
+    backgroundColor: '#EFEFEF',
+  },
+  evidenceNoteInput: {
+    minHeight: 90,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: TEXT_PRIMARY,
+    textAlignVertical: 'top',
+  },
+  evidenceSubmitButton: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIMARY_COLOR,
+  },
+  evidenceSubmitButtonDisabled: {
+    opacity: 0.6,
+  },
+  evidenceSubmitButtonText: {
+    color: BUTTON_TEXT_WHITE,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 

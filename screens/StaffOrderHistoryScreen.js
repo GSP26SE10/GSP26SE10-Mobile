@@ -292,7 +292,7 @@ export default function StaffOrderHistoryScreen({ navigation }) {
             <Image
               source={{ uri: menuImageUri }}
               style={styles.partyImage}
-              contentFit="cover"
+              contentFit="contain"
               cachePolicy="disk"
               transition={120}
             />

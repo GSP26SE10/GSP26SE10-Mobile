@@ -65,6 +65,7 @@ export default function OrderSummaryScreen({ navigation, route }) {
   const [toastMessage, setToastMessage] = useState('');
   const [createdOrderId, setCreatedOrderId] = useState(null);
   const [paymentSuccessVisible, setPaymentSuccessVisible] = useState(false);
+  const [guestDiscountTiers, setGuestDiscountTiers] = useState([]);
   const timerRef = useRef(null);
   const paymentPollRef = useRef(null);
 
@@ -73,6 +74,29 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const parties = await getOrderParties();
       setOrderParties(parties);
     })();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}/api/guest-discount-tier?Status=1&page=1&pageSize=10`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const sorted = [...items].sort(
+          (a, b) => Number(a?.minGuestCount ?? 0) - Number(b?.minGuestCount ?? 0)
+        );
+        if (!cancelled) setGuestDiscountTiers(sorted);
+      } catch (_) {
+        if (!cancelled) setGuestDiscountTiers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -93,6 +117,16 @@ export default function OrderSummaryScreen({ navigation, route }) {
   }, [orderParties]);
 
   const partiesPricing = useMemo(() => {
+    const resolveDiscountPercent = (guestCount) => {
+      if (!Array.isArray(guestDiscountTiers) || guestDiscountTiers.length === 0) return 0;
+      let best = 0;
+      guestDiscountTiers.forEach((tier) => {
+        const minGuests = Number(tier?.minGuestCount ?? 0);
+        const percent = Number(tier?.discountPercent ?? 0);
+        if (guestCount >= minGuests && percent > best) best = percent;
+      });
+      return best;
+    };
     return (orderParties || []).map((p, index) => {
       const items = p.items || [];
       const menuItems = items.filter((i) => i.type === 'menu');
@@ -112,6 +146,9 @@ export default function OrderSummaryScreen({ navigation, route }) {
       const dishUnitSum = dishItems.reduce((sum, i) => sum + Number(i.basePrice ?? 0), 0);
       const dishSum = dishUnitSum * effectiveGuestCount;
       const subTotal = menuBaseSum * effectiveGuestCount + serviceSum + dishSum;
+      const discountPercent = resolveDiscountPercent(menuCount);
+      const discountAmount = Math.round(subTotal * (discountPercent / 100));
+      const totalAfterDiscount = Math.max(0, subTotal - discountAmount);
       const hasOrderableItems = hasMenu;
       return {
         index,
@@ -128,15 +165,22 @@ export default function OrderSummaryScreen({ navigation, route }) {
         serviceSum,
         dishSum,
         subTotal,
+        discountPercent,
+        discountAmount,
+        totalAfterDiscount,
       };
     });
-  }, [orderParties]);
+  }, [orderParties, guestDiscountTiers]);
 
   const subTotal = useMemo(
     () => partiesPricing.filter((p) => p.hasOrderableItems).reduce((sum, p) => sum + Number(p.subTotal ?? 0), 0),
     [partiesPricing]
   );
-  const total = subTotal;
+  const totalDiscount = useMemo(
+    () => partiesPricing.filter((p) => p.hasOrderableItems).reduce((sum, p) => sum + Number(p.discountAmount ?? 0), 0),
+    [partiesPricing]
+  );
+  const total = Math.max(0, subTotal - totalDiscount);
   const deposit = Math.round(total * 0.5);
   const payLater = total - deposit;
 
@@ -694,6 +738,17 @@ export default function OrderSummaryScreen({ navigation, route }) {
             <Text style={styles.lineLabel}>Tạm tính:</Text>
             <Text style={styles.lineValue}>{formatVnd(subTotal)}</Text>
           </View>
+          <View style={styles.lineRow}>
+            <Text style={styles.lineLabel}>Giảm giá theo số khách:</Text>
+            <Text style={styles.lineValue}>-{formatVnd(totalDiscount)}</Text>
+          </View>
+          {partiesPricing.filter((p) => p.hasOrderableItems).map((p) => (
+            <View key={`discount-${p.partyId ?? p.index}`} style={styles.lineRow}>
+              
+              <Text style={styles.lineLabel}>Phần trăm giảm giá ({p.menuCount} khách)</Text>
+              <Text style={styles.lineValue}>{p.discountPercent}%</Text>
+            </View>
+          ))}
           {/* <View style={styles.lineRow}>
             <Text style={styles.lineLabel}>Thuế VAT (10%):</Text>
             <Text style={styles.lineValue}>{formatVnd(vat)}</Text>

@@ -417,6 +417,15 @@ export default function OrderDetail({ navigation, route }) {
     const detailStatusNum = Number(
       od?.status ?? od?.orderDetailStatus ?? od?.orderStatus ?? 0
     );
+    // Khi đơn tổng đang ở bước chờ thanh toán nhưng tiệc con đã Completed,
+    // vẫn hiển thị là "Đang diễn ra" trên dot progress.
+    if (orderStatus === 6 && detailStatusNum === 6) {
+      return 'Đang diễn ra';
+    }
+    // Chỉ hiển thị "Kết thúc tiệc" khi đơn tổng đã Completed.
+    if (orderStatus === 7 && detailStatusNum === 6) {
+      return 'Kết thúc tiệc';
+    }
     const byDetail = mapOrderDetailStatusToPartyStatus(detailStatusNum);
     if (byDetail) return byDetail;
     return mapOrderStatusToPartyStatus(orderStatus);

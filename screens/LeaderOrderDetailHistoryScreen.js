@@ -25,9 +25,11 @@ import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
 import { getAccessToken } from '../utils/auth';
 
 const formatTimeRangeFromOrder = (order) => {
-  if (!order?.startTime) return '—';
-  const start = new Date(order.startTime);
-  const end = order?.endTime ? new Date(order.endTime) : start;
+  const startIso = order?.startTime ?? order?.schedule?.startTime;
+  const endIso = order?.endTime ?? order?.schedule?.endTime;
+  if (!startIso) return '—';
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : start;
   const time = (d) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const date = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   return `${time(start)} – ${time(end)}, ${date(start)}`;
@@ -113,61 +115,170 @@ const resolveMenuIdFromOrder = (order) => {
   );
 };
 
+const PAYMENT_METHOD_LABEL = {
+  1: 'Tiền mặt',
+  2: 'Chuyển khoản ngân hàng',
+  3: 'ZaloPay',
+};
+
+const PAYMENT_TYPE_LABEL = {
+  1: 'Thanh toán cọc',
+  2: 'Thanh toán nốt',
+};
+
+const PAYMENT_STATUS_LABEL = {
+  1: 'Chưa thanh toán',
+  2: 'Đã thanh toán',
+  3: 'Đã hủy',
+};
+
 export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
   const orderFromParams = route?.params?.order;
+  const [currentOrder, setCurrentOrder] = useState(orderFromParams ?? null);
   const formatVnd = (n) =>
     n != null && n !== '' ? `${Number(n).toLocaleString('vi-VN')}₫` : '—';
+  const effectiveOrder = currentOrder ?? orderFromParams ?? null;
 
-  const partyDetail = orderFromParams
+  const partyDetail = effectiveOrder
     ? {
-        id: orderFromParams.orderDetailId,
-        image: orderFromParams.menuImage || null,
-        name: orderFromParams.menuName || '—',
-        dishes: orderFromParams.partyCategory || '—',
-        guests: `${orderFromParams.numberOfGuests ?? 0} NGƯỜI`,
-        timeRange: formatTimeRangeFromOrder(orderFromParams),
-        address: orderFromParams.address || '—',
-        contactName: orderFromParams.customerName || '—',
-        phone: orderFromParams.customerPhone || '',
-        subtotal: formatVnd(orderFromParams.totalPrice),
-        deposit: formatVnd(orderFromParams.depositAmount),
-        remaining: formatVnd(orderFromParams.remainingAmount),
-        menuId: resolveMenuIdFromOrder(orderFromParams),
+        id: effectiveOrder.orderDetailId,
+        image: effectiveOrder.menuImage ?? effectiveOrder?.menu?.image ?? null,
+        name: effectiveOrder.menuName ?? effectiveOrder?.menu?.name ?? '—',
+        dishes: effectiveOrder.partyCategory ?? effectiveOrder?.party?.category ?? '—',
+        guests: `${effectiveOrder.numberOfGuests ?? effectiveOrder?.party?.numberOfGuests ?? 0} NGƯỜI`,
+        timeRange: formatTimeRangeFromOrder(effectiveOrder),
+        address: effectiveOrder.address ?? effectiveOrder?.schedule?.address ?? '—',
+        contactName: effectiveOrder.customerName ?? effectiveOrder?.customer?.name ?? '—',
+        phone: effectiveOrder.customerPhone ?? effectiveOrder?.customer?.phone ?? '',
+        subtotal: formatVnd(effectiveOrder.totalPrice),
+        deposit: formatVnd(effectiveOrder.depositAmount),
+        remaining: formatVnd(effectiveOrder.remainingAmount),
+        menuId: resolveMenuIdFromOrder(effectiveOrder),
       }
     : mockPartyDetail;
 
   const selectedServices = useMemo(() => {
-    const list = orderFromParams?.serviceSnapshot?.services;
+    const list = effectiveOrder?.serviceSnapshot?.services;
     return Array.isArray(list) ? list : [];
-  }, [orderFromParams?.serviceSnapshot?.services]);
+  }, [effectiveOrder?.serviceSnapshot?.services]);
 
   const selectedCustomDishes = useMemo(() => {
-    const list = orderFromParams?.customDishSnapshot?.customDishes;
+    const list = effectiveOrder?.customDishSnapshot?.customDishes;
     return Array.isArray(list) ? list : [];
-  }, [orderFromParams?.customDishSnapshot?.customDishes]);
+  }, [effectiveOrder?.customDishSnapshot?.customDishes]);
 
   const initialExtraCharges = useMemo(() => {
-    const list = Array.isArray(orderFromParams?.extraCharges) ? orderFromParams.extraCharges : [];
+    const list = Array.isArray(effectiveOrder?.extraCharges) ? effectiveOrder.extraCharges : [];
     return list;
-  }, [orderFromParams?.extraCharges]);
+  }, [effectiveOrder?.extraCharges]);
 
-  const tasks = (orderFromParams?.tasks && Array.isArray(orderFromParams.tasks))
-    ? orderFromParams.tasks.map(mapApiTaskToDisplay)
+  const tasks = (effectiveOrder?.tasks && Array.isArray(effectiveOrder.tasks))
+    ? effectiveOrder.tasks.map(mapApiTaskToDisplay)
     : [];
 
   const [activeTab, setActiveTab] = useState('overview');
+  const [taskEvidenceMap, setTaskEvidenceMap] = useState({});
   const swipeBack = useSwipeBack(() => navigation.goBack());
 
   const orderId =
-    orderFromParams?.orderId ??
-    orderFromParams?.orderDetailId ??
-    orderFromParams?.id ??
+    effectiveOrder?.orderId ??
+    effectiveOrder?.orderDetailId ??
+    effectiveOrder?.id ??
     route?.params?.orderId ??
     route?.params?.orderDetailId ??
     null;
 
   const [extraCharges, setExtraCharges] = useState(initialExtraCharges);
   const [loadingExtraCharges, setLoadingExtraCharges] = useState(false);
+  const [payments, setPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+
+  useEffect(() => {
+    setCurrentOrder(orderFromParams ?? null);
+  }, [orderFromParams]);
+
+  useEffect(() => {
+    setExtraCharges(initialExtraCharges);
+  }, [initialExtraCharges]);
+
+  const fetchOrderDetailByIds = async ({ token, orderId, orderDetailId }) => {
+    if (!orderId || !orderDetailId) return null;
+    const res = await fetch(
+      `${API_URL}/api/order-detail?OrderDetailId=${encodeURIComponent(String(orderDetailId))}&OrderId=${encodeURIComponent(String(orderId))}&page=1&pageSize=10`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const items = Array.isArray(json?.items) ? json.items : [];
+    return (
+      items.find(
+        (item) =>
+          Number(item?.orderDetailId) === Number(orderDetailId) &&
+          Number(item?.orderId) === Number(orderId)
+      ) || items[0] || null
+    );
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const orderIdValue =
+        effectiveOrder?.orderId ??
+        orderFromParams?.orderId ??
+        route?.params?.orderId ??
+        null;
+      const orderDetailIdValue =
+        effectiveOrder?.orderDetailId ??
+        orderFromParams?.orderDetailId ??
+        route?.params?.orderDetailId ??
+        null;
+      if (!orderIdValue || !orderDetailIdValue) return;
+      try {
+        const token = await getAccessToken();
+        const detailOrder = await fetchOrderDetailByIds({
+          token,
+          orderId: orderIdValue,
+          orderDetailId: orderDetailIdValue,
+        });
+        if (!detailOrder || cancelled) return;
+        const baseOrder = effectiveOrder ?? orderFromParams ?? {};
+        setCurrentOrder({
+          ...baseOrder,
+          ...detailOrder,
+          // order-detail API can miss task list from overview.
+          tasks: Array.isArray(baseOrder?.tasks)
+            ? baseOrder.tasks
+            : Array.isArray(detailOrder?.tasks)
+              ? detailOrder.tasks
+              : [],
+        });
+      } catch (_) {
+        // Keep current order data if detail API fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveOrder?.orderId, effectiveOrder?.orderDetailId, orderFromParams, route?.params?.orderId, route?.params?.orderDetailId]);
+
+  const fetchTaskEvidence = async (taskId) => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task?TaskId=${taskId}&page=1&pageSize=10`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const first = items[0];
+      return first?.img || null;
+    } catch (e) {
+      return null;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -193,13 +304,71 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
     };
   }, [orderId, initialExtraCharges]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const targetOrderId =
+        effectiveOrder?.orderId ??
+        orderFromParams?.orderId ??
+        route?.params?.orderId ??
+        null;
+      if (!targetOrderId) {
+        setPayments([]);
+        return;
+      }
+      try {
+        setLoadingPayments(true);
+        const token = await getAccessToken();
+        const res = await fetch(
+          `${API_URL}/api/payment?OrderId=${encodeURIComponent(String(targetOrderId))}&page=1&pageSize=10`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json?.items) ? json.items : Array.isArray(json) ? json : [];
+        if (!cancelled) {
+          const sorted = [...list].sort((a, b) => {
+            const tA = new Date(a?.paidAt ?? 0).getTime();
+            const tB = new Date(b?.paidAt ?? 0).getTime();
+            return tB - tA;
+          });
+          setPayments(sorted);
+        }
+      } catch (_) {
+        if (!cancelled) setPayments([]);
+      } finally {
+        if (!cancelled) setLoadingPayments(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveOrder?.orderId, orderFromParams?.orderId, route?.params?.orderId]);
+
+  useEffect(() => {
+    const fetchAllEvidence = async () => {
+      const evidenceMap = {};
+      for (const task of tasks) {
+        const taskId = task.id;
+        if (taskId != null) {
+          const evidenceUrl = await fetchTaskEvidence(taskId);
+          if (evidenceUrl) {
+            evidenceMap[taskId] = evidenceUrl;
+          }
+        }
+      }
+      setTaskEvidenceMap(evidenceMap);
+    };
+    if (tasks.length > 0) {
+      fetchAllEvidence();
+    }
+  }, [tasks]);
+
   const extraChargeTotal = useMemo(() => {
     return (Array.isArray(extraCharges) ? extraCharges : []).reduce(
       (sum, it) => sum + Number(it?.totalAmount ?? 0),
       0,
     );
   }, [extraCharges]);
-
   const formatDateTime = (iso) => {
     if (!iso) return '';
     try {
@@ -214,6 +383,16 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
       return '';
     }
   };
+  const actualEndTimeLabel = formatDateTime(effectiveOrder?.actualEndTime);
+  const hasOvertimeMinutes = effectiveOrder?.overtimeMinutes != null;
+  const overtimeMinutesLabel = hasOvertimeMinutes
+    ? `${Number(effectiveOrder?.overtimeMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const hasServiceDurationMinutes = effectiveOrder?.serviceDurationMinutes != null;
+  const serviceDurationMinutesLabel = hasServiceDurationMinutes
+    ? `${Number(effectiveOrder?.serviceDurationMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const noteOrderDetailText = String(effectiveOrder?.noteOrderDetail ?? '').trim();
 
   const handleOpenCalendar = async () => {
     const title = encodeURIComponent(`Tiệc ${partyDetail.name}`);
@@ -221,10 +400,10 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
       `${partyDetail.dishes}, ${partyDetail.guests}, ${partyDetail.address}`
     );
     let datesParam = '';
-    if (orderFromParams?.startTime) {
+    if (effectiveOrder?.startTime) {
       try {
-        const start = new Date(orderFromParams.startTime);
-        const end = orderFromParams.endTime ? new Date(orderFromParams.endTime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+        const start = new Date(effectiveOrder.startTime);
+        const end = effectiveOrder.endTime ? new Date(effectiveOrder.endTime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
         const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
         const format = (d) =>
           `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
@@ -272,7 +451,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
 
   const renderStatusSteps = () => {
     const steps = ['Đang chuẩn bị', 'Đang diễn ra', 'Kết thúc tiệc'];
-    const orderStatus = orderFromParams?.orderStatus ?? route?.params?.orderStatus;
+    const orderStatus = effectiveOrder?.orderStatus ?? route?.params?.orderStatus;
     const mapped = getOrderStatusProgressStepIndex(orderStatus);
     // 4→0, 5/6→1, 7→2; mã khác giữ như cũ (coi như đã xong)
     const currentIndex = mapped != null ? mapped : 2;
@@ -328,7 +507,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
           <Image
             source={{ uri: partyDetail.image }}
             style={styles.partyImage}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         ) : (
           <View style={styles.partyImagePlaceholder}>
@@ -374,6 +553,13 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
           {selectedServices.map((service, idx) => (
             <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              {service?.img && (
+                <Image
+                  source={{ uri: service.img }}
+                  style={styles.snapshotItemImage}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
               <Text style={styles.snapshotRowMeta}>
                 SL: {service?.quantity ?? 1} · Đơn giá: {formatVnd(service?.basePrice ?? 0)}
@@ -388,6 +574,13 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
           {selectedCustomDishes.map((dish, idx) => (
             <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              {dish?.img && (
+                <Image
+                  source={{ uri: dish.img }}
+                  style={styles.snapshotItemImage}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
               <Text style={styles.snapshotRowMeta}>
                 Đơn giá: {formatVnd(dish?.unitPrice ?? 0)} · Tổng: {formatVnd(dish?.totalAmount ?? 0)}
@@ -398,6 +591,35 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
       )}
 
       {renderStatusSteps()}
+
+      {(!!actualEndTimeLabel || hasOvertimeMinutes || hasServiceDurationMinutes || !!noteOrderDetailText) && (
+        <View style={[styles.summarySection, { marginBottom: 14 }]}>
+          {!!actualEndTimeLabel && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian kết thúc thực tế</Text>
+              <Text style={styles.summaryValue}>{actualEndTimeLabel}</Text>
+            </View>
+          )}
+          {hasOvertimeMinutes && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian quá giờ</Text>
+              <Text style={styles.summaryValue}>{overtimeMinutesLabel}</Text>
+            </View>
+          )}
+          {hasServiceDurationMinutes && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian phục vụ</Text>
+              <Text style={styles.summaryValue}>{serviceDurationMinutesLabel}</Text>
+            </View>
+          )}
+          {!!noteOrderDetailText && (
+            <View style={styles.summaryNoteBox}>
+              <Text style={styles.summaryNoteTitle}>Ghi chú</Text>
+              <Text style={styles.summaryNoteText}>{noteOrderDetailText}</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       <View style={styles.summarySection}>
         <View style={[styles.summaryRow, { marginTop: 8 }]}>
@@ -414,7 +636,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
             <Text style={styles.summaryValue}>{formatVnd(extraChargeTotal)}</Text>
           </View>
         )}
-        {Number(orderFromParams?.remainingAmount ?? 0) > 0 && (
+        {Number(effectiveOrder?.remainingAmount ?? 0) > 0 && (
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
               Còn lại
@@ -471,7 +693,7 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
                         key={`${u}-${i}`}
                         source={{ uri: String(u) }}
                         style={styles.extraChargeImg}
-                        resizeMode="cover"
+                        resizeMode="contain"
                       />
                     ))}
                   </View>
@@ -479,6 +701,59 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
               </View>
             );
           })
+        )}
+      </View>
+
+      <View style={styles.paymentSection}>
+        <View style={styles.payHeaderRow}>
+          <Ionicons
+            name="card-outline"
+            size={18}
+            color={TEXT_SECONDARY}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.paymentTitle}>Thanh toán</Text>
+        </View>
+        {loadingPayments ? (
+          <Text style={styles.paymentHint}>Đang tải...</Text>
+        ) : payments.length === 0 ? (
+          <Text style={styles.paymentHint}>Chưa có giao dịch thanh toán.</Text>
+        ) : (
+          payments.map((p, idx) => (
+            <View
+              key={String(p?.paymentId ?? `payment-${idx}`)}
+              style={[styles.paymentCard, idx > 0 && { marginTop: 10 }]}
+            >
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Loại</Text>
+                <Text style={styles.summaryValue}>
+                  {PAYMENT_TYPE_LABEL[Number(p?.paymentType)] ?? '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Phương thức</Text>
+                <Text style={styles.summaryValue}>
+                  {PAYMENT_METHOD_LABEL[Number(p?.paymentMethod)] ?? '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Thời gian</Text>
+                <Text style={styles.summaryValue}>{formatDateTime(p?.paidAt)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Trạng thái</Text>
+                <Text style={styles.summaryValue}>
+                  {PAYMENT_STATUS_LABEL[Number(p?.paymentStatus)] ?? '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, styles.summaryHighlight]}>Số tiền</Text>
+                <Text style={[styles.summaryValue, styles.summaryHighlight]}>
+                  {formatVnd(p?.amount ?? 0)}
+                </Text>
+              </View>
+            </View>
+          ))
         )}
       </View>
     </ScrollView>
@@ -512,6 +787,13 @@ export default function LeaderOrderDetailHistoryScreen({ navigation, route }) {
               )}
               {!!task.assignee && task.assignee !== '—' && (
                 <Text style={styles.taskMeta}>Nhân viên: {task.assignee}</Text>
+              )}
+              {taskEvidenceMap[task.id] && (
+                <Image
+                  source={{ uri: taskEvidenceMap[task.id] }}
+                  style={styles.taskEvidenceThumb}
+                  resizeMode="contain"
+                />
               )}
             </View>
             {(() => {
@@ -763,6 +1045,13 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     fontWeight: '600',
   },
+  snapshotItemImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: '#EAEAEA',
+    marginBottom: 8,
+  },
   statusSteps: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -821,6 +1110,52 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  summaryNoteBox: {
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    paddingTop: 10,
+  },
+  summaryNoteTitle: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  summaryNoteText: {
+    fontSize: 13,
+    color: TEXT_PRIMARY,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  paymentSection: {
+    marginTop: 14,
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#FAFAFA',
+  },
+  payHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  paymentTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_PRIMARY,
+  },
+  paymentHint: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  paymentCard: {
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: BACKGROUND_WHITE,
   },
   extraChargeSection: {
     marginTop: 14,
@@ -935,6 +1270,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: TEXT_SECONDARY,
     marginBottom: 2,
+  },
+  taskEvidenceThumb: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: '#EFEFEF',
   },
   taskStatusBadge: {
     paddingHorizontal: 10,

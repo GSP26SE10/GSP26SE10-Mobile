@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -63,6 +63,7 @@ const clampNotPast = (d) => {
 };
 
 export default function OrderConfirmationScreen({ navigation, route }) {
+  const scrollRef = useRef(null);
   const [orderParties, setOrderParties] = useState([]);
   const [partyIndex, setPartyIndex] = useState(Number(route?.params?.partyIndex ?? 0));
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -110,6 +111,9 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const [partyCategoryModalVisible, setPartyCategoryModalVisible] = useState(false);
   const [loadingPartyCategories, setLoadingPartyCategories] = useState(false);
   const [partyCategoryImageErrorMap, setPartyCategoryImageErrorMap] = useState({});
+  const [guestDiscountModalVisible, setGuestDiscountModalVisible] = useState(false);
+  const [guestDiscountTiers, setGuestDiscountTiers] = useState([]);
+  const [loadingGuestDiscountTiers, setLoadingGuestDiscountTiers] = useState(false);
   const currentParty = (orderParties || [])[partyIndex] || (orderParties || [])[0] || null;
   const cartItems = currentParty?.items || [];
 
@@ -338,6 +342,32 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingGuestDiscountTiers(true);
+        const token = await getAccessToken();
+        const res = await fetch(`${API_URL}/api/guest-discount-tier?Status=1&page=1&pageSize=10`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json().catch(() => null);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        const sorted = [...items].sort(
+          (a, b) => Number(a?.minGuestCount ?? 0) - Number(b?.minGuestCount ?? 0)
+        );
+        if (!cancelled) setGuestDiscountTiers(sorted);
+      } catch (_) {
+        if (!cancelled) setGuestDiscountTiers([]);
+      } finally {
+        if (!cancelled) setLoadingGuestDiscountTiers(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const selectedPartyCategory = useMemo(
     () =>
       partyCategories.find(
@@ -392,6 +422,13 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     navigation.goBack();
   };
 
+  const handleNoteFocus = () => {
+    if (Platform.OS !== 'ios') return;
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd?.({ animated: true });
+    }, 120);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
@@ -414,6 +451,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
+          ref={scrollRef}
           style={styles.scrollView}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -493,7 +531,16 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
             <View style={styles.guestRow}>
               <Text style={styles.guestLabel}>Số lượng khách:</Text>
-              <Text style={styles.guestValue}>{menuCount}</Text>
+              <View style={styles.guestValueWrap}>
+                <Text style={styles.guestValue}>{menuCount}</Text>
+                <TouchableOpacity
+                  style={styles.guestInfoBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setGuestDiscountModalVisible(true)}
+                >
+                  <Ionicons name="information-circle-outline" size={18} color={TEXT_SECONDARY} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.row}>
@@ -582,6 +629,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
               <TextInput
                 value={noteOrderDetail}
                 onChangeText={setNoteOrderDetail}
+                onFocus={handleNoteFocus}
                 placeholder="Nhập ghi chú cho tiệc (không bắt buộc)"
                 placeholderTextColor={TEXT_SECONDARY}
                 style={[styles.input, styles.noteInput]}
@@ -817,6 +865,59 @@ export default function OrderConfirmationScreen({ navigation, route }) {
             </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        visible={guestDiscountModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGuestDiscountModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Giảm giá</Text>
+              <TouchableOpacity
+                onPress={() => setGuestDiscountModalVisible(false)}
+                style={styles.modalClose}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+            </View>
+            {loadingGuestDiscountTiers ? (
+              <Text style={styles.partyCategoryHint}>Đang tải mức giảm giá...</Text>
+            ) : guestDiscountTiers.length === 0 ? (
+              <Text style={styles.partyCategoryHint}>Chưa có mức giảm giá khả dụng.</Text>
+            ) : (
+              <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+                {guestDiscountTiers.map((tier) => {
+                  const minGuests = Number(tier?.minGuestCount ?? 0);
+                  const percent = Number(tier?.discountPercent ?? 0);
+                  const isQualified = menuCount >= minGuests;
+                  return (
+                    <View
+                      key={String(tier?.guestDiscountTierId ?? `${minGuests}-${percent}`)}
+                      style={[styles.discountTierRow, isQualified && styles.discountTierRowActive]}
+                    >
+                      <View style={styles.discountTierTextWrap}>
+
+                        {!!tier?.note && (
+                          <Text style={styles.discountTierTitle} numberOfLines={2}>
+                            {String(tier.note)}
+                          </Text>
+                        )}
+                        {isQualified && (
+                          <Text style={styles.discountTierReached}>Đang áp dụng</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
       </Modal>
 
       <Modal
@@ -1076,6 +1177,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: TEXT_PRIMARY,
   },
+  guestValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  guestInfoBtn: {
+    marginLeft: 6,
+    padding: 2,
+  },
   formRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1305,6 +1414,43 @@ const styles = StyleSheet.create({
   },
   partyCategoryRowDisabled: {
     opacity: 0.5,
+  },
+  discountTierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    marginBottom: 8,
+    backgroundColor: BACKGROUND_WHITE,
+  },
+  discountTierRowActive: {
+    backgroundColor: 'rgba(255,128,0,0.08)',
+    borderColor: PRIMARY_COLOR,
+  },
+  discountTierTextWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+  discountTierTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+  },
+  discountTierNote: {
+    marginTop: 3,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '600',
+  },
+  discountTierReached: {
+    marginTop: 4,
+    fontSize: 12,
+    color: PRIMARY_COLOR,
+    fontWeight: '700',
   },
   bottomSafe: {
     position: 'absolute',

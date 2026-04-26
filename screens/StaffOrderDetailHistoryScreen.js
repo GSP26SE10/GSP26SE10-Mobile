@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import {
 } from '../constants/colors';
 import API_URL from '../constants/api';
 import { getOrderStatusProgressStepIndex } from '../utils/orderStatusSteps';
+import { getAccessToken } from '../utils/auth';
 
 const formatTimeRange = (startIso, endIso) => {
   if (!startIso) return '—';
@@ -79,12 +80,12 @@ function buildPartyDetailFromOrderDetail(od) {
   return {
     id: od.orderDetailId,
     menuId: resolveMenuIdFromOrderDetail(od),
-    image: resolveImageUri(od.menuImage),
-    name: od.menuName || '—',
-    dishes: od.partyCategory || '—',
-    guests: `${od.numberOfGuests ?? 0} người`,
-    timeRange: formatTimeRange(od.startTime, od.endTime),
-    address: od.address || '—',
+    image: resolveImageUri(od.menuImage ?? od?.menu?.image),
+    name: od.menuName ?? od?.menu?.name ?? '—',
+    dishes: od.partyCategory ?? od?.party?.category ?? '—',
+    guests: `${od.numberOfGuests ?? od?.party?.numberOfGuests ?? 0} người`,
+    timeRange: formatTimeRange(od.startTime ?? od?.schedule?.startTime, od.endTime ?? od?.schedule?.endTime),
+    address: od.address ?? od?.schedule?.address ?? '—',
     contactName: '—',
     phone: '—',
     status: 'Kết thúc tiệc',
@@ -111,6 +112,7 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
   const orderDetail = route?.params?.orderDetail;
   const paramsTasks = route?.params?.tasks ?? [];
   const fromParams = orderDetail && Array.isArray(paramsTasks);
+  const [taskEvidenceMap, setTaskEvidenceMap] = useState({});
 
   const partyDetail = useMemo(
     () => buildPartyDetailFromOrderDetail(orderDetail) || {
@@ -131,6 +133,54 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
     () => (fromParams ? paramsTasks.map(mapTaskToDisplay) : []),
     [fromParams, paramsTasks]
   );
+  const actualEndTimeLabel = orderDetail?.actualEndTime
+    ? formatTaskTime(orderDetail.actualEndTime)
+    : '';
+  const hasOvertimeMinutes = orderDetail?.overtimeMinutes != null;
+  const overtimeMinutesLabel = hasOvertimeMinutes
+    ? `${Number(orderDetail?.overtimeMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const hasServiceDurationMinutes = orderDetail?.serviceDurationMinutes != null;
+  const serviceDurationMinutesLabel = hasServiceDurationMinutes
+    ? `${Number(orderDetail?.serviceDurationMinutes || 0).toLocaleString('vi-VN')} phút`
+    : '';
+  const noteOrderDetailText = String(orderDetail?.noteOrderDetail ?? '').trim();
+
+  const fetchTaskEvidence = async (taskId) => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `${API_URL}/api/order-detail-staff-task?TaskId=${taskId}&page=1&pageSize=10`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const first = items[0];
+      return first?.img || null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const fetchAllEvidence = async () => {
+      const evidenceMap = {};
+      for (const task of tasks) {
+        const taskId = task.taskId ?? task.id;
+        if (taskId != null) {
+          const evidenceUrl = await fetchTaskEvidence(taskId);
+          if (evidenceUrl) {
+            evidenceMap[taskId] = evidenceUrl;
+          }
+        }
+      }
+      setTaskEvidenceMap(evidenceMap);
+    };
+    if (tasks.length > 0) {
+      fetchAllEvidence();
+    }
+  }, [tasks]);
 
   const swipeBack = useSwipeBack(() => navigation.goBack());
 
@@ -194,7 +244,7 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           <Image
             source={{ uri: partyDetail.image }}
             style={styles.partyImage}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         ) : (
           <View style={[styles.partyImage, styles.partyImagePlaceholder]}>
@@ -209,10 +259,6 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.partyAddress} numberOfLines={2}>
             {partyDetail.address}
           </Text>
-          <Text style={styles.partyContact}>
-            Khách hàng: {partyDetail.contactName}
-            {partyDetail.phone ? ` – ${partyDetail.phone}` : ''}
-          </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={TEXT_SECONDARY} />
       </TouchableOpacity>
@@ -222,6 +268,13 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.snapshotSectionTitle}>Dịch vụ đã chọn</Text>
           {(partyDetail.services || []).map((service, idx) => (
             <View key={`svc-${service?.serviceId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              {service?.img && (
+                <Image
+                  source={{ uri: service.img }}
+                  style={styles.snapshotItemImage}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.snapshotRowTitle}>{service?.serviceName || 'Dịch vụ'}</Text>
               <Text style={styles.snapshotRowMeta}>
                 SL: {service?.quantity ?? 1} · Đơn giá: {Number(service?.basePrice ?? 0).toLocaleString('vi-VN')}₫
@@ -236,6 +289,13 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           <Text style={styles.snapshotSectionTitle}>Món lẻ đã chọn</Text>
           {(partyDetail.customDishes || []).map((dish, idx) => (
             <View key={`dish-${dish?.dishId ?? idx}-${idx}`} style={styles.snapshotRowItem}>
+              {dish?.img && (
+                <Image
+                  source={{ uri: dish.img }}
+                  style={styles.snapshotItemImage}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.snapshotRowTitle}>{dish?.dishName || 'Món lẻ'}</Text>
               <Text style={styles.snapshotRowMeta}>
                 Đơn giá: {Number(dish?.unitPrice ?? 0).toLocaleString('vi-VN')}₫ · Tổng: {Number(dish?.totalAmount ?? 0).toLocaleString('vi-VN')}₫
@@ -246,6 +306,35 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
       )}
 
       {renderStatusSteps()}
+
+      {(!!actualEndTimeLabel || hasOvertimeMinutes || hasServiceDurationMinutes || !!noteOrderDetailText) && (
+        <View style={styles.summarySection}>
+          {!!actualEndTimeLabel && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian kết thúc thực tế</Text>
+              <Text style={styles.summaryValue}>{actualEndTimeLabel}</Text>
+            </View>
+          )}
+          {hasOvertimeMinutes && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian quá giờ</Text>
+              <Text style={styles.summaryValue}>{overtimeMinutesLabel}</Text>
+            </View>
+          )}
+          {hasServiceDurationMinutes && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Thời gian phục vụ</Text>
+              <Text style={styles.summaryValue}>{serviceDurationMinutesLabel}</Text>
+            </View>
+          )}
+          {!!noteOrderDetailText && (
+            <View style={styles.summaryNoteBox}>
+              <Text style={styles.summaryNoteTitle}>Ghi chú</Text>
+              <Text style={styles.summaryNoteText}>{noteOrderDetailText}</Text>
+            </View>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 
@@ -278,6 +367,13 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
                   <Text style={styles.taskNote} numberOfLines={2}>
                     Ghi chú: {task.note}
                   </Text>
+                )}
+                {taskEvidenceMap[task.taskId ?? task.id] && (
+                  <Image
+                    source={{ uri: taskEvidenceMap[task.taskId ?? task.id] }}
+                    style={styles.taskEvidenceThumb}
+                    resizeMode="contain"
+                  />
                 )}
               </View>
               <View
@@ -484,6 +580,13 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     fontWeight: '600',
   },
+  snapshotItemImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: '#EAEAEA',
+    marginBottom: 8,
+  },
   partyInfo: {
     flex: 1,
     marginRight: 4,
@@ -567,6 +670,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: PRIMARY_COLOR,
   },
+  summaryNoteBox: {
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    paddingTop: 10,
+  },
+  summaryNoteTitle: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  summaryNoteText: {
+    fontSize: 13,
+    color: TEXT_PRIMARY,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
   reviewSection: {
     marginTop: 24,
     padding: 16,
@@ -640,6 +761,13 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  taskEvidenceThumb: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: '#EFEFEF',
   },
   taskStatusBadge: {
     paddingHorizontal: 10,
