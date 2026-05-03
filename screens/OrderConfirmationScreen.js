@@ -51,6 +51,17 @@ const formatDate = (d) =>
 const formatTime = (d) =>
   d?.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) || '';
 
+/** Hiển thị serviceDurationMinutes từ API (phút). */
+const formatServiceDurationVi = (totalMinutes) => {
+  const m = Math.round(Number(totalMinutes));
+  if (!Number.isFinite(m) || m <= 0) return '—';
+  const h = Math.floor(m / 60);
+  const minRem = m % 60;
+  if (h > 0 && minRem > 0) return `${m} phút (${h} giờ ${minRem} phút)`;
+  if (h > 0) return `${m} phút (${h} giờ)`;
+  return `${m} phút`;
+};
+
 const combineDateAndTime = (datePart, timePart) => {
   const d = new Date(datePart);
   d.setHours(timePart.getHours(), timePart.getMinutes(), 0, 0);
@@ -198,7 +209,8 @@ export default function OrderConfirmationScreen({ navigation, route }) {
 
   const minPartyDateObj = useMemo(() => getMinPartyDateObject(), []);
 
-  // Đồng bộ: ngày tổ chức theo lịch VN phải >= hôm nay (VN) + 3 ngày; end > start.
+  // Đồng bộ: ngày tổ chức theo lịch VN phải >= hôm nay (VN) + 3 ngày; end > start;
+  // và (giờ kết thúc − giờ bắt đầu) không vượt quá serviceDurationMinutes của loại tiệc (nếu có).
   useEffect(() => {
     const now = new Date();
     const minKey = getMinPartyDateKeyVietnam(now);
@@ -209,6 +221,12 @@ export default function OrderConfirmationScreen({ navigation, route }) {
       return;
     }
 
+    const category =
+      partyCategoryId != null
+        ? partyCategories.find((c) => Number(c?.partyCategoryId) === Number(partyCategoryId))
+        : null;
+    const limitMinutes = Number(category?.serviceDurationMinutes ?? 0);
+
     const nextStart = combineDateAndTime(eventDate, startTime);
     const safeStart = nextStart.getTime() < now.getTime() ? clampNotPast(nextStart) : nextStart;
 
@@ -216,6 +234,12 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     if (safeEnd.getTime() <= safeStart.getTime()) {
       safeEnd = new Date(safeStart);
       safeEnd.setHours(safeEnd.getHours() + 3);
+    }
+    if (Number.isFinite(limitMinutes) && limitMinutes > 0) {
+      const maxEnd = new Date(safeStart.getTime() + limitMinutes * 60000);
+      if (safeEnd.getTime() > maxEnd.getTime()) {
+        safeEnd = maxEnd;
+      }
     }
 
     const startT = safeStart.getTime();
@@ -232,6 +256,8 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     eventDate.getTime(),
     startTime.getTime(),
     endTime.getTime(),
+    partyCategoryId,
+    partyCategories,
   ]);
 
   useEffect(() => {
@@ -382,6 +408,12 @@ export default function OrderConfirmationScreen({ navigation, route }) {
   const selectedPartyCategoryMeetsGuests =
     !selectedPartyCategoryHasMinGuests || menuCount >= selectedPartyCategoryMinGuests;
 
+  const selectedPartyCategoryServiceMinutes = Number(
+    selectedPartyCategory?.serviceDurationMinutes ?? 0
+  );
+  const hasServiceDurationCap =
+    Number.isFinite(selectedPartyCategoryServiceMinutes) && selectedPartyCategoryServiceMinutes > 0;
+
   useEffect(() => {
     if (!partyCategoryId || !selectedPartyCategoryHasMinGuests) return;
     if (selectedPartyCategoryMeetsGuests) return;
@@ -398,6 +430,25 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     () => combineDateAndTime(eventDate, startTime),
     [eventDate, startTime],
   );
+  const partyEndCombined = useMemo(
+    () => combineDateAndTime(eventDate, endTime),
+    [eventDate, endTime],
+  );
+  /** Thời lượng tiệc (phút): giờ kết thúc − giờ bắt đầu; phải ≤ serviceDurationMinutes. */
+  const partyDurationMinutes = useMemo(() => {
+    const ms = partyEndCombined.getTime() - partyStartCombined.getTime();
+    return Math.round(ms / 60000);
+  }, [partyStartCombined, partyEndCombined]);
+
+  const partyDurationWithinServiceCap = useMemo(() => {
+    if (!hasServiceDurationCap) return true;
+    return partyDurationMinutes <= selectedPartyCategoryServiceMinutes;
+  }, [
+    hasServiceDurationCap,
+    partyDurationMinutes,
+    selectedPartyCategoryServiceMinutes,
+  ]);
+
   const partyStartMeetsLeadDays = useMemo(
     () => isPartyStartAtLeastThreeDaysFromTodayVietnam(partyStartCombined),
     [partyStartCombined],
@@ -407,7 +458,8 @@ export default function OrderConfirmationScreen({ navigation, route }) {
     addressLine.trim().length > 0 &&
     partyCategoryId != null &&
     partyStartMeetsLeadDays &&
-    selectedPartyCategoryMeetsGuests;
+    selectedPartyCategoryMeetsGuests &&
+    partyDurationWithinServiceCap;
   const isMultiParty = orderParties.length > 1;
   const canGoPreviousParty = isMultiParty && partyIndex > 0;
   const isLastParty = partyIndex >= orderParties.length - 1;
@@ -543,6 +595,15 @@ export default function OrderConfirmationScreen({ navigation, route }) {
               </View>
             </View>
 
+            {hasServiceDurationCap ? (
+              <View style={[styles.guestRow, { marginBottom: 4 }]}>
+                <Text style={styles.guestLabel}>Thời gian phục vụ:</Text>
+                <Text style={[styles.guestValue, styles.guestServiceDurationValue]}>
+                  {formatServiceDurationVi(selectedPartyCategoryServiceMinutes)}
+                </Text>
+              </View>
+            ) : null}
+
             <View style={styles.row}>
               <View style={[styles.rowItem, { marginRight: 6 }]}>
                 <Text style={styles.fieldLabel}>Ngày tổ chức</Text>
@@ -581,6 +642,21 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
             </View>
+            {hasServiceDurationCap ? (
+              <>
+                {!partyDurationWithinServiceCap ? (
+                  <Text style={styles.fieldHintWarning}>
+                    Thời gian tiệc (từ giờ bắt đầu đến giờ kết thúc) không được vượt quá{' '}
+                    {selectedPartyCategoryServiceMinutes} phút theo loại tiệc đã chọn.
+                  </Text>
+                ) : (
+                  <Text style={styles.fieldHint}>
+                    Đặt trong tối đa {selectedPartyCategoryServiceMinutes} phút ({partyDurationMinutes}{' '}
+                    phút đã chọn).
+                  </Text>
+                )}
+              </>
+            ) : null}
           </View>
 
           {/* Location */}
@@ -1185,6 +1261,16 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     padding: 2,
   },
+  guestServiceDurationValue: {
+    flex: 1,
+    flexShrink: 1,
+    marginLeft: 12,
+    textAlign: 'right',
+    fontSize: 14,
+    fontWeight: '700',
+    color: TEXT_PRIMARY,
+    lineHeight: 20,
+  },
   formRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1211,6 +1297,13 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 11,
     color: TEXT_SECONDARY,
+    fontWeight: '600',
+    lineHeight: 15,
+  },
+  fieldHintWarning: {
+    marginTop: 8,
+    fontSize: 11,
+    color: '#C0392B',
     fontWeight: '600',
     lineHeight: 15,
   },
