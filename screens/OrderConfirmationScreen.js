@@ -873,13 +873,23 @@ export default function OrderConfirmationScreen({ navigation, route }) {
         onRequestClose={() => setSelectModalVisible(false)}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalOverlay,
+              keyboardVisible && Platform.OS === 'android' && styles.modalOverlayKeyboardActive,
+            ]}
+          >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={styles.modalKav}
             >
               <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
-                <View style={styles.modalCard}>
+                <View
+                  style={[
+                    styles.modalCard,
+                    keyboardVisible && Platform.OS === 'android' && styles.modalCardKeyboardActive,
+                  ]}
+                >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {selectMode === 'city' ? 'Chọn thành phố' : 'Chọn quận/phường'}
@@ -1341,6 +1351,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
+  modalOverlayKeyboardActive: {
+    justifyContent: 'flex-start',
+    paddingTop: 48,
+  },
   modalKav: {
     flex: 1,
     justifyContent: 'center',
@@ -1388,6 +1402,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     maxHeight: '80%',
+  },
+  modalCardKeyboardActive: {
+    maxHeight: '72%',
   },
   modalHeader: {
     flexDirection: 'row',
