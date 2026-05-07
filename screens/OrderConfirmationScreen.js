@@ -590,7 +590,7 @@ export default function OrderConfirmationScreen({ navigation, route }) {
                   activeOpacity={0.8}
                   onPress={() => setGuestDiscountModalVisible(true)}
                 >
-                  <Ionicons name="information-circle-outline" size={18} color={TEXT_SECONDARY} />
+                  <Ionicons name="information-circle-outline" size={18} color={PRIMARY_COLOR} />
                 </TouchableOpacity>
               </View>
             </View>

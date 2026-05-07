@@ -1041,101 +1041,89 @@ export default function StaffOrderDetailScreen({ navigation, route }) {
               setCompletionNote('');
             }}
           />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 40}
-            style={styles.modalKeyboardWrapper}
-          >
-            <ScrollView
-              style={styles.modalScrollView}
-              contentContainerStyle={styles.modalScrollContent}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={true}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.modalCard}>
-                <TouchableOpacity
-                  style={styles.modalCloseButton}
-                  onPress={() => {
+          <View style={styles.modalCenterWrap}>
+            <View style={styles.modalCard}>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
+                  setConfirmVisible(false);
+                  setCompletionImage(null);
+                  setCompletionNote('');
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={20} color={TEXT_PRIMARY} />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>
+                {confirmTask?.taskStatus === 1
+                  ? 'Xác nhận nhận việc'
+                  : 'Gửi bằng chứng hoàn thành'}
+              </Text>
+              <Text style={styles.modalTaskTitle}>
+                {confirmTask?.title || confirmTask?.taskName || ''}
+              </Text>
+              {confirmTask?.taskStatus === 1 ? (
+                <SlideToConfirm
+                  disabled={!confirmTask || acceptTaskMutation.isPending}
+                  onComplete={() => {
+                    if (!confirmTask) return;
                     setConfirmVisible(false);
-                    setCompletionImage(null);
-                    setCompletionNote('');
+                    if (fromApi) {
+                      const taskId = confirmTask.taskId ?? confirmTask.id;
+                      acceptTaskMutation.mutate({
+                        taskId,
+                        previousTasks: tasks,
+                      });
+                    } else {
+                      handleConfirmTask(confirmTask.id);
+                    }
                   }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close" size={20} color={TEXT_PRIMARY} />
-                </TouchableOpacity>
-                <Text style={styles.modalTitle}>
-                  {confirmTask?.taskStatus === 1
-                    ? 'Xác nhận nhận việc'
-                    : 'Gửi bằng chứng hoàn thành'}
-                </Text>
-                <Text style={styles.modalTaskTitle}>
-                  {confirmTask?.title || confirmTask?.taskName || ''}
-                </Text>
-                {confirmTask?.taskStatus === 1 ? (
-                  <SlideToConfirm
-                    disabled={!confirmTask || acceptTaskMutation.isPending}
-                    onComplete={() => {
-                      if (!confirmTask) return;
-                      setConfirmVisible(false);
-                      if (fromApi) {
-                        const taskId = confirmTask.taskId ?? confirmTask.id;
-                        acceptTaskMutation.mutate({
-                          taskId,
-                          previousTasks: tasks,
-                        });
-                      } else {
-                        handleConfirmTask(confirmTask.id);
-                      }
-                    }}
+                />
+              ) : (
+                <View>
+                  <TouchableOpacity
+                    style={styles.evidencePickButton}
+                    activeOpacity={0.85}
+                    onPress={pickCompletionImage}
+                    disabled={completeTaskMutation.isPending}
+                  >
+                    <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
+                    <Text style={styles.evidencePickButtonText}>
+                      {completionImage?.uri ? 'Đổi ảnh minh chứng' : 'Chọn ảnh minh chứng'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {completionImage?.uri ? (
+                    <Image source={{ uri: completionImage.uri }} style={styles.evidencePreview} resizeMode="contain" />
+                  ) : null}
+
+                  <TextInput
+                    style={styles.evidenceNoteInput}
+                    placeholder="Ghi chú"
+                    placeholderTextColor={TEXT_SECONDARY}
+                    multiline
+                    value={completionNote}
+                    onChangeText={setCompletionNote}
+                    editable={!completeTaskMutation.isPending}
                   />
-                ) : (
-                  <View>
-                    <TouchableOpacity
-                      style={styles.evidencePickButton}
-                      activeOpacity={0.85}
-                      onPress={pickCompletionImage}
-                      disabled={completeTaskMutation.isPending}
-                    >
-                      <Ionicons name="image-outline" size={18} color={TEXT_PRIMARY} />
-                      <Text style={styles.evidencePickButtonText}>
-                        {completionImage?.uri ? 'Đổi ảnh minh chứng' : 'Chọn ảnh minh chứng'}
-                      </Text>
-                    </TouchableOpacity>
 
-                    {completionImage?.uri ? (
-                      <Image source={{ uri: completionImage.uri }} style={styles.evidencePreview} resizeMode="contain" />
-                    ) : null}
-
-                    <TextInput
-                      style={styles.evidenceNoteInput}
-                      placeholder="Ghi chú"
-                      placeholderTextColor={TEXT_SECONDARY}
-                      multiline
-                      value={completionNote}
-                      onChangeText={setCompletionNote}
-                      editable={!completeTaskMutation.isPending}
-                    />
-
-                    <TouchableOpacity
-                      style={[
-                        styles.evidenceSubmitButton,
-                        (!completionImage?.uri || completeTaskMutation.isPending) && styles.evidenceSubmitButtonDisabled,
-                      ]}
-                      activeOpacity={0.85}
-                      onPress={handleSubmitComplete}
-                      disabled={!completionImage?.uri || completeTaskMutation.isPending}
-                    >
-                      <Text style={styles.evidenceSubmitButtonText}>
-                        {completeTaskMutation.isPending ? 'Đang gửi...' : 'Xác nhận hoàn thành'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
+                  <TouchableOpacity
+                    style={[
+                      styles.evidenceSubmitButton,
+                      (!completionImage?.uri || completeTaskMutation.isPending) && styles.evidenceSubmitButtonDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={handleSubmitComplete}
+                    disabled={!completionImage?.uri || completeTaskMutation.isPending}
+                  >
+                    <Text style={styles.evidenceSubmitButtonText}>
+                      {completeTaskMutation.isPending ? 'Đang gửi...' : 'Xác nhận hoàn thành'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -1505,15 +1493,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
-  modalKeyboardWrapper: {
+  modalCenterWrap: {
     flex: 1,
     width: '100%',
-  },
-  modalScrollView: {
-    flex: 1,
-  },
-  modalScrollContent: {
-    flexGrow: 1,
     justifyContent: 'center',
     paddingVertical: 16,
   },

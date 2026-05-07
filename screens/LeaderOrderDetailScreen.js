@@ -1091,11 +1091,97 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   const remainingWithExtraCharge = formatMoney(
     (Number(order?.remainingAmount ?? 0) || 0) + totalCompAmount
   );
+  const allCompCatalogItems = useMemo(
+    () => [...compRelatedCatalogItems, ...compCatalogItems],
+    [compRelatedCatalogItems, compCatalogItems]
+  );
+  const selectedCompCatalog = useMemo(
+    () =>
+      allCompCatalogItems.find(
+        (c) => Number(c?.extraChargeCatalogId) === Number(selectedCatalogId)
+      ) ?? null,
+    [allCompCatalogItems, selectedCatalogId]
+  );
+  const existingOvertimeCharge = useMemo(() => {
+    const candidateLists = [
+      Array.isArray(extraCharges) ? extraCharges : [],
+      Array.isArray(order?.extraCharges) ? order.extraCharges : [],
+      Array.isArray(orderFromParams?.extraCharges) ? orderFromParams.extraCharges : [],
+      Array.isArray(order?.extraChargeSnapshot?.extraCharges)
+        ? order.extraChargeSnapshot.extraCharges
+        : [],
+    ];
+    for (const list of candidateLists) {
+      const found =
+        (list ?? []).find(
+          (ec) =>
+            String(ec?.type ?? ec?.chargeType ?? '').toUpperCase() === 'OVERTIME'
+        ) ?? null;
+      if (found) return found;
+    }
+    return null;
+  }, [extraCharges, order?.extraCharges, order?.extraChargeSnapshot?.extraCharges, orderFromParams?.extraCharges]);
+  const isSelectedCatalogOvertime =
+    String(
+      selectedCompCatalog?.chargeType ??
+      selectedCompCatalog?.type ??
+      ''
+    ).toUpperCase() === 'OVERTIME';
+  const overtimeMinutesFromOrder = Number(
+    order?.overtimeMinutes ??
+    refreshedOrder?.overtimeMinutes ??
+    orderFromParams?.overtimeMinutes ??
+    0
+  );
+  const overtimeQuantityDefault = Number(existingOvertimeCharge?.quantity ?? 0) > 0
+    ? Number(existingOvertimeCharge?.quantity)
+    : overtimeMinutesFromOrder > 0
+      ? overtimeMinutesFromOrder
+      : 0;
+  const lockedOvertimeQuantity = Math.max(1, Number(overtimeQuantityDefault || 1));
+  const isOvertimeQuantityLocked = isSelectedCatalogOvertime && overtimeQuantityDefault > 0;
 
   const openCompModal = () => {
     setCompModalVisible(true);
     setCompCatalogDropdownOpen(false);
   };
+
+  useEffect(() => {
+    if (!compModalVisible) return;
+    if (!isOvertimeQuantityLocked) return;
+    const nextQty = String(lockedOvertimeQuantity);
+    if (compQuantity !== nextQty) {
+      setCompQuantity(nextQty);
+    }
+  }, [
+    compModalVisible,
+    isOvertimeQuantityLocked,
+    lockedOvertimeQuantity,
+    compQuantity,
+  ]);
+
+  useEffect(() => {
+    if (!compModalVisible) return;
+    if (!selectedCompCatalog) return;
+    console.log('[extra-charge/debug] selected catalog', {
+      selectedCatalogId,
+      title: selectedCompCatalog?.title,
+      type: selectedCompCatalog?.type,
+      chargeType: selectedCompCatalog?.chargeType,
+      isSelectedCatalogOvertime,
+      existingOvertimeQuantity: existingOvertimeCharge?.quantity ?? null,
+      isOvertimeQuantityLocked,
+      compQuantity,
+    });
+  }, [
+    compModalVisible,
+    selectedCatalogId,
+    selectedCompCatalog,
+    isSelectedCatalogOvertime,
+    existingOvertimeCharge,
+    isOvertimeQuantityLocked,
+    compQuantity,
+  ]);
 
   const fetchExtraChargesForOrder = async (targetOrderDetailId = orderDetailId) => {
     if (!targetOrderDetailId) {
@@ -2357,7 +2443,22 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                                   ]}
                                   activeOpacity={0.85}
                                   onPress={() => {
+                                    console.log('[extra-charge/debug] dropdown select related', {
+                                      id,
+                                      title: c?.title,
+                                      type: c?.type,
+                                      chargeType: c?.chargeType,
+                                      quantityFromExistingOvertime: existingOvertimeCharge?.quantity ?? null,
+                                      overtimeMinutesFromOrder,
+                                      overtimeQuantityDefault,
+                                    });
                                     setSelectedCatalogId(id);
+                                    if (
+                                      String(c?.chargeType ?? c?.type ?? '').toUpperCase() === 'OVERTIME' &&
+                                      overtimeQuantityDefault > 0
+                                    ) {
+                                      setCompQuantity(String(overtimeQuantityDefault));
+                                    }
                                     setCompCatalogDropdownOpen(false);
                                   }}
                                 >
@@ -2397,7 +2498,22 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                                   ]}
                                   activeOpacity={0.85}
                                   onPress={() => {
+                                    console.log('[extra-charge/debug] dropdown select other', {
+                                      id,
+                                      title: c?.title,
+                                      type: c?.type,
+                                      chargeType: c?.chargeType,
+                                      quantityFromExistingOvertime: existingOvertimeCharge?.quantity ?? null,
+                                      overtimeMinutesFromOrder,
+                                      overtimeQuantityDefault,
+                                    });
                                     setSelectedCatalogId(id);
+                                    if (
+                                      String(c?.chargeType ?? c?.type ?? '').toUpperCase() === 'OVERTIME' &&
+                                      overtimeQuantityDefault > 0
+                                    ) {
+                                      setCompQuantity(String(overtimeQuantityDefault));
+                                    }
                                     setCompCatalogDropdownOpen(false);
                                   }}
                                 >
@@ -2425,13 +2541,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
 
                   <Text style={styles.fieldLabel}>Số lượng</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, isOvertimeQuantityLocked && styles.textInputDisabled]}
                     placeholder="1"
                     placeholderTextColor={TEXT_SECONDARY}
                     keyboardType="numeric"
                     value={compQuantity}
                     onChangeText={setCompQuantity}
+                    editable={!isOvertimeQuantityLocked}
                   />
+
 
                   <Text style={styles.fieldLabel}>Ghi chú</Text>
                   <TextInput
@@ -3384,6 +3502,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     color: TEXT_PRIMARY,
+  },
+  textInputDisabled: {
+    opacity: 0.7,
   },
   noteInput: {
     minHeight: 80,
