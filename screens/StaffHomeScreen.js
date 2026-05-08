@@ -155,9 +155,11 @@ export default function StaffHomeScreen({ navigation }) {
   }, []);
 
   const allOrders = buildOrdersFromTaskItems(allTaskItems);
-  const orders = allOrders.filter(
-    (item) => !ORDER_STATUS_HIDE_ON_HOME.includes(getOrderStatus(item.orderDetail))
-  );
+  const orders = allOrders
+    .filter(
+      (item) => !ORDER_STATUS_HIDE_ON_HOME.includes(getOrderStatus(item.orderDetail))
+    )
+    .sort((a, b) => Number(b?.orderDetail?.orderDetailId ?? 0) - Number(a?.orderDetail?.orderDetailId ?? 0));
 
   const fetchPage = useCallback(async (pageNum, append = false) => {
     const token = await getAccessToken();

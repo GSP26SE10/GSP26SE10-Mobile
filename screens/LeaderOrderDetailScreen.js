@@ -106,14 +106,6 @@ const formatDateTimeDisplay = (iso) => {
   return `${time} ${date}`;
 };
 
-const normalizeSnapshotItems = (snapshot, nestedKey) => {
-  if (Array.isArray(snapshot)) return snapshot;
-  if (snapshot && Array.isArray(snapshot?.items)) return snapshot.items;
-  if (snapshot && nestedKey && Array.isArray(snapshot?.[nestedKey])) return snapshot[nestedKey];
-  if (snapshot && typeof snapshot === 'object') return [snapshot];
-  return [];
-};
-
 const mapApiTaskToDisplay = (t) => {
   const statusNum = getTaskStatusNumber(t);
   const dateLabel = t.startTime
@@ -367,6 +359,11 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     order?.orderId ??
     route?.params?.orderId ??
     null;
+  const extraChargeOrderId =
+    order?.orderId ??
+    orderFromParams?.orderId ??
+    route?.params?.orderId ??
+    null;
   const endTimeIso = order?.endTime ?? null;
 
   useEffect(() => {
@@ -608,6 +605,11 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         if (stLabel) setPartyStatus(stLabel);
         const extra = Number(enrichedOrder.extraChargeCost ?? enrichedOrder.extraChargeTotal ?? 0) || 0;
         setTotalCompAmount(extra);
+        
+        // Extract extraCharges from overview API response
+        if (enrichedOrder?.extraCharges && Array.isArray(enrichedOrder.extraCharges)) {
+          setExtraCharges(enrichedOrder.extraCharges);
+        }
       }
       await AsyncStorage.setItem(
         LEADER_OVERVIEW_CACHE_KEY,
@@ -616,12 +618,97 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
       if (Array.isArray(payload.members) && payload.members.length > 0) {
         await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
       }
-      await fetchExtraChargesForOrder(orderDetailId);
+      await fetchExtraChargesForOrder(enrichedOrder?.orderId ?? extraChargeOrderId);
     } catch (e) {
       // keep current tasks on error
     } finally {
       setRefreshingTasks(false);
       setTasksReady(true);
+    }
+  };
+
+  const onRefreshPull = async () => {
+    setRefreshingTasks(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}${LEADER_OVERVIEW_API}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        setRefreshingTasks(false);
+        return;
+      }
+      const data = await res.json();
+      const payload = normalizeLeaderOrdersOverviewApi(data);
+      const orders = payload.orders;
+      const orderDetailId = orderFromParams?.orderDetailId ?? partyDetail?.id;
+      const overviewOrder = orders.find((o) => o.orderDetailId === orderDetailId);
+      let enrichedOrder = overviewOrder || null;
+
+      if (overviewOrder) {
+        const detailOrder = await fetchOrderDetailByIds({
+          token,
+          orderId: overviewOrder?.orderId,
+          orderDetailId: overviewOrder?.orderDetailId,
+        });
+        if (detailOrder) {
+          enrichedOrder = {
+            ...overviewOrder,
+            ...detailOrder,
+            tasks: Array.isArray(overviewOrder?.tasks) ? overviewOrder.tasks : [],
+          };
+        }
+      }
+
+      const orderTasks = (enrichedOrder?.tasks && Array.isArray(enrichedOrder.tasks))
+        ? enrichedOrder.tasks.map(mapApiTaskToDisplay)
+        : [];
+      setTasks(orderTasks);
+      
+      const evidenceMap = {};
+      for (const task of orderTasks) {
+        const taskId = task.taskId ?? task.id;
+        if (taskId != null) {
+          const evidenceUrl = await fetchTaskEvidence(taskId);
+          if (evidenceUrl) {
+            evidenceMap[taskId] = evidenceUrl;
+          }
+        }
+      }
+      setTaskEvidenceMap(evidenceMap);
+      
+      if (enrichedOrder) {
+        setRefreshedOrder(enrichedOrder);
+        const nextSt = Number(
+          enrichedOrder.orderStatus ??
+          enrichedOrder.orderDetailStatus ??
+          enrichedOrder.status ??
+          0
+        );
+        setOrderStatusNum(nextSt);
+        setIsBilling(nextSt === 6);
+        const stLabel = mapOrderStatusToPartyStatus(nextSt);
+        if (stLabel) setPartyStatus(stLabel);
+        const extra = Number(enrichedOrder.extraChargeCost ?? enrichedOrder.extraChargeTotal ?? 0) || 0;
+        setTotalCompAmount(extra);
+        
+        if (enrichedOrder?.extraCharges && Array.isArray(enrichedOrder.extraCharges)) {
+          setExtraCharges(enrichedOrder.extraCharges);
+        }
+      }
+      
+      await AsyncStorage.setItem(
+        LEADER_OVERVIEW_CACHE_KEY,
+        JSON.stringify({ data: payload, at: Date.now() })
+      );
+      if (Array.isArray(payload.members) && payload.members.length > 0) {
+        await AsyncStorage.setItem(LEADER_GROUP_MEMBERS_KEY, JSON.stringify(payload.members));
+      }
+      await fetchExtraChargesForOrder(enrichedOrder?.orderId ?? extraChargeOrderId);
+    } catch (e) {
+      console.warn('Pull to refresh failed', e);
+    } finally {
+      setRefreshingTasks(false);
     }
   };
 
@@ -1060,24 +1147,6 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     typeof order?.noteOrderDetail === 'string' && order.noteOrderDetail.trim()
       ? order.noteOrderDetail.trim()
       : '';
-  const guestDiscountItems = normalizeSnapshotItems(order?.guestDiscountSnapshot, 'guestDiscounts');
-  const extraChargeSnapshotItems = normalizeSnapshotItems(order?.extraChargeSnapshot, 'extraCharges');
-
-  const getGuestDiscountText = (item, idx) => {
-    const amount = Number(item?.discountAmount ?? item?.amount ?? item?.value ?? NaN);
-    const percent = Number(item?.discountPercent ?? item?.percent ?? NaN);
-    const guests = Number(item?.numberOfGuests ?? item?.minGuests ?? item?.guestCount ?? NaN);
-    const baseLabel =
-      item?.discountName || item?.name || item?.title || `Mức giảm giá #${idx + 1}`;
-    const valueLabel =
-      Number.isFinite(amount) && amount > 0
-        ? formatMoney(amount)
-        : Number.isFinite(percent) && percent > 0
-          ? `${percent}%`
-          : '';
-    const guestLabel = Number.isFinite(guests) && guests > 0 ? ` (${guests} khách)` : '';
-    return `${baseLabel}${guestLabel}${valueLabel ? `: ${valueLabel}` : ''}`;
-  };
 
   const getExtraChargeText = (item, idx) => {
     const title = item?.title || item?.extraChargeTitle || item?.catalogTitle || `Chi phí #${idx + 1}`;
@@ -1183,15 +1252,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
     compQuantity,
   ]);
 
-  const fetchExtraChargesForOrder = async (targetOrderDetailId = orderDetailId) => {
-    if (!targetOrderDetailId) {
+  const fetchExtraChargesForOrder = async (targetOrderId = extraChargeOrderId) => {
+    if (!targetOrderId) {
       setExtraCharges([]);
       return [];
     }
     setLoadingExtraCharges(true);
     try {
       const token = await getAccessToken();
-      const res = await fetch(`${API_URL}/api/order-detail-extra-charge/order/${targetOrderDetailId}`, {
+      const res = await fetch(`${API_URL}/api/order-detail-extra-charge/order/${targetOrderId}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error('Không thể tải chi phí phát sinh.');
@@ -1214,8 +1283,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
   };
 
   useEffect(() => {
-    fetchExtraChargesForOrder(orderDetailId);
-  }, [orderDetailId]);
+    fetchExtraChargesForOrder(extraChargeOrderId);
+  }, [extraChargeOrderId]);
 
   const fetchOrderDetailByIds = async ({ token, orderId, orderDetailId }) => {
     if (!orderId || !orderDetailId) return null;
@@ -1403,7 +1472,8 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         throw new Error(errText || 'Tạo chi phí phát sinh thất bại.');
       }
 
-      await fetchExtraChargesForOrder(orderDetailId);
+      await refreshTasksForOrder();
+      await fetchExtraChargesForOrder(extraChargeOrderId);
 
       setSelectedCatalogId(null);
       setCompQuantity('1');
@@ -1561,7 +1631,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
         refreshControl={
           <RefreshControl
             refreshing={refreshingTasks}
-            onRefresh={refreshTasksForOrder}
+            onRefresh={onRefreshPull}
             colors={[PRIMARY_COLOR]}
           />
         }
@@ -1695,7 +1765,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
             {hasOvertimeMinutes && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Thời gian quá giờ</Text>
-                <Text style={styles.summaryValue}>{overtimeMinutesLabel}</Text>
+                <Text style={styles.summaryOvertimeValue}>{overtimeMinutesLabel}</Text>
               </View>
             )}
 
@@ -1749,29 +1819,6 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
               <Text style={styles.summaryValue}>{formatMoney(totalCompAmount)}</Text>
             </View>
           )}
-
-          {guestDiscountItems.length > 0 && (
-            <View style={styles.summarySnapshotSectionCard}>
-              <Text style={styles.snapshotSectionTitle}>Giảm giá theo số lượng khách</Text>
-              {guestDiscountItems.map((item, idx) => (
-                <Text
-                  key={`guest-discount-${idx}`}
-                  style={styles.summaryExtraText}
-                >
-                  • {getGuestDiscountText(item, idx)}
-                </Text>
-              ))}
-            </View>
-          )}
-
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
-              Còn lại
-            </Text>
-            <Text style={[styles.summaryValue, styles.summaryHighlight]}>
-              {remainingWithExtraCharge}
-            </Text>
-          </View>
 
           <View style={styles.extraChargeSection}>
             <Text style={styles.extraChargeTitle}>Chi phí phát sinh</Text>
@@ -1831,6 +1878,15 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
                 );
               })
             )}
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
+              Còn lại
+            </Text>
+            <Text style={[styles.summaryValue, styles.summaryHighlight]}>
+              {remainingWithExtraCharge}
+            </Text>
           </View>
         </View>
 
@@ -1951,7 +2007,7 @@ export default function LeaderOrderDetailScreen({ navigation, route }) {
           refreshControl={
             <RefreshControl
               refreshing={refreshingTasks}
-              onRefresh={refreshTasksForOrder}
+              onRefresh={onRefreshPull}
               colors={[PRIMARY_COLOR]}
             />
           }
@@ -3138,6 +3194,11 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  summaryOvertimeValue: {
+    fontSize: 14,
+    color: '#E74C3C',
+    fontWeight: '500',
   },
   summaryExtraText: {
     fontSize: 12,

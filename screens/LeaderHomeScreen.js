@@ -206,9 +206,9 @@ export default function LeaderHomeScreen({ navigation }) {
 
   const allOrders = overview?.orders ?? [];
   // Home: hiển thị các buổi chưa kết thúc (sắp tới/đang diễn ra/thanh toán)
-  const orders = allOrders.filter((o) =>
-    [1, 2, 4, 5, 6].includes(Number(o?.orderStatus)),
-  );
+  const orders = allOrders
+    .filter((o) => [1, 2, 4, 5, 6].includes(Number(o?.orderStatus)))
+    .sort((a, b) => Number(b?.orderDetailId ?? 0) - Number(a?.orderDetailId ?? 0));
   const groupName = overview?.staffGroupName || 'Chưa có tên nhóm';
   const leaderName = overview?.leaderName || '';
   const groupMembers = useMemo(() => {

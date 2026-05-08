@@ -318,7 +318,7 @@ export default function StaffOrderDetailHistoryScreen({ navigation, route }) {
           {hasOvertimeMinutes && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Thời gian quá giờ</Text>
-              <Text style={styles.summaryValue}>{overtimeMinutesLabel}</Text>
+              <Text style={styles.summaryOvertimeValue}>{overtimeMinutesLabel}</Text>
             </View>
           )}
           {hasServiceDurationMinutes && (
@@ -669,6 +669,11 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     fontWeight: '700',
     color: PRIMARY_COLOR,
+  },
+  summaryOvertimeValue: {
+    fontSize: 14,
+    color: '#E74C3C',
+    fontWeight: '500',
   },
   summaryNoteBox: {
     marginTop: 6,
