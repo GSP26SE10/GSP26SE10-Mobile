@@ -1203,6 +1203,62 @@ export default function OrderDetail({ navigation, route }) {
             />
             <Text style={styles.sectionLabel}>Thanh toán</Text>
           </View>
+          {!loading && orderDetails.map((od, gdsIdx) => {
+            const gds = od.guestDiscountSnapshot;
+            if (!gds || typeof gds !== 'object') return null;
+            const pct = Number(gds.discountPercent ?? gds.discount_percent);
+            const baseAmt = Number(gds.baseAmount ?? gds.base_amount ?? 0);
+            const discountAmt = Number(gds.discountAmount ?? gds.discount_amount ?? 0);
+            const finalAmt = Number(gds.finalAmount ?? gds.final_amount ?? 0);
+            const noteGd = gds.note ?? gds.Note;
+            const show =
+              (Number.isFinite(pct) && pct > 0) ||
+              (Number.isFinite(baseAmt) && baseAmt !== 0) ||
+              (Number.isFinite(discountAmt) && discountAmt !== 0) ||
+              (Number.isFinite(finalAmt) && finalAmt !== 0);
+            if (!show) return null;
+            const menuSnapshot = od.menuSnapshot ?? {};
+            const partyHint =
+              orderDetails.length > 1
+                ? od.menuName ?? menuSnapshot.menuName ?? `Tiệc ${gdsIdx + 1}`
+                : null;
+            return (
+              <View key={`guest-discount-${od.orderDetailId ?? gdsIdx}`} style={styles.guestDiscountBox}>
+                <Text style={styles.guestDiscountTitle}>
+                  {partyHint ? `Giảm giá theo số khách — ${partyHint}` : 'Giảm giá theo số khách'}
+                </Text>
+
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabel}>Phần trăm giảm giá</Text>
+                  <Text style={styles.payValue}>
+                    {Number.isFinite(pct) ? `${pct}%` : '—'}
+                  </Text>
+                </View>
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabel}>Giá gốc</Text>
+                  <Text style={styles.payValue}>
+                    {Number.isFinite(baseAmt) ? formatVnd(baseAmt) : '—'}
+                  </Text>
+                </View>
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabel}>Số tiền được giảm</Text>
+                  <Text style={[styles.payValue, styles.guestDiscountAmount]}>
+                    {Number.isFinite(discountAmt) ? `− ${formatVnd(discountAmt)}` : '—'}
+                  </Text>
+                </View>
+                <View style={styles.guestDiscountDivider} />
+                <View style={styles.payRow}>
+                  <Text style={styles.payLabelStrong}>Thành tiền sau giảm</Text>
+                  <Text style={[styles.payValueStrong, styles.guestDiscountFinal]}>
+                    {Number.isFinite(finalAmt) ? formatVnd(finalAmt) : '—'}
+                  </Text>
+                </View>
+                {noteGd ? (
+                  <Text style={styles.guestDiscountNote}>{String(noteGd)}</Text>
+                ) : null}
+              </View>
+            );
+          })}
           {loading ? (
             <>
               <View style={styles.payRow}>
@@ -1388,66 +1444,6 @@ export default function OrderDetail({ navigation, route }) {
             </>
           )}
         </View>
-
-        {!loading &&
-          orderDetails.map((od, gdsIdx) => {
-            const gds = od.guestDiscountSnapshot;
-            if (!gds || typeof gds !== 'object') return null;
-            const pct = Number(gds.discountPercent ?? gds.discount_percent);
-            const baseAmt = Number(gds.baseAmount ?? gds.base_amount ?? 0);
-            const discountAmt = Number(gds.discountAmount ?? gds.discount_amount ?? 0);
-            const finalAmt = Number(gds.finalAmount ?? gds.final_amount ?? 0);
-            const noteGd = gds.note ?? gds.Note;
-            const show =
-              (Number.isFinite(pct) && pct > 0) ||
-              (Number.isFinite(baseAmt) && baseAmt !== 0) ||
-              (Number.isFinite(discountAmt) && discountAmt !== 0) ||
-              (Number.isFinite(finalAmt) && finalAmt !== 0);
-            if (!show) return null;
-            const menuSnapshot = od.menuSnapshot ?? {};
-            const partyHint =
-              orderDetails.length > 1
-                ? od.menuName ?? menuSnapshot.menuName ?? `Tiệc ${gdsIdx + 1}`
-                : null;
-            return (
-              <View key={`guest-discount-${od.orderDetailId ?? gdsIdx}`} style={styles.section}>
-                <View style={styles.guestDiscountBox}>
-                  <Text style={styles.guestDiscountTitle}>
-                    {partyHint ? `Giảm giá theo số khách — ${partyHint}` : 'Giảm giá theo số khách'}
-                  </Text>
-                
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabel}>Phần trăm giảm giá</Text>
-                    <Text style={styles.payValue}>
-                      {Number.isFinite(pct) ? `${pct}%` : '—'}
-                    </Text>
-                  </View>
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabel}>Giá gốc</Text>
-                    <Text style={styles.payValue}>
-                      {Number.isFinite(baseAmt) ? formatVnd(baseAmt) : '—'}
-                    </Text>
-                  </View>
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabel}>Số tiền được giảm</Text>
-                    <Text style={[styles.payValue, styles.guestDiscountAmount]}>
-                      {Number.isFinite(discountAmt) ? `− ${formatVnd(discountAmt)}` : '—'}
-                    </Text>
-                  </View>
-                  <View style={styles.guestDiscountDivider} />
-                  <View style={styles.payRow}>
-                    <Text style={styles.payLabelStrong}>Thành tiền sau giảm</Text>
-                    <Text style={[styles.payValueStrong, styles.guestDiscountFinal]}>
-                      {Number.isFinite(finalAmt) ? formatVnd(finalAmt) : '—'}
-                    </Text>
-                  </View>
-                  {noteGd ? (
-                    <Text style={styles.guestDiscountNote}>{String(noteGd)}</Text>
-                  ) : null}
-                </View>
-              </View>
-            );
-          })}
 
         {!loading && isCompleted && (hasExistingFeedback || loadingFeedbacks) && (
           <View style={styles.section}>
